@@ -1,0 +1,288 @@
+package com.pank.vsevodnom.ui.piggy
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import com.pank.vsevodnom.data.AppDb
+import com.pank.vsevodnom.data.GoalWithSum
+import com.pank.vsevodnom.data.PiggyGoal
+import com.pank.vsevodnom.data.PiggyTx
+import com.pank.vsevodnom.ui.common.*
+import com.pank.vsevodnom.ui.theme.Pal
+import com.pank.vsevodnom.ui.theme.Tints
+import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.roundToLong
+
+fun money(v: Double): String {
+    val r = v.roundToLong()
+    val s = abs(r).toString().reversed().chunked(3).joinToString(" ").reversed()
+    return (if (r < 0) "−" else "") + s + " ₴"
+}
+
+private val DMY = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+
+/** Прогноз: когда цель будет достигнута при текущем темпе (по истории пополнений). */
+private fun forecast(g: GoalWithSum, txs: List<PiggyTx>): String? {
+    val left = g.goal.target - g.saved
+    if (left <= 0 || txs.size < 2) return null
+    val first = txs.minOf { it.at }; val last = txs.maxOf { it.at }
+    val days = ((last - first) / 86_400_000.0).coerceAtLeast(1.0)
+    val perDay = txs.filter { it.amount > 0 }.sumOf { it.amount } / days
+    if (perDay <= 0) return null
+    val date = LocalDate.now().plusDays(ceil(left / perDay).toLong())
+    return if (g.goal.kind == PiggyGoal.KIND_PAYBACK) {
+        val avg = txs.filter { it.amount > 0 }.map { it.amount }.average()
+        "Осталось ~${ceil(left / avg).toInt()} аренд · окупится примерно ${date.format(DMY)}"
+    } else "При текущем темпе — к ${date.format(DMY)}"
+}
+
+@Composable
+fun PiggyScreen(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).piggy() }
+    val goals by dao.goals().collectAsState(initial = emptyList())
+    var editGoal by remember { mutableStateOf<PiggyGoal?>(null) }
+    var openId by remember { mutableStateOf<Long?>(null) }
+
+    val open = goals.firstOrNull { it.goal.id == openId }
+    if (open != null) {
+        GoalDetail(open, onBack = { openId = null }, onEdit = { editGoal = open.goal })
+    } else {
+        ScreenScaffold("Копилки", onBack, actions = {
+            RoundIconButton(Icons.Rounded.Add, "Новая копилка", { editGoal = PiggyGoal(title = "") }, bg = Pal.Ink, tint = Color.White)
+        }) {
+            LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    AppCard(color = Pal.Mint, radius = 28.dp, padding = 20.dp, modifier = Modifier.fillMaxWidth()) {
+                        SectionLabel("Всего отложено", Pal.MintInk)
+                        Text(money(goals.filter { it.goal.kind == PiggyGoal.KIND_SAVE }.sumOf { it.saved }), style = MaterialTheme.typography.displayMedium)
+                        val pay = goals.filter { it.goal.kind == PiggyGoal.KIND_PAYBACK }
+                        Text(
+                            "в ${goals.count { it.goal.kind == PiggyGoal.KIND_SAVE }} копилках" +
+                                if (pay.isNotEmpty()) " · заработано на аренде ${money(pay.sumOf { it.saved })}" else "",
+                            style = MaterialTheme.typography.bodySmall, color = Color(0xFF3F5A4B)
+                        )
+                    }
+                }
+                if (goals.isEmpty()) item { EmptyHint("Создай первую копилку: «Отпуск», «Инструмент в аренде»…") }
+                items(goals, key = { it.goal.id }) { g -> GoalCard(g) { openId = g.goal.id } }
+            }
+        }
+    }
+
+    editGoal?.let { g ->
+        GoalEditor(g, onDismiss = { editGoal = null }, onDelete = if (g.id != 0L) ({ openId = null }) else null)
+    }
+}
+
+@Composable
+private fun GoalCard(g: GoalWithSum, onClick: () -> Unit) {
+    val tint = Tints.all[g.goal.tint % Tints.all.size]
+    val pct = if (g.goal.target > 0) (g.saved / g.goal.target).coerceIn(0.0, 1.0) else 1.0
+    AppCard(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(tint.bg), contentAlignment = Alignment.Center) {
+                Text(g.goal.title.take(1).uppercase(), style = MaterialTheme.typography.titleLarge, color = tint.ink)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(g.goal.title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (g.goal.kind == PiggyGoal.KIND_PAYBACK) "окупаемость · ${g.txCount} аренд"
+                    else if (g.goal.target > 0) "${money(g.saved)} из ${money(g.goal.target)}" else money(g.saved),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (g.goal.target > 0) Text("${(pct * 100).toInt()}%", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold))
+        }
+        if (g.goal.target > 0) {
+            Spacer(Modifier.height(10.dp))
+            ProgressBar(pct.toFloat(), tint.ink.copy(alpha = 0.55f))
+        }
+    }
+}
+
+@Composable
+private fun ProgressBar(p: Float, color: Color) {
+    Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Pal.Line)) {
+        Box(Modifier.fillMaxWidth(p).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(color))
+    }
+}
+
+@Composable
+private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).piggy() }
+    val txs by dao.txs(g.goal.id).collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    var adding by remember { mutableStateOf<Boolean?>(null) } // true = пополнение, false = снятие
+    val tint = Tints.all[g.goal.tint % Tints.all.size]
+    val payback = g.goal.kind == PiggyGoal.KIND_PAYBACK
+
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    ScreenScaffold(g.goal.title, onBack, actions = { RoundIconButton(Icons.Rounded.Edit, "Изменить", onEdit) }) {
+        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                AppCard(color = tint.bg, radius = 28.dp, padding = 20.dp, modifier = Modifier.fillMaxWidth()) {
+                    SectionLabel(if (payback) "Заработано" else "Накоплено", tint.ink)
+                    Text(money(g.saved), style = MaterialTheme.typography.displayMedium)
+                    if (g.goal.target > 0) {
+                        Text(
+                            (if (payback) "стоимость ${money(g.goal.target)}" else "цель ${money(g.goal.target)}") +
+                                " · осталось ${money((g.goal.target - g.saved).coerceAtLeast(0.0))}",
+                            style = MaterialTheme.typography.bodySmall, color = Pal.Ink
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        ProgressBar((g.saved / g.goal.target).toFloat().coerceIn(0f, 1f), tint.ink.copy(alpha = 0.6f))
+                        if (g.saved >= g.goal.target) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(if (payback) "Окупилось! Дальше — чистая прибыль" else "Цель достигнута", style = MaterialTheme.typography.titleSmall, color = tint.ink)
+                        }
+                    }
+                    forecast(g, txs)?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (g.goal.note.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(g.goal.note, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PillButton(if (payback) "+ Аренда" else "+ Пополнить", { adding = true }, Modifier.weight(1f))
+                    PillButton(if (payback) "− Расход" else "− Снять", { adding = false }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+                }
+            }
+            if (txs.isEmpty()) item { EmptyHint("Операций пока нет") }
+            items(txs, key = { it.id }) { t ->
+                AppCard(modifier = Modifier.fillMaxWidth(), padding = 12.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                            Text(t.note.ifBlank { if (t.amount >= 0) (if (payback) "Аренда" else "Пополнение") else (if (payback) "Расход" else "Снятие") }, style = MaterialTheme.typography.bodyLarge)
+                            Text(Instant.ofEpochMilli(t.at).atZone(ZoneId.systemDefault()).toLocalDate().format(DMY), style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(
+                            (if (t.amount >= 0) "+" else "") + money(t.amount), style = MaterialTheme.typography.titleMedium,
+                            color = if (t.amount >= 0) Pal.MintInk else Pal.RoseInk
+                        )
+                        IconButton(onClick = { scope.launch { dao.deleteTx(t) } }) { Icon(Icons.Rounded.Delete, "Удалить", tint = Pal.Muted) }
+                    }
+                }
+            }
+        }
+    }
+
+    adding?.let { plus ->
+        var amount by remember { mutableStateOf("") }
+        var note by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { adding = null },
+            title = { Text(if (plus) (if (payback) "Доход с аренды" else "Пополнить") else (if (payback) "Расход" else "Снять")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppTextField(amount, { amount = it }, "Сумма, ₴", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    AppTextField(note, { note = it }, "Комментарий (необязательно)")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val v = amount.replace(',', '.').replace(" ", "").toDoubleOrNull()
+                    if (v != null && v > 0) {
+                        scope.launch { dao.addTx(PiggyTx(goalId = g.goal.id, amount = if (plus) v else -v, note = note.trim())) }
+                        adding = null
+                    }
+                }) { Text("Готово") }
+            },
+            dismissButton = { TextButton(onClick = { adding = null }) { Text("Отмена") } }
+        )
+    }
+}
+
+@Composable
+private fun GoalEditor(g: PiggyGoal, onDismiss: () -> Unit, onDelete: (() -> Unit)?) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).piggy() }
+    val scope = rememberCoroutineScope()
+    var title by remember { mutableStateOf(g.title) }
+    var kind by remember { mutableStateOf(g.kind) }
+    var target by remember { mutableStateOf(if (g.target > 0) g.target.roundToLong().toString() else "") }
+    var tint by remember { mutableIntStateOf(g.tint) }
+    var note by remember { mutableStateOf(g.note) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (g.id == 0L) "Новая копилка" else "Копилка") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("Накопление", kind == PiggyGoal.KIND_SAVE, { kind = PiggyGoal.KIND_SAVE })
+                    Chip("Окупаемость", kind == PiggyGoal.KIND_PAYBACK, { kind = PiggyGoal.KIND_PAYBACK })
+                }
+                AppTextField(title, { title = it }, "Название")
+                AppTextField(
+                    target, { target = it },
+                    if (kind == PiggyGoal.KIND_PAYBACK) "Стоимость вещи, ₴" else "Цель, ₴ (можно пусто)",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                AppTextField(note, { note = it }, "Заметка")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Tints.all.forEachIndexed { i, t ->
+                        Box(
+                            Modifier.size(32.dp).clip(CircleShape).background(t.bg)
+                                .then(if (i == tint) Modifier.background(t.ink.copy(alpha = 0.35f)) else Modifier)
+                                .clickable { tint = i }
+                        )
+                    }
+                }
+                if (onDelete != null) TextButton(onClick = { confirmDelete = true }) { Text("Удалить копилку", color = Pal.RoseInk) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (title.isBlank()) return@TextButton
+                scope.launch {
+                    dao.upsertGoal(g.copy(title = title.trim(), kind = kind, target = target.replace(" ", "").toDoubleOrNull() ?: 0.0, tint = tint, note = note.trim()))
+                }
+                onDismiss()
+            }) { Text("Сохранить") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
+    if (confirmDelete) AlertDialog(
+        onDismissRequest = { confirmDelete = false },
+        title = { Text("Удалить «${g.title}» со всеми операциями?") },
+        confirmButton = {
+            TextButton(onClick = { scope.launch { dao.deleteGoal(g) }; confirmDelete = false; onDelete?.invoke(); onDismiss() }) {
+                Text("Удалить", color = Pal.RoseInk)
+            }
+        },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } }
+    )
+}

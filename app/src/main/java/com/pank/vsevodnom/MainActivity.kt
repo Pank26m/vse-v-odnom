@@ -1,0 +1,77 @@
+package com.pank.vsevodnom
+
+import android.content.Intent
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.pank.vsevodnom.alarm.AlarmScheduler
+import com.pank.vsevodnom.alarm.Channels
+import com.pank.vsevodnom.ui.calc.CalcScreen
+import com.pank.vsevodnom.ui.clock.ClockScreen
+import com.pank.vsevodnom.ui.home.HomeScreen
+import com.pank.vsevodnom.ui.piggy.PiggyScreen
+import com.pank.vsevodnom.ui.random.RandomScreen
+import com.pank.vsevodnom.ui.theme.AppTheme
+import com.pank.vsevodnom.ui.weather.WeatherScreen
+import com.pank.vsevodnom.ui.weight.WeightScreen
+
+class MainActivity : ComponentActivity() {
+    private val pendingRoute = mutableStateOf<String?>(null)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        )
+        Channels.ensure(this)
+        AlarmScheduler.rescheduleAll(this)
+        pendingRoute.value = routeFrom(intent)
+
+        setContent {
+            AppTheme {
+                val nav = rememberNavController()
+                LaunchedEffect(pendingRoute.value) {
+                    pendingRoute.value?.let { nav.navigate(it) { launchSingleTop = true }; pendingRoute.value = null }
+                }
+                val back: () -> Unit = { if (!nav.popBackStack()) finish() }
+                NavHost(
+                    nav, startDestination = "home",
+                    enterTransition = { fadeIn() }, exitTransition = { fadeOut() }
+                ) {
+                    composable("home") { HomeScreen(open = { nav.navigate(it) }) }
+                    composable("clock/{tab}", arguments = listOf(navArgument("tab") { type = NavType.IntType })) {
+                        ClockScreen(back, it.arguments?.getInt("tab") ?: 0)
+                    }
+                    composable("weather") { WeatherScreen(back) }
+                    composable("calc") { CalcScreen(back) }
+                    composable("random") { RandomScreen(back) }
+                    composable("weight") { WeightScreen(back) }
+                    composable("piggy") { PiggyScreen(back) }
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        pendingRoute.value = routeFrom(intent)
+    }
+
+    private fun routeFrom(i: Intent?): String? = when (i?.getStringExtra("route")) {
+        "clock" -> "clock/1"
+        "weight" -> "weight"
+        else -> null
+    }
+}
