@@ -138,7 +138,27 @@ object AlarmScheduler {
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val svc = Intent(ctx, AlarmService::class.java).putExtras(intent)
-        ctx.startForegroundService(svc)
+        try {
+            ctx.startForegroundService(svc)
+        } catch (e: Exception) {
+            // система не дала запустить звонок из фона — показываем громкое уведомление со звуком
+            Channels.ensure(ctx)
+            val open = PendingIntent.getActivity(
+                ctx, 4, Intent(ctx, MainActivity::class.java).putExtra("route", "clock"),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val n = NotificationCompat.Builder(ctx, Channels.REMINDER)
+                .setSmallIcon(R.drawable.ic_notify)
+                .setContentTitle(intent.getStringExtra(AlarmService.EXTRA_LABEL) ?: "Будильник")
+                .setContentText("Пора!")
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build()
+            runCatching { ctx.getSystemService(NotificationManager::class.java).notify(43, n) }
+        }
     }
 }
 
