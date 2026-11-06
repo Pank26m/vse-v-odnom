@@ -18,6 +18,8 @@ import androidx.navigation.navArgument
 import com.pank.vsevodnom.alarm.AlarmScheduler
 import com.pank.vsevodnom.alarm.Channels
 import com.pank.vsevodnom.ui.calc.CalcScreen
+import com.pank.vsevodnom.ui.alerts.AlertsScreen
+import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
 import com.pank.vsevodnom.ui.clock.ClockScreen
@@ -39,6 +41,7 @@ class MainActivity : ComponentActivity() {
         )
         Channels.ensure(this)
         AlarmScheduler.rescheduleAll(this)
+        AlertWorker.schedule(this)
         pendingRoute.value = routeFrom(intent)
 
         setContent {
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
                     composable("weight") { WeightScreen(back) }
                     composable("piggy") { PiggyScreen(back) }
                     composable("calendar") { CalendarScreen(back) }
+                    composable("alerts") { AlertsScreen(back) }
                 }
             }
         }
@@ -82,6 +86,7 @@ class MainActivity : ComponentActivity() {
             "clock" -> "clock/1"
             "weight" -> "weight"
             "calendar" -> "calendar"
+            "alerts" -> "alerts"
             else -> null
         }
     }

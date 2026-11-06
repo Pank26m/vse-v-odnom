@@ -60,7 +60,7 @@ val TILES = listOf(
     Tile("Календарь", Icons.Rounded.CalendarMonth, Tints.Lilac, "calendar"),
     // следующие этапы
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, null),
-    Tile("Тревоги", Icons.Rounded.Campaign, Tints.Rose, null),
+    Tile("Тревоги", Icons.Rounded.Campaign, Tints.Rose, "alerts"),
     Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, null),
     Tile("Файлы", Icons.Rounded.Description, Tints.Butter, null),
     Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, null),
@@ -144,6 +144,7 @@ fun HomeScreen(open: (String) -> Unit) {
             }
         }
         item(span = { GridItemSpan(4) }) { UniCard(open) }
+        item(span = { GridItemSpan(4) }) { AlertStrip(open) }
         val nextAlarm = alarms.filter { it.enabled }.minByOrNull { nextTrigger(it) }
         if (nextAlarm != null) item(span = { GridItemSpan(4) }) {
             AppCard(Modifier.fillMaxWidth(), padding = 14.dp, onClick = { open("clock/1") }) {
@@ -240,4 +241,38 @@ private fun pairsWord(n: Int) = when {
     n % 10 == 1 && n % 100 != 11 -> "пара"
     n % 10 in 2..4 && n % 100 !in 12..14 -> "пары"
     else -> "пар"
+}
+
+@Composable
+private fun AlertStrip(open: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val st = com.pank.vsevodnom.ui.alerts.AlertCache.state
+    LaunchedEffect(Unit) {
+        while (true) {
+            runCatching { com.pank.vsevodnom.data.AlertsApi.fetch(ctx) }.onSuccess { com.pank.vsevodnom.ui.alerts.AlertCache.state = it }
+            delay(60_000)
+        }
+    }
+    val city = st?.active?.get(com.pank.vsevodnom.data.AlertsApi.KYIV_CITY)
+    val obl = st?.active?.get(com.pank.vsevodnom.data.AlertsApi.KYIV_OBL)
+    val alarm = city == true || obl == true
+    AppCard(Modifier.fillMaxWidth(), padding = 14.dp, color = if (alarm) Pal.Rose else Pal.Card, onClick = { open("alerts") }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(
+                when { st == null -> Pal.Muted; alarm -> Pal.RoseInk; else -> Color(0xFF3FA36B) }))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                when {
+                    st == null -> "Тревоги: загрузка…"
+                    city == true && obl == true -> "Тревога · Киев и область"
+                    city == true -> "Тревога · Киев"
+                    obl == true -> "Тревога · Киевская область"
+                    else -> "Тревоги нет · Киев и область"
+                },
+                style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f)
+            )
+            val since = st?.since?.get(com.pank.vsevodnom.data.AlertsApi.KYIV_CITY)
+            if (since != null) Text(com.pank.vsevodnom.ui.alerts.sinceText(since).substringAfter("· "), style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+        }
+    }
 }
