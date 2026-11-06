@@ -162,6 +162,7 @@
         </receiver>
         <receiver android:name=".data.CopyCodeReceiver" android:exported="false" />
         <receiver android:name=".data.EventReminderReceiver" android:exported="false" />
+        <receiver android:name=".data.PowerReminderReceiver" android:exported="false" />
         <receiver android:name=".ui.contacts.BlockNumberReceiver" android:exported="false" />
         <service
             android:name=".ui.contacts.CallScreener"

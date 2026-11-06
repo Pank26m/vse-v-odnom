@@ -114,7 +114,7 @@ fun PasswordsScreen(onBack: () -> Unit) {
     if (!open) {
         ScreenScaffold("Пароли", onBack) {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Box(Modifier.size(96.dp).clip(RoundedCornerShape(32.dp)).background(Pal.Lilac), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(96.dp).clip(RoundedCornerShape(12.dp)).background(Pal.Lilac), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Lock, null, tint = Pal.LilacInk, modifier = Modifier.size(44.dp))
                 }
                 Spacer(Modifier.height(16.dp))
@@ -308,7 +308,7 @@ private fun EntryEditor(e: VaultEntry, onDismiss: () -> Unit, onSave: (VaultEntr
                 item {
                     OutlinedTextField(
                         pass, { pass = it }, label = { Text("Пароль") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(14.dp),
                         visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         trailingIcon = {

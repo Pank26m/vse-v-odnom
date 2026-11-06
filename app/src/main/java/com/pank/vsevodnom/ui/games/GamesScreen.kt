@@ -47,7 +47,7 @@ fun GamesScreen(onBack: () -> Unit) {
             ) {
                 items(GAMES) { g ->
                     AppCard(Modifier.fillMaxWidth(), onClick = { open = g.key }) {
-                        Box(Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(g.tint.bg), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).background(g.tint.bg), contentAlignment = Alignment.Center) {
                             Text(g.glyph, fontSize = 30.sp, color = g.tint.ink)
                         }
                         Spacer(Modifier.height(10.dp))

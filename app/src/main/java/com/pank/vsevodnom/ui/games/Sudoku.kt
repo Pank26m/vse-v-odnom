@@ -128,7 +128,7 @@ private fun SudokuBoard(start: IntArray, sol: IntArray) {
         Text("Ошибок: $mistakes", style = MaterialTheme.typography.titleSmall, color = if (mistakes > 0) Pal.RoseInk else Pal.Muted)
     }
     if (solved) AppCard(Modifier.fillMaxWidth(), color = Pal.Mint) { Text("Решено за %d:%02d!".format(sec / 60, sec % 60), style = MaterialTheme.typography.titleLarge, color = Pal.MintInk) }
-    BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(Pal.Ink).padding(2.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(14.dp)).background(Pal.Ink).padding(2.dp)) {
         val cs = maxWidth / 9
         Column {
             for (r in 0 until 9) Row {

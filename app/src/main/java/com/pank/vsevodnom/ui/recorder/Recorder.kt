@@ -173,7 +173,7 @@ fun RecorderScreen(onBack: () -> Unit) {
     }
 
     ScreenScaffold("Диктофон", onBack) {
-        AppCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Pal.Rose, radius = 28.dp) {
+        AppCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Pal.Rose, radius = 16.dp) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (RecState.recording) fmtDur(now - RecState.startedAt) else "Готов к записи", style = MaterialTheme.typography.displayMedium)
                 Spacer(Modifier.height(8.dp))

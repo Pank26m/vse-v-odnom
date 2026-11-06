@@ -39,3 +39,16 @@ class WeightRealFileTest {
         assertEquals(115.4, r.last().kg, 1e-9)
     }
 }
+
+/** Экспорт Sumlio владельца: SUMLIO_CSV=путь. Балансы должны сойтись с таблицей счетов в конце файла. */
+class SumlioTest {
+    @Test fun balances() {
+        val path = System.getenv("SUMLIO_CSV") ?: return
+        val (recs, _) = com.pank.vsevodnom.data.MoneyRepo.parseSumlio(java.io.File(path).readText())
+        val bal = HashMap<String, Double>()
+        recs.forEach { r -> bal[r.account] = (bal[r.account] ?: 0.0) + r.delta; r.toAccount?.let { bal[it] = (bal[it] ?: 0.0) + (r.toDelta ?: 0.0) } }
+        println("recs=${recs.size} balances=$bal types=${recs.groupingBy { it.type }.eachCount()}")
+        assertEquals(-1222.30, bal["Счет"]!!, 0.01)
+        assertEquals(0.0, bal["Сбережения"]!!, 0.01)
+    }
+}

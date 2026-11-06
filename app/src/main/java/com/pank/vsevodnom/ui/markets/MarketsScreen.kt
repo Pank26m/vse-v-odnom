@@ -96,7 +96,7 @@ fun MarketsScreen(onBack: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(list, key = { it }) { s ->
                 val q = QuoteCache.map[s]
-                Box(Modifier.clip(RoundedCornerShape(24.dp)).combinedClickable(onClick = { detail = s }, onLongClick = { removing = s })) {
+                Box(Modifier.clip(RoundedCornerShape(14.dp)).combinedClickable(onClick = { detail = s }, onLongClick = { removing = s })) {
                     AppCard(Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {

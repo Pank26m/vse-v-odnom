@@ -151,7 +151,7 @@ private fun Board(g: Chess, human: Int, sel: Int, legal: List<Int>, ver: Int, en
     val checkSq = if (g.inCheck()) g.kingSq(g.side) else -1
     val anim = remember { androidx.compose.animation.core.Animatable(1f) }
     LaunchedEffect(ver) { if (last != null) { anim.snapTo(0f); anim.animateTo(1f, androidx.compose.animation.core.tween(320)) } }
-    BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp))) {
+    BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(14.dp))) {
         val cs = maxWidth / 8
         Column {
             for (vr in 0 until 8) Row(Modifier.zIndex(if (last != null && (if (human > 0) 7 - vr else vr) == Chess.rank(Chess.toSq(last))) 1f else 0f)) {

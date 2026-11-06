@@ -248,7 +248,7 @@ private fun EightBall() {
 
 @Composable
 private fun BigResult(text: String, sub: String = "") {
-    AppCard(color = Pal.Peach, radius = 32.dp, padding = 24.dp, modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp)) {
+    AppCard(color = Pal.Peach, radius = 18.dp, padding = 24.dp, modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp)) {
         Column(Modifier.fillMaxWidth().heightIn(min = 132.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(text, style = MaterialTheme.typography.displayLarge.copy(fontSize = if (text.length > 8) 40.sp else 72.sp), textAlign = TextAlign.Center)
             if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodyMedium, color = Pal.PeachInk, textAlign = TextAlign.Center)
@@ -296,7 +296,7 @@ private fun Dice() {
     val scope = rememberCoroutineScope()
     FlowRow(Modifier.fillMaxWidth().heightIn(min = 220.dp).padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         values.forEach { v ->
-            Box(Modifier.size(96.dp).clip(RoundedCornerShape(24.dp)).background(Pal.Card).padding(14.dp)) {
+            Box(Modifier.size(96.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(14.dp)) {
                 Column(verticalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxSize()) {
                     for (r in 0..2) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         for (c in 0..2) Box(Modifier.size(16.dp).clip(CircleShape).background(if ((r * 3 + c) in PIPS.getValue(v)) Pal.Ink else Color.Transparent))

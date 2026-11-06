@@ -256,7 +256,7 @@ fun ContactsScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(fav, key = { it.id }) { c ->
-                            Column(Modifier.width(72.dp).clip(RoundedCornerShape(16.dp)).clickable { ContactsRepo.call(ctx, c.phones.first().second) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(Modifier.width(72.dp).clip(RoundedCornerShape(14.dp)).clickable { ContactsRepo.call(ctx, c.phones.first().second) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Avatar(c.name, 56)
                                 Text(c.name.substringBefore(' '), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }

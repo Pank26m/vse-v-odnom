@@ -126,6 +126,8 @@ data class MoodEntry(
     val at: Long = System.currentTimeMillis(),
     val level: Int,
     val note: String = "",
+    @ColumnInfo(defaultValue = "") val photo: String = "",   // Uri фото из галереи
+    @ColumnInfo(defaultValue = "") val audio: String = "",   // путь к голосовой заметке
 )
 
 /** Корзина: что хочу купить. */
@@ -142,6 +144,10 @@ data class CartItem(
     val priority: Int = 1,
     val addedAt: Long = System.currentTimeMillis(),
     val bought: Boolean = false,
+    @ColumnInfo(defaultValue = "") val tags: String = "",
+    val planDay: Long? = null,                               // когда купить (+ в календарь)
+    @ColumnInfo(defaultValue = "") val photo: String = "",
+    val boughtAt: Long? = null,
 )
 
 // ---------- DAO ----------
@@ -311,8 +317,10 @@ interface LifeDao {
     entities = [
         WeightEntry::class, PiggyGoal::class, PiggyTx::class, AlarmEntity::class, WorldCity::class, WeatherCity::class,
         Lesson::class, SubjectAlias::class, CalEvent::class, MoodEntry::class, CartItem::class,
+        TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
+        Account::class, Category::class, Txn::class, Place::class, Track::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -322,9 +330,43 @@ abstract class AppDb : RoomDatabase() {
     abstract fun cities(): CityDao
     abstract fun schedule(): ScheduleDao
     abstract fun life(): LifeDao
+    abstract fun todo(): TodoDao
+    abstract fun money(): MoneyDao
+    abstract fun map(): MapDao
 
     companion object {
         @Volatile private var inst: AppDb? = null
+
+        /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        val M3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `mood` ADD COLUMN `photo` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `mood` ADD COLUMN `audio` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `cart_item` ADD COLUMN `tags` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `cart_item` ADD COLUMN `planDay` INTEGER")
+                db.execSQL("ALTER TABLE `cart_item` ADD COLUMN `photo` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `cart_item` ADD COLUMN `boughtAt` INTEGER")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `task` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `note` TEXT NOT NULL, `dueDay` INTEGER, `dueMinute` INTEGER, `priority` INTEGER NOT NULL, `list` TEXT NOT NULL, `repeat` TEXT NOT NULL, `remindBefore` INTEGER, `done` INTEGER NOT NULL, `doneAt` INTEGER, `createdAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_task_dueDay` ON `task` (`dueDay`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `habit` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `tint` INTEGER NOT NULL, `daysMask` INTEGER NOT NULL, `perDay` INTEGER NOT NULL, `remindMinute` INTEGER, `archived` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `habit_log` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `habitId` INTEGER NOT NULL, `epochDay` INTEGER NOT NULL, `count` INTEGER NOT NULL)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_habit_log_habitId_epochDay` ON `habit_log` (`habitId`, `epochDay`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `focus` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startedAt` INTEGER NOT NULL, `minutes` INTEGER NOT NULL, `label` TEXT NOT NULL, `completed` INTEGER NOT NULL, `tree` INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `media_item` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `list` TEXT NOT NULL, `title` TEXT NOT NULL, `status` INTEGER NOT NULL, `rating` INTEGER NOT NULL, `note` TEXT NOT NULL, `link` TEXT NOT NULL, `addedAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_item_list` ON `media_item` (`list`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `note` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `body` TEXT NOT NULL, `tint` INTEGER NOT NULL, `pinned` INTEGER NOT NULL, `tags` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `birthday` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `day` INTEGER NOT NULL, `month` INTEGER NOT NULL, `year` INTEGER, `note` TEXT NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `account` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `currency` TEXT NOT NULL, `initial` REAL NOT NULL, `tint` INTEGER NOT NULL, `archived` INTEGER NOT NULL, `sort` INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `category` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `income` INTEGER NOT NULL, `parentId` INTEGER, `tint` INTEGER NOT NULL, `archived` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_category_parentId` ON `category` (`parentId`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `txn` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `at` INTEGER NOT NULL, `type` TEXT NOT NULL, `amount` REAL NOT NULL, `accountId` INTEGER NOT NULL, `toAccountId` INTEGER, `toAmount` REAL, `categoryId` INTEGER, `comment` TEXT NOT NULL, `tags` TEXT NOT NULL, `source` TEXT NOT NULL, `extId` TEXT NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_txn_at` ON `txn` (`at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_txn_accountId` ON `txn` (`accountId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_txn_categoryId` ON `txn` (`categoryId`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `place` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `lat` REAL NOT NULL, `lon` REAL NOT NULL, `folder` TEXT NOT NULL, `note` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `track` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `folder` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `endedAt` INTEGER NOT NULL, `distanceM` REAL NOT NULL, `points` TEXT NOT NULL)")
+            }
+        }
 
         /** v2 → v3: фото и ссылки у копилок, дневник настроения, корзина. */
         val M2_3 = object : androidx.room.migration.Migration(2, 3) {
@@ -350,7 +392,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3)
+                .addMigrations(M1_2, M2_3, M3_4)
                 .build().also { inst = it }
         }
     }

@@ -80,7 +80,7 @@ fun PiggyScreen(onBack: () -> Unit) {
         }) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    AppCard(color = Pal.Mint, radius = 28.dp, padding = 20.dp, modifier = Modifier.fillMaxWidth()) {
+                    AppCard(color = Pal.Mint, radius = 16.dp, padding = 20.dp, modifier = Modifier.fillMaxWidth()) {
                         SectionLabel("Всего отложено", Pal.MintInk)
                         Text(money(goals.filter { it.goal.kind == PiggyGoal.KIND_SAVE }.sumOf { it.saved }), style = MaterialTheme.typography.displayMedium)
                         val pay = goals.filter { it.goal.kind == PiggyGoal.KIND_PAYBACK }
@@ -209,7 +209,7 @@ private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
     ScreenScaffold(g.goal.title, onBack, actions = { RoundIconButton(Icons.Rounded.Edit, "Изменить", onEdit) }) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                AppCard(color = tint.bg, radius = 28.dp, padding = 20.dp, modifier = Modifier.fillMaxWidth()) {
+                AppCard(color = tint.bg, radius = 16.dp, padding = 20.dp, modifier = Modifier.fillMaxWidth()) {
                     SectionLabel(if (payback) "Заработано" else "Накоплено", tint.ink)
                     Text(money(g.saved), style = MaterialTheme.typography.displayMedium)
                     if (g.goal.target > 0) {

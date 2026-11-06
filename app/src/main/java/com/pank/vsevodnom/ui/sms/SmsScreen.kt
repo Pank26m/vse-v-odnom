@@ -183,7 +183,7 @@ private fun ThreadView(t: SmsThread, all: List<Sms>, onBack: () -> Unit, onSpamC
                 val code = SmsRepo.extractCode(m.body)
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = if (m.inbox) Alignment.Start else Alignment.End) {
                     Column(
-                        Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(18.dp)).background(if (m.inbox) Pal.Card else Pal.Sky).padding(12.dp)
+                        Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(12.dp)).background(if (m.inbox) Pal.Card else Pal.Sky).padding(12.dp)
                     ) {
                         SelectionContainer { SmsText(m.body, code) }
                         if (code != null) TextButton({ copySecret(ctx, "Код", code) }, contentPadding = PaddingValues(0.dp)) { Text("Скопировать $code") }

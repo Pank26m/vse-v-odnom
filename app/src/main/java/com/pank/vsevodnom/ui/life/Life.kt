@@ -27,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.pank.vsevodnom.data.*
-import com.pank.vsevodnom.ui.capri.MOOD_NAMES
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.markets.fmtPrice
 import com.pank.vsevodnom.ui.theme.Pal
@@ -37,6 +36,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+val MOOD_NAMES = listOf("Ужасно", "Плохо", "Нормально", "Хорошо", "Супер")
 val MOOD_COLORS = listOf(Color(0xFFE0607E), Color(0xFFF0A982), Color(0xFFE9CD6A), Color(0xFF8FCFA8), Color(0xFF6FB6E8))
 
 /** Рисованное лицо настроения 1…5: от грустного к радостному. */

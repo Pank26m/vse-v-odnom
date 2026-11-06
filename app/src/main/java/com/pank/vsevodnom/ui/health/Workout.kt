@@ -157,7 +157,7 @@ fun CyclingWorkout(onDone: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 val (zn, zc) = zone(hr.bpm, maxHr)
-                AppCard(Modifier.fillMaxWidth(), color = if (hr.bpm > 0) zc else Pal.Card, radius = 28.dp) {
+                AppCard(Modifier.fillMaxWidth(), color = if (hr.bpm > 0) zc else Pal.Card, radius = 16.dp) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (hr.bpm > 0) "${hr.bpm}" else "—", fontSize = 96.sp, style = MaterialTheme.typography.displayLarge)
                         Text(if (hr.bpm > 0) "уд/мин · $zn" else hr.state, style = MaterialTheme.typography.titleMedium)

@@ -92,7 +92,7 @@ private fun WorldTab() {
 
     LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            AppCard(color = Pal.Lilac, radius = 28.dp, padding = 24.dp, modifier = Modifier.fillMaxWidth()) {
+            AppCard(color = Pal.Lilac, radius = 16.dp, padding = 24.dp, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(now.format(HM), style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp))

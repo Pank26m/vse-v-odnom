@@ -47,7 +47,7 @@ fun UtilsScreen(onBack: () -> Unit) {
                 items(UTILS) { u ->
                     AppCard(Modifier.fillMaxWidth(), onClick = { open = u.key }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(u.tint.bg), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(u.tint.bg), contentAlignment = Alignment.Center) {
                                 Icon(u.icon, null, tint = u.tint.ink)
                             }
                             Spacer(Modifier.width(14.dp))

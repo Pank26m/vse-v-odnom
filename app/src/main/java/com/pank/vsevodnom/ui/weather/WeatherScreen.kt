@@ -130,7 +130,7 @@ fun WeatherScreen(onBack: () -> Unit) {
         item {
             Box(
                 Modifier.fillMaxWidth().height(440.dp)
-                    .clip(RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp))
+                    .clip(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp))
                     .background(skyColor(scene, isDay))
             ) {
                 WeatherScene(scene, isDay, Modifier.matchParentSize())
@@ -171,7 +171,7 @@ fun WeatherScreen(onBack: () -> Unit) {
                 list.forEach { c ->
                     val sel = c.id == city?.id
                     Box(
-                        Modifier.height(36.dp).clip(RoundedCornerShape(18.dp))
+                        Modifier.height(36.dp).clip(RoundedCornerShape(12.dp))
                             .background(if (sel) Pal.Ink else Pal.Card)
                             .combinedClickable(onClick = { selectedId = c.id }, onLongClick = { deleting = c })
                             .padding(horizontal = 16.dp),
@@ -246,7 +246,7 @@ private fun HourlyCard(d: WeatherData) {
             items(d.hours) { h ->
                 val first = h == d.hours.first()
                 Column(
-                    Modifier.width(56.dp).clip(RoundedCornerShape(16.dp)).background(if (first) Color(0xFFE8F1FB) else Color.Transparent).padding(vertical = 8.dp),
+                    Modifier.width(56.dp).clip(RoundedCornerShape(14.dp)).background(if (first) Color(0xFFE8F1FB) else Color.Transparent).padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(if (first) "Сейчас" else "%02d".format(h.time.hour), style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
@@ -267,7 +267,7 @@ private fun StatsGrid(d: WeatherData) {
     val today = d.days.firstOrNull()
     Column(Modifier.padding(16.dp, 12.dp, 16.dp, 0.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            AppCard(Modifier.weight(1f), radius = 20.dp) {
+            AppCard(Modifier.weight(1f), radius = 16.dp) {
                 Text("Ветер", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     WindArrow(d.windDir, Modifier.size(30.dp))
@@ -276,7 +276,7 @@ private fun StatsGrid(d: WeatherData) {
                 }
                 Text("${windDirRu(d.windDir)}, порывы ${d.gustsMs.roundToInt()}", style = MaterialTheme.typography.labelMedium, color = Pal.Muted, maxLines = 2)
             }
-            AppCard(Modifier.weight(1f), radius = 20.dp) {
+            AppCard(Modifier.weight(1f), radius = 16.dp) {
                 Text("Влажность", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     HumidityDrop(d.humidity, Modifier.size(30.dp))
@@ -295,7 +295,7 @@ private fun StatsGrid(d: WeatherData) {
         rest.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { (l, v, n) ->
-                    AppCard(modifier = Modifier.weight(1f), radius = 20.dp) {
+                    AppCard(modifier = Modifier.weight(1f), radius = 16.dp) {
                         Text(l, style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
                         Text(v, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
                         Text(n, style = MaterialTheme.typography.labelMedium, color = Pal.Muted, maxLines = 2)
@@ -358,7 +358,7 @@ private fun AddCityDialog(onDismiss: () -> Unit, onLocation: () -> Unit, onPick:
         text = {
             Column {
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pal.Sky).clickable(onClick = onLocation).padding(14.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Sky).clickable(onClick = onLocation).padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Rounded.MyLocation, null, tint = Pal.SkyInk)

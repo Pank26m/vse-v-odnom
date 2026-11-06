@@ -66,7 +66,7 @@ fun RoundIconButton(
 fun AppCard(
     modifier: Modifier = Modifier,
     color: Color = Pal.Card,
-    radius: Dp = 24.dp,
+    radius: Dp = 16.dp,
     padding: Dp = 16.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
@@ -95,7 +95,7 @@ fun PillButton(
     Box(
         modifier
             .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(if (enabled) bg else bg.copy(alpha = 0.4f))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp),
@@ -108,7 +108,7 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
     Box(
         modifier
             .height(36.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(if (selected) Pal.Ink else Pal.Card)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp),
@@ -126,7 +126,7 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
 @Composable
 fun Segmented(items: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, track: Color = Pal.Lilac) {
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(track).padding(4.dp),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(track).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         items.forEachIndexed { i, s ->
@@ -134,7 +134,7 @@ fun Segmented(items: List<String>, selected: Int, onSelect: (Int) -> Unit, modif
                 Modifier
                     .weight(1f)
                     .height(40.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(if (i == selected) Pal.Card else Color.Transparent)
                     .clickable { onSelect(i) },
                 contentAlignment = Alignment.Center
@@ -167,7 +167,7 @@ fun AppTextField(
         label = { Text(label) },
         modifier = modifier.fillMaxWidth(),
         singleLine = singleLine,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         keyboardOptions = keyboardOptions,
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = Pal.Card,

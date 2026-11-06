@@ -74,7 +74,7 @@ fun BatteryScreen(onBack: () -> Unit) {
     ScreenScaffold("Батарея", onBack) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                AppCard(Modifier.fillMaxWidth(), color = Pal.Mint, radius = 28.dp) {
+                AppCard(Modifier.fillMaxWidth(), color = Pal.Mint, radius = 16.dp) {
                     SectionLabel(
                         when (status) {
                             BatteryManager.BATTERY_STATUS_CHARGING -> "Заряжается · " + when (plugged) {

@@ -295,7 +295,7 @@ fun DurakScreen(onBack: () -> Unit) {
             }
             // стол — большой
             Box(
-                Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Pal.Mint)
+                Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Mint)
                     .onGloballyPositioned { tableRect = it.boundsInRoot() }.padding(12.dp)
             ) {
                 Column {

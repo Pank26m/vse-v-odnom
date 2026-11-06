@@ -38,7 +38,9 @@ import com.pank.vsevodnom.ui.clock.ClockScreen
 import com.pank.vsevodnom.ui.home.HomeScreen
 import com.pank.vsevodnom.ui.home.AppsScreen
 import androidx.compose.material3.NavigationBarItem
-import com.pank.vsevodnom.ui.capri.CapriScreen
+import com.pank.vsevodnom.ui.todo.TodoScreen
+import com.pank.vsevodnom.ui.money.MoneyScreen
+import com.pank.vsevodnom.ui.power.PowerScreen
 import com.pank.vsevodnom.ui.life.MoodScreen
 import com.pank.vsevodnom.ui.life.CartScreen
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -48,7 +50,8 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Face
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Apps
 import com.pank.vsevodnom.ui.piggy.PiggyScreen
@@ -82,7 +85,8 @@ class MainActivity : FragmentActivity() {
                 val route = entry?.destination?.route ?: "home"
                 val tabs = listOf(
                     Triple("home", "Главная", androidx.compose.material.icons.Icons.Rounded.Home),
-                    Triple("capri", "Капри", androidx.compose.material.icons.Icons.Rounded.Face),
+                    Triple("todo", "Дела", androidx.compose.material.icons.Icons.Rounded.Checklist),
+                    Triple("money", "Деньги", androidx.compose.material.icons.Icons.Rounded.AccountBalanceWallet),
                     Triple("calendar?new={new}", "Календарь", androidx.compose.material.icons.Icons.Rounded.CalendarMonth),
                     Triple("apps", "Все", androidx.compose.material.icons.Icons.Rounded.Apps),
                 )
@@ -97,7 +101,9 @@ class MainActivity : FragmentActivity() {
                     enterTransition = { fadeIn() }, exitTransition = { fadeOut() }
                 ) {
                     composable("home") { HomeScreen(open = { nav.navigate(it) }) }
-                    composable("capri") { CapriScreen() }
+                    composable("todo") { TodoScreen() }
+                    composable("money") { MoneyScreen() }
+                    composable("power") { PowerScreen(back) }
                     composable("apps") { AppsScreen(open = { nav.navigate(it) }) }
                     composable("mood") { MoodScreen(back) }
                     composable("cart?new={new}", arguments = listOf(navArgument("new") { type = NavType.IntType; defaultValue = 0 })) { CartScreen(back, it.arguments?.getInt("new") == 1) }
@@ -165,7 +171,8 @@ class MainActivity : FragmentActivity() {
             "alerts" -> "alerts"
             "recorder" -> "recorder"
             "sms" -> "sms"
-            "capri" -> "capri"
+            "todo" -> "todo"
+            "power" -> "power"
             "contacts" -> "contacts"
             else -> if (i?.action == "androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" || i?.action == "android.intent.action.VIEW_PERMISSION_USAGE") "health" else null
         }

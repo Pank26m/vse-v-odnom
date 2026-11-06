@@ -360,7 +360,7 @@ private fun Calculator(scientific: Boolean) {
 
 @Composable
 private fun Key(k: String, bg: Color, fg: Color, h: androidx.compose.ui.unit.Dp, modifier: Modifier, onClick: () -> Unit) {
-    Box(modifier.height(h).clip(RoundedCornerShape(22.dp)).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(modifier.height(h).clip(RoundedCornerShape(14.dp)).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Text(k, style = if (k.length > 2) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineMedium, color = fg)
     }
 }
