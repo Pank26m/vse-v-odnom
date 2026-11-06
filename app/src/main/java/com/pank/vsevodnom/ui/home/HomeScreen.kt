@@ -63,7 +63,7 @@ val TILES = listOf(
     Tile("Тревоги", Icons.Rounded.Campaign, Tints.Rose, "alerts"),
     Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, null),
     Tile("Файлы", Icons.Rounded.Description, Tints.Butter, null),
-    Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, null),
+    Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, "recorder"),
     Tile("Игры", Icons.Rounded.SportsEsports, Tints.Peach, null),
     Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, null),
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, null),
