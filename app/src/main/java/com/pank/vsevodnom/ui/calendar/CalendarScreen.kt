@@ -65,6 +65,7 @@ fun CalendarScreen(onBack: () -> Unit) {
     var importMsg by remember { mutableStateOf<String?>(null) }
     var sysVersion by remember { mutableIntStateOf(0) }
     var confirmClear by remember { mutableStateOf(false) }
+    var lessonInfo by remember { mutableStateOf<Agenda.Pair?>(null) }
 
     // окно данных: видимый месяц целиком (+ хвосты соседних недель)
     val gridStart = month.atDay(1).let { it.minusDays((it.dayOfWeek.value - 1).toLong()) }
@@ -163,7 +164,7 @@ fun CalendarScreen(onBack: () -> Unit) {
             item { Text(dayTitle(selected), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
             val dayItems = byDay[selected].orEmpty()
             if (dayItems.isEmpty()) item { EmptyHint("Ничего не запланировано") }
-            items(dayItems) { a -> AgendaCard(a, onClick = { if (a is Agenda.Own) editEvent = a.e }) }
+            items(dayItems) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
         }
     }
 
@@ -172,6 +173,7 @@ fun CalendarScreen(onBack: () -> Unit) {
             title = { Text("Расписание") }, text = { Text(m) })
     }
     if (namingSubjects) SubjectNamesDialog(aliases) { namingSubjects = false }
+    lessonInfo?.let { LessonDialog(it) { lessonInfo = null } }
     editEvent?.let { e -> EventEditor(e, onDismiss = { editEvent = null }) }
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false },
@@ -196,7 +198,8 @@ private fun DayCell(date: LocalDate, inMonth: Boolean, selected: Boolean, today:
             color = when { selected -> Color.White; !inMonth -> Pal.Muted.copy(alpha = 0.5f); else -> Pal.Ink }
         )
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            items.take(4).forEach { a ->
+            // прошедшие дни не засоряем точками — события видны в списке при нажатии
+            if (!date.isBefore(LocalDate.now())) items.take(4).forEach { a ->
                 val c = when (a) {
                     is Agenda.Pair -> Tints.all[a.tint % 6].ink
                     is Agenda.Own -> Tints.all[a.e.tint % 6].ink
@@ -285,7 +288,9 @@ private fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
     var note by remember { mutableStateOf(e.note) }
     var allDay by remember { mutableStateOf(e.allDay) }
     var date by remember { mutableStateOf(start0.toLocalDate()) }
-    var dur by remember { mutableLongStateOf(durMin) }
+    val end0 = start0.plusMinutes(durMin)
+    val tpEnd = rememberTimePickerState(end0.hour, end0.minute, true)
+    var pickEnd by remember { mutableStateOf(false) }
     var tint by remember { mutableIntStateOf(e.tint) }
     val tp = rememberTimePickerState(start0.hour, start0.minute, true)
     var pickTime by remember { mutableStateOf(false) }
@@ -303,7 +308,14 @@ private fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Chip("Весь день", allDay, { allDay = !allDay })
-                    if (!allDay) listOf(30L to "30 мин", 60L to "1 ч", 120L to "2 ч").forEach { (m, t) -> Chip(t, dur == m, { dur = m }) }
+                }
+                if (!allDay) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("до", style = MaterialTheme.typography.bodyMedium)
+                        Chip("%02d:%02d".format(tpEnd.hour, tpEnd.minute), false, { pickEnd = true })
+                        val len = run { var m = (tpEnd.hour * 60 + tpEnd.minute) - (tp.hour * 60 + tp.minute); if (m <= 0) m += 1440; m }
+                        Text(if (len >= 60) "${len / 60} ч ${if (len % 60 > 0) "${len % 60} мин" else ""}" else "$len мин", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
                 AppTextField(note, { note = it }, "Заметка", singleLine = false)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -318,7 +330,10 @@ private fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
             TextButton({
                 if (title.isBlank()) return@TextButton
                 val s = if (allDay) date.atStartOfDay(zone) else date.atTime(tp.hour, tp.minute).atZone(zone)
-                val end = if (allDay) s.plusDays(1) else s.plusMinutes(dur)
+                val end = if (allDay) s.plusDays(1) else {
+                    var m = (tpEnd.hour * 60 + tpEnd.minute) - (tp.hour * 60 + tp.minute); if (m <= 0) m += 1440  // конец за полночь — следующий день
+                    s.plusMinutes(m.toLong())
+                }
                 scope.launch {
                     dao.upsertEvent(e.copy(title = title.trim(), note = note.trim(), allDay = allDay, startMillis = s.toInstant().toEpochMilli(), endMillis = end.toInstant().toEpochMilli(), tint = tint))
                     ScheduleWidget.refresh(ctx)
@@ -328,7 +343,8 @@ private fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onDismiss) { Text("Отмена") } }
     )
-    if (pickTime) AlertDialog(onDismissRequest = { pickTime = false }, confirmButton = { TextButton({ pickTime = false }) { Text("Ок") } }, text = { TimePicker(tp) })
+    if (pickTime) AlertDialog(onDismissRequest = { pickTime = false }, confirmButton = { TextButton({ pickTime = false }) { Text("Ок") } }, title = { Text("Начало") }, text = { TimePicker(tp) })
+    if (pickEnd) AlertDialog(onDismissRequest = { pickEnd = false }, confirmButton = { TextButton({ pickEnd = false }) { Text("Ок") } }, title = { Text("Конец") }, text = { TimePicker(tpEnd) })
     if (pickDate) {
         val dp = rememberDatePickerState(initialSelectedDateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
         DatePickerDialog(
@@ -341,4 +357,52 @@ private fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
             }
         ) { DatePicker(dp) }
     }
+}
+
+private fun kindName(k: String) = when (k.lowercase()) {
+    "лк" -> "Лекція"; "пз" -> "Практичне заняття"; "лб" -> "Лабораторна"; "сем" -> "Семінар"; "екз" -> "Екзамен"; "конс" -> "Консультація"; "зал" -> "Залік"
+    else -> k
+}
+
+/** Подробности пары: полное название (можно поправить), тип, время, аудитория, преподаватель, ближайшие занятия. */
+@Composable
+private fun LessonDialog(a: Agenda.Pair, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).schedule() }
+    val l = a.l
+    var full by remember { mutableStateOf(a.alias?.fullName ?: "") }
+    val today = LocalDate.now()
+    val upcoming by remember { dao.lessons(today.toEpochDay(), today.plusDays(60).toEpochDay()) }.collectAsState(initial = emptyList())
+    val next = upcoming.filter { it.subject == l.subject }.take(6)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(full.ifBlank { l.subject }) },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { com.pank.vsevodnom.ui.utils.InfoGroup(l.subject, listOfNotNull(
+                    "Тип" to kindName(l.kind),
+                    "Когда" to "${dayTitle(LocalDate.ofEpochDay(l.epochDay))}, ${l.pair} пара, ${l.start}–${l.end}",
+                    "Где" to (if (l.room.firstOrNull()?.isDigit() == true) "ауд. ${l.room}" else l.room),
+                    l.teacher.takeIf { it.isNotBlank() }?.let { "Преподаватель" to it },
+                )) }
+                item { AppTextField(full, { full = it }, "Полное название") }
+                if (next.isNotEmpty()) item {
+                    Text("Ближайшие занятия", style = MaterialTheme.typography.labelLarge)
+                    next.forEach { n ->
+                        Text("${LocalDate.ofEpochDay(n.epochDay).format(DateTimeFormatter.ofPattern("dd.MM"))} · ${n.start} · ${n.kind} · ${n.room}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton({
+                com.pank.vsevodnom.data.AppScope.io.launch {
+                    dao.upsertAlias(SubjectAlias(l.subject, full.trim(), a.alias?.tint ?: com.pank.vsevodnom.data.schedule.tintFor(l.subject)))
+                    ScheduleWidget.refresh(ctx)
+                }
+                onDismiss()
+            }) { Text("Сохранить") }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("Закрыть") } }
+    )
 }
