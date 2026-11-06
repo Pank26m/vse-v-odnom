@@ -9,7 +9,11 @@
 - Файл расписания (ACY Portal, .xls) слегка битый — стандартные парсеры падают; нужен терпимый разбор. Структура: строка дня (Пн + даты недель по столбцам), затем строки «N пара\nHH:MM-HH:MM» с ячейками «Предмет [Лк/Пз]\nауд. X\nПреподаватель».
 - Версии, которые упираются в тулчейн (AGP 8.7.3, compileSdk 35): health connect-client 1.1.0-alpha11 (новее требуют AGP 8.9+ и SDK 36), youtubedl-android (io.github.junkfood02) 0.17.4. Обновлять — только вместе с AGP.
 - Сборка только под arm64-v8a (yt-dlp + ffmpeg занимают ~28 МБ нативных библиотек), jniLibs.useLegacyPackaging = true обязательно.
-- База Room: версия 2, миграция M1_2 в `data/Db.kt`, схемы в `app/schemas`. Любое изменение сущностей = новая миграция, иначе у владельца пропадут данные.
+- База Room: версия 3, миграции M1_2, M2_3 в `data/Db.kt`, схемы в `app/schemas`. Любое изменение сущностей = новая миграция, иначе у владельца пропадут данные.
 - Подпись: ключ владельца (alias `vse`) у него на руках; секреты GitHub (`SIGNING_*`) записать из сессии нельзя — их добавляет владелец. Без ключа новая версия не встанет поверх.
-- Тесты логики (JVM): `ScheduleParserTest` (нужен SCHEDULE_XLS), `ChessTest` (perft), `GamesTest`, `TotpTest`, `SmsCodeTest`. Скриншот-тесты Robolectric не работают — прокси не отдаёт android-all jar (429).
+- Тесты логики (JVM): `ScheduleParserTest` (нужен SCHEDULE_XLS), `ChessTest` (perft), `GamesTest`, `TotpTest`, `SmsCodeTest`, `CalcTest`, `ImportTest`, `CapriTest`. Robolectric убран — прокси не отдаёт android-all jar.
+- Регэкспы с кириллицей: `\b` в Java ASCII-шный — нужен флаг `(?U)` (см. CapriParser).
+- Миграции Room проверять скриптом: создать БД по N.json, применить SQL миграции, сравнить PRAGMA table_info/index_list с (N+1).json (так проверена M2_3).
+- Диалоги пишут в БД через `AppScope.io`, не через rememberCoroutineScope диалога — иначе запись отменяется при закрытии.
+- Ассистент «Капри» — правила, без ИИ: `ui/capri/CapriParser.kt` (разбор), `Capri.kt` (выполнение, чат). Персонаж нарисован свой; пользователь может поставить свою картинку.
 - Не проверено на устройстве: формат ответа ubilling.net.ua (тревоги) и Yahoo Finance — из сессии хосты недоступны.
