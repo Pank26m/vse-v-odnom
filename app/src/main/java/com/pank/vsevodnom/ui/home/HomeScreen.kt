@@ -65,11 +65,11 @@ val TILES = listOf(
     Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, "recorder"),
     Tile("Игры", Icons.Rounded.SportsEsports, Tints.Peach, "games"),
     Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, "passwords"),
-    // следующие этапы
-    Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, "health"),
-    Tile("Загрузки", Icons.Rounded.Download, Tints.Peach, null),
     Tile("СМС", Icons.Rounded.Sms, Tints.Sky, "sms"),
     Tile("Контакты", Icons.Rounded.Person, Tints.Sky, "contacts"),
+    Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, "health"),
+    // пока не сделано
+    Tile("Загрузки", Icons.Rounded.Download, Tints.Peach, null),
 )
 
 private val RU = Locale("ru")
