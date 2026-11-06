@@ -159,16 +159,10 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
         }
     }) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Segmented(listOf("Все (${entries.size})", "Коды 2FA (${entries.count { it.totp.isNotBlank() }})"), tab, { tab = it })
             AppTextField(q, { q = it }, "Поиск")
         }
         Spacer(Modifier.height(10.dp))
-        if (tab == 1) TotpTicker { now ->
-            LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (shown.isEmpty()) item { EmptyHint("Нет кодов. Добавь секрет 2FA в запись (поле «Ключ 2FA»).") }
-                items(shown, key = { it.id }) { e -> TotpRow(e, now) }
-            }
-        } else LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (entries.isEmpty()) item {
                 AppCard(Modifier.fillMaxWidth(), color = Pal.Lilac) {
                     Text("Хранилище пустое", style = MaterialTheme.typography.titleSmall, color = Pal.LilacInk)
@@ -306,10 +300,6 @@ private fun EntryEditor(e: VaultEntry, onDismiss: () -> Unit, onSave: (VaultEntr
                 }
                 item { TextButton({ gen = true }) { Text("Сгенерировать надёжный пароль") } }
                 item { AppTextField(url, { url = it }, "Сайт") }
-                item {
-                    AppTextField(totp, { totp = it }, "Ключ 2FA или ссылка otpauth://")
-                    if (totp.isNotBlank() && Totp.parse(totp) == null) Text("Не похоже на ключ 2FA", style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk)
-                }
                 item { AppTextField(notes, { notes = it }, "Заметки", singleLine = false) }
                 if (onDelete != null) item { TextButton({ confirmDel = true }) { Text("Удалить запись", color = Pal.RoseInk) } }
             }

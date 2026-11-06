@@ -28,7 +28,6 @@ private val GAMES = listOf(
     Game("durak", "Дурак", "подкидной, против бота", "♠", Tints.Rose),
     Game("sudoku", "Судоку", "3 сложности", "9", Tints.Sky),
     Game("mines", "Сапёр", "3 размера поля", "✱", Tints.Mint),
-    Game("billiards", "Бильярд", "простой, против бота", "●", Tints.Peach),
 )
 
 @Composable
@@ -41,7 +40,6 @@ fun GamesScreen(onBack: () -> Unit) {
         "sudoku" -> SudokuScreen(close)
         "chess" -> ChessScreen(close)
         "durak" -> DurakScreen(close)
-        "billiards" -> BilliardsScreen(close)
         else -> ScreenScaffold("Игры", onBack) {
             LazyVerticalGrid(
                 GridCells.Fixed(2), contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp),

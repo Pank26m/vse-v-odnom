@@ -228,7 +228,7 @@ private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
 private fun GoalEditor(g: PiggyGoal, onDismiss: () -> Unit, onDelete: (() -> Unit)?) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).piggy() }
-    val scope = rememberCoroutineScope()
+    val scope = com.pank.vsevodnom.data.AppScope.io
     var title by remember { mutableStateOf(g.title) }
     var kind by remember { mutableStateOf(g.kind) }
     var target by remember { mutableStateOf(if (g.target > 0) g.target.roundToLong().toString() else "") }

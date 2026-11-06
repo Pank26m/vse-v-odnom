@@ -31,7 +31,6 @@ private val UTILS = listOf(
     Util("repair", "Тест после ремонта", "Тач, динамики, микрофон, камеры, кнопки, датчики", Icons.Rounded.Build, Tints.Peach),
     Util("screen", "Тест экрана", "Битые пиксели, выгорание, шлейфы движения, частота", Icons.Rounded.Monitor, Tints.Lilac),
     Util("wifi", "Wi-Fi сканер", "Сети вокруг, сигнал, каналы, защита", Icons.Rounded.Wifi, Tints.Sky),
-    Util("speed", "Спидтест", "Скорость интернета и пинг", Icons.Rounded.Speed, Tints.Butter),
 )
 
 @Composable
@@ -45,7 +44,6 @@ fun UtilsScreen(onBack: () -> Unit) {
         "repair" -> RepairTestScreen(close)
         "screen" -> ScreenTestScreen(close)
         "wifi" -> WifiScreen(close)
-        "speed" -> SpeedTestScreen(close)
         else -> ScreenScaffold("Утилиты", onBack) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(UTILS) { u ->

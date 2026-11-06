@@ -229,7 +229,7 @@ fun AgendaCard(a: Agenda, onClick: () -> Unit = {}) {
 private fun SubjectNamesDialog(aliases: List<SubjectAlias>, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).schedule() }
-    val scope = rememberCoroutineScope()
+    val scope = com.pank.vsevodnom.data.AppScope.io
     val subjects by dao.subjects().collectAsState(initial = emptyList())
     val edits = remember { mutableStateMapOf<String, String>() }
     val tints = remember { mutableStateMapOf<String, Int>() }
@@ -277,7 +277,7 @@ private fun SubjectNamesDialog(aliases: List<SubjectAlias>, onDismiss: () -> Uni
 private fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).schedule() }
-    val scope = rememberCoroutineScope()
+    val scope = com.pank.vsevodnom.data.AppScope.io
     val zone = ZoneId.systemDefault()
     val start0 = Instant.ofEpochMilli(e.startMillis).atZone(zone).toLocalDateTime()
     val durMin = ((e.endMillis - e.startMillis) / 60_000).coerceAtLeast(15)

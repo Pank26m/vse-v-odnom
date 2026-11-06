@@ -59,7 +59,8 @@ object Dl {
     fun init(ctx: Context) {
         if (ready) return
         runCatching { YoutubeDL.getInstance().init(ctx.applicationContext); FFmpeg.getInstance().init(ctx.applicationContext) }
-            .onSuccess { ready = true }.onFailure { initError = it.message }
+            .onSuccess { ready = true; initError = null }
+            .onFailure { e -> initError = generateSequence(e) { it.cause }.joinToString(" ← ") { "${it.javaClass.simpleName}: ${it.message}" }.take(400) }
     }
 
     /** Сайты постоянно меняются — свежий yt-dlp чинит большинство ошибок. */
