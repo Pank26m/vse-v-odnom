@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.shadow
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
 import kotlinx.coroutines.delay
@@ -160,75 +161,144 @@ class Durak {
     }
 }
 
-private val CARD_W = 64.dp
-private val CARD_H = 92.dp
+private val RED = Color(0xFFC62828)
+private val BLACK = Color(0xFF1C1B22)
+private val FELT = listOf(Color(0xFF3F9C70), Color(0xFF256346))
 
-/** Рисованный портрет для В, Д, К: голова, плечи и головной убор по рангу. Цвет — по масти. */
-@Composable
-private fun FaceArt(c: Card, modifier: Modifier) {
-    val ink = if (c.red) Pal.RoseInk else Pal.Ink
-    val soft = if (c.red) Pal.Rose else Pal.Lilac
-    Canvas(modifier) {
-        val w = size.width; val h = size.height
-        // фон-рамка
-        drawRoundRect(soft, Offset(w * 0.08f, h * 0.06f), Size(w * 0.84f, h * 0.88f), CornerRadius(w * 0.12f))
-        val cx = w / 2
-        // плечи
-        val body = Path().apply {
-            moveTo(w * 0.18f, h * 0.9f); quadraticBezierTo(w * 0.2f, h * 0.6f, cx, h * 0.6f); quadraticBezierTo(w * 0.8f, h * 0.6f, w * 0.82f, h * 0.9f); close()
-        }
-        drawPath(body, ink.copy(alpha = 0.75f))
-        // воротник
-        drawPath(Path().apply { moveTo(cx - w * 0.14f, h * 0.6f); lineTo(cx, h * 0.72f); lineTo(cx + w * 0.14f, h * 0.6f); close() }, Color.White.copy(alpha = 0.85f))
-        // голова
-        drawCircle(Color(0xFFFFE9D6), w * 0.17f, Offset(cx, h * 0.44f))
-        drawCircle(ink, w * 0.022f, Offset(cx - w * 0.06f, h * 0.43f)); drawCircle(ink, w * 0.022f, Offset(cx + w * 0.06f, h * 0.43f))
-        drawArc(ink, 20f, 140f, false, Offset(cx - w * 0.06f, h * 0.44f), Size(w * 0.12f, h * 0.06f), style = Stroke(w * 0.018f))
-        val top = h * 0.44f - w * 0.17f
-        when (c.rank) {
-            13 -> { // король: корона с зубцами
-                val crown = Path().apply {
-                    moveTo(cx - w * 0.2f, top + h * 0.03f); lineTo(cx - w * 0.2f, top - h * 0.09f); lineTo(cx - w * 0.1f, top - h * 0.02f)
-                    lineTo(cx, top - h * 0.11f); lineTo(cx + w * 0.1f, top - h * 0.02f); lineTo(cx + w * 0.2f, top - h * 0.09f); lineTo(cx + w * 0.2f, top + h * 0.03f); close()
-                }
-                drawPath(crown, Color(0xFFF6D77B)); drawPath(crown, Color(0xFFB08A2E), style = Stroke(w * 0.015f))
-                // борода
-                drawArc(Color(0xFFB9A07A), 0f, 180f, true, Offset(cx - w * 0.14f, h * 0.45f), Size(w * 0.28f, h * 0.14f))
-            }
-            12 -> { // дама: диадема и локоны
-                drawCircle(Color(0xFF9A6B45), w * 0.07f, Offset(cx - w * 0.17f, h * 0.48f)); drawCircle(Color(0xFF9A6B45), w * 0.07f, Offset(cx + w * 0.17f, h * 0.48f))
-                drawArc(Color(0xFF9A6B45), 180f, 180f, true, Offset(cx - w * 0.19f, top - h * 0.02f), Size(w * 0.38f, h * 0.16f))
-                drawPath(Path().apply { moveTo(cx - w * 0.12f, top + h * 0.01f); lineTo(cx, top - h * 0.06f); lineTo(cx + w * 0.12f, top + h * 0.01f); close() }, Color(0xFFF6D77B))
-                drawCircle(ink, w * 0.025f, Offset(cx, top - h * 0.02f))
-            }
-            else -> { // валет: берет с пером
-                drawOval(ink.copy(alpha = 0.9f), Offset(cx - w * 0.22f, top - h * 0.05f), Size(w * 0.44f, h * 0.1f))
-                drawLine(Color(0xFFF6D77B), Offset(cx + w * 0.12f, top - h * 0.02f), Offset(cx + w * 0.26f, top - h * 0.14f), w * 0.03f)
-            }
+/** Масть контуром: ♠ 0, ♥ 1, ♦ 2, ♣ 3 — рисуем сами, чтобы выглядело как на настоящих картах. */
+fun androidx.compose.ui.graphics.drawscope.DrawScope.suitPip(suit: Int, c: Offset, sz: Float, color: Color, flip: Boolean = false) {
+    fun X(x: Float) = c.x + (x - 0.5f) * sz
+    fun Y(y: Float) = c.y + ((if (flip) 1 - y else y) - 0.5f) * sz
+    when (suit) {
+        1 -> drawPath(Path().apply {
+            moveTo(X(0.5f), Y(0.95f))
+            cubicTo(X(0.1f), Y(0.66f), X(-0.04f), Y(0.36f), X(0.2f), Y(0.13f))
+            cubicTo(X(0.35f), Y(0.0f), X(0.5f), Y(0.1f), X(0.5f), Y(0.26f))
+            cubicTo(X(0.5f), Y(0.1f), X(0.65f), Y(0.0f), X(0.8f), Y(0.13f))
+            cubicTo(X(1.04f), Y(0.36f), X(0.9f), Y(0.66f), X(0.5f), Y(0.95f)); close()
+        }, color)
+        2 -> drawPath(Path().apply { moveTo(X(0.5f), Y(0.02f)); lineTo(X(0.88f), Y(0.5f)); lineTo(X(0.5f), Y(0.98f)); lineTo(X(0.12f), Y(0.5f)); close() }, color)
+        0 -> drawPath(Path().apply {
+            moveTo(X(0.5f), Y(0.02f))
+            cubicTo(X(0.92f), Y(0.36f), X(1.04f), Y(0.6f), X(0.8f), Y(0.75f))
+            cubicTo(X(0.66f), Y(0.84f), X(0.53f), Y(0.76f), X(0.52f), Y(0.68f))
+            lineTo(X(0.62f), Y(0.98f)); lineTo(X(0.38f), Y(0.98f)); lineTo(X(0.48f), Y(0.68f))
+            cubicTo(X(0.47f), Y(0.76f), X(0.34f), Y(0.84f), X(0.2f), Y(0.75f))
+            cubicTo(X(-0.04f), Y(0.6f), X(0.08f), Y(0.36f), X(0.5f), Y(0.02f)); close()
+        }, color)
+        else -> {
+            drawCircle(color, sz * 0.21f, Offset(X(0.5f), Y(0.27f)))
+            drawCircle(color, sz * 0.21f, Offset(X(0.26f), Y(0.6f)))
+            drawCircle(color, sz * 0.21f, Offset(X(0.74f), Y(0.6f)))
+            drawPath(Path().apply { moveTo(X(0.47f), Y(0.45f)); lineTo(X(0.53f), Y(0.45f)); lineTo(X(0.63f), Y(0.98f)); lineTo(X(0.37f), Y(0.98f)); close() }, color)
         }
     }
 }
 
+// расположение значков на числовых картах (доли ширины/высоты поля)
+private val PIPS: Map<Int, List<Pair<Float, Float>>> = run {
+    val l = 0.27f; val m = 0.5f; val r = 0.73f
+    val six = listOf(l to 0.18f, r to 0.18f, l to 0.5f, r to 0.5f, l to 0.82f, r to 0.82f)
+    val fourCol = listOf(0.18f, 0.39f, 0.61f, 0.82f).flatMap { y -> listOf(l to y, r to y) }
+    mapOf(
+        6 to six,
+        7 to six + (m to 0.34f),
+        8 to six + listOf(m to 0.34f, m to 0.66f),
+        9 to fourCol + (m to 0.5f),
+        10 to fourCol + listOf(m to 0.285f, m to 0.715f),
+    )
+}
+
+/** Классическая карта: индексы в двух углах, значки по раскладке, у картинок — портрет в рамке. */
 @Composable
-private fun CardView(c: Card?, modifier: Modifier = Modifier, selected: Boolean = false, faceDown: Boolean = false, w: Dp = CARD_W, h: Dp = CARD_H, dim: Boolean = false) {
-    Box(
-        modifier.size(w, h).clip(RoundedCornerShape(10.dp))
-            .background(if (faceDown) Pal.LilacInk.copy(alpha = 0.75f) else if (dim) Color(0xFFF1EFEA) else Color.White)
-            .border(if (selected) 2.5.dp else 1.dp, if (selected) Pal.LilacInk else Color(0xFFE3E0DA), RoundedCornerShape(10.dp))
-    ) {
-        if (faceDown) {
-            Canvas(Modifier.fillMaxSize().padding(5.dp)) {
-                for (i in -10..20) drawLine(Color.White.copy(alpha = 0.25f), Offset(i * 12f, 0f), Offset(i * 12f + size.height, size.height), 3f)
+private fun CardFace(c: Card, w: Dp, h: Dp, modifier: Modifier = Modifier) {
+    val col = if (c.red) RED else BLACK
+    Box(modifier.size(w, h).shadow(3.dp, RoundedCornerShape(w * 0.09f)).clip(RoundedCornerShape(w * 0.09f)).background(Color.White)
+        .border(0.8.dp, Color(0xFFD9D6CF), RoundedCornerShape(w * 0.09f))) {
+        Canvas(Modifier.fillMaxSize()) {
+            val W = size.width; val H = size.height
+            // поле для значков
+            val fx = W * 0.2f; val fy = H * 0.1f; val fw = W * 0.6f; val fh = H * 0.8f
+            when (c.rank) {
+                14 -> suitPip(c.suit, Offset(W / 2, H / 2), W * 0.42f, col)
+                in 11..13 -> {
+                    drawRoundRect(col.copy(alpha = 0.55f), Offset(fx, fy), Size(fw, fh), CornerRadius(W * 0.04f), style = Stroke(W * 0.012f))
+                }
+                else -> PIPS[c.rank]?.forEach { (px, py) -> suitPip(c.suit, Offset(fx + px * fw, fy + py * fh), W * 0.2f, col, flip = py > 0.55f) }
             }
-        } else if (c != null) {
-            val col = if (c.red) Pal.RoseInk else Pal.Ink
-            if (c.rank in 11..13) FaceArt(c, Modifier.fillMaxSize().padding(start = 12.dp, top = 14.dp, end = 4.dp, bottom = 4.dp))
-            else Text(c.suitName, Modifier.align(Alignment.Center), color = col, fontSize = (w.value * if (c.rank == 14) 0.7f else 0.45f).sp)
-            Column(Modifier.align(Alignment.TopStart).padding(4.dp, 1.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(c.rankName, color = col, fontWeight = FontWeight.ExtraBold, fontSize = (w.value * 0.26f).sp, lineHeight = (w.value * 0.28f).sp)
-                Text(c.suitName, color = col, fontSize = (w.value * 0.2f).sp, lineHeight = (w.value * 0.22f).sp)
+            // малые значки под индексами
+            suitPip(c.suit, Offset(W * 0.115f, H * 0.235f), W * 0.13f, col)
+            suitPip(c.suit, Offset(W * 0.885f, H * 0.765f), W * 0.13f, col, flip = true)
+        }
+        if (c.rank in 11..13) FaceArt(c, Modifier.padding(horizontal = w * 0.21f, vertical = h * 0.11f).fillMaxSize())
+        Text(c.rankName, Modifier.align(Alignment.TopStart).padding(start = w * 0.04f, top = h * 0.015f).width(w * 0.15f), color = col,
+            fontWeight = FontWeight.Bold, fontSize = (w.value * 0.2f).sp, lineHeight = (w.value * 0.22f).sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            letterSpacing = (-1).sp)
+        Text(c.rankName, Modifier.align(Alignment.BottomEnd).padding(end = w * 0.04f, bottom = h * 0.015f).width(w * 0.15f).rotate(180f), color = col,
+            fontWeight = FontWeight.Bold, fontSize = (w.value * 0.2f).sp, lineHeight = (w.value * 0.22f).sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            letterSpacing = (-1).sp)
+    }
+}
+
+/** Рубашка: классическая решётка. */
+@Composable
+private fun CardBack(w: Dp, h: Dp, modifier: Modifier = Modifier) {
+    Box(modifier.size(w, h).shadow(2.dp, RoundedCornerShape(w * 0.09f)).clip(RoundedCornerShape(w * 0.09f)).background(Color.White).padding(w * 0.06f)) {
+        Canvas(Modifier.fillMaxSize().clip(RoundedCornerShape(w * 0.05f)).background(Color(0xFF9E2A2B))) {
+            val st = size.width / 6
+            var x = -size.height
+            while (x < size.width + size.height) {
+                drawLine(Color.White.copy(alpha = 0.28f), Offset(x, 0f), Offset(x + size.height, size.height), size.width * 0.025f)
+                drawLine(Color.White.copy(alpha = 0.28f), Offset(x + size.height, 0f), Offset(x, size.height), size.width * 0.025f)
+                x += st
+            }
+            drawRoundRect(Color.White.copy(alpha = 0.6f), Offset(size.width * 0.08f, size.width * 0.08f), Size(size.width * 0.84f, size.height - size.width * 0.16f),
+                CornerRadius(size.width * 0.06f), style = Stroke(size.width * 0.02f))
+        }
+    }
+}
+
+/** Рисованный портрет для В, Д, К: голова, плечи и головной убор по рангу. */
+@Composable
+private fun FaceArt(c: Card, modifier: Modifier) {
+    val ink = if (c.red) RED else BLACK
+    val soft = if (c.red) Color(0xFFF7D9D4) else Color(0xFFDCE3F2)
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        drawRect(soft, Offset(w * 0.03f, h * 0.02f), Size(w * 0.94f, h * 0.96f))
+        val cx = w / 2
+        // плечи и мантия
+        val body = Path().apply {
+            moveTo(w * 0.1f, h * 0.98f); quadraticBezierTo(w * 0.14f, h * 0.6f, cx, h * 0.58f); quadraticBezierTo(w * 0.86f, h * 0.6f, w * 0.9f, h * 0.98f); close()
+        }
+        drawPath(body, ink.copy(alpha = 0.85f))
+        drawPath(Path().apply { moveTo(cx - w * 0.16f, h * 0.6f); lineTo(cx, h * 0.76f); lineTo(cx + w * 0.16f, h * 0.6f); close() }, Color(0xFFF6D77B))
+        // голова
+        drawCircle(Color(0xFFFFE6D0), w * 0.2f, Offset(cx, h * 0.42f))
+        drawCircle(BLACK, w * 0.026f, Offset(cx - w * 0.07f, h * 0.41f)); drawCircle(BLACK, w * 0.026f, Offset(cx + w * 0.07f, h * 0.41f))
+        drawArc(BLACK, 20f, 140f, false, Offset(cx - w * 0.07f, h * 0.42f), Size(w * 0.14f, h * 0.06f), style = Stroke(w * 0.02f))
+        val top = h * 0.42f - w * 0.2f
+        when (c.rank) {
+            13 -> {
+                val crown = Path().apply {
+                    moveTo(cx - w * 0.24f, top + h * 0.03f); lineTo(cx - w * 0.24f, top - h * 0.1f); lineTo(cx - w * 0.12f, top - h * 0.02f)
+                    lineTo(cx, top - h * 0.12f); lineTo(cx + w * 0.12f, top - h * 0.02f); lineTo(cx + w * 0.24f, top - h * 0.1f); lineTo(cx + w * 0.24f, top + h * 0.03f); close()
+                }
+                drawPath(crown, Color(0xFFF2C94C)); drawPath(crown, Color(0xFF9C7A22), style = Stroke(w * 0.018f))
+                drawArc(Color(0xFFB08B5A), 0f, 180f, true, Offset(cx - w * 0.17f, h * 0.43f), Size(w * 0.34f, h * 0.15f))
+            }
+            12 -> {
+                drawCircle(Color(0xFF8A5A3A), w * 0.08f, Offset(cx - w * 0.2f, h * 0.47f)); drawCircle(Color(0xFF8A5A3A), w * 0.08f, Offset(cx + w * 0.2f, h * 0.47f))
+                drawArc(Color(0xFF8A5A3A), 180f, 180f, true, Offset(cx - w * 0.22f, top - h * 0.02f), Size(w * 0.44f, h * 0.17f))
+                drawPath(Path().apply { moveTo(cx - w * 0.14f, top + h * 0.01f); lineTo(cx, top - h * 0.07f); lineTo(cx + w * 0.14f, top + h * 0.01f); close() }, Color(0xFFF2C94C))
+                drawCircle(ink, w * 0.03f, Offset(cx, top - h * 0.02f))
+            }
+            else -> {
+                drawOval(ink, Offset(cx - w * 0.26f, top - h * 0.05f), Size(w * 0.52f, h * 0.11f))
+                drawLine(Color(0xFFF2C94C), Offset(cx + w * 0.14f, top - h * 0.02f), Offset(cx + w * 0.3f, top - h * 0.15f), w * 0.035f)
             }
         }
+        suitPip(c.suit, Offset(w * 0.17f, h * 0.12f), w * 0.2f, ink)
     }
 }
 
@@ -240,20 +310,17 @@ private fun FlyIn(key: Any, fromTop: Boolean, content: @Composable () -> Unit) {
     Box(Modifier.graphicsLayer { translationY = (1 - a.value) * (if (fromTop) -260f else 260f); alpha = 0.3f + 0.7f * a.value }) { content() }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun DurakScreen(onBack: () -> Unit) {
     var gen by remember { mutableIntStateOf(0) }
     val g = remember(gen) { Durak() }
     var tick by remember { mutableIntStateOf(0) }
-    var pickIdx by remember(gen) { mutableIntStateOf(-1) }
 
     // где на экране стол и слоты атакующих карт — для перетаскивания
     var tableRect by remember { mutableStateOf(Rect.Zero) }
     val slotRects = remember(gen) { mutableStateMapOf<Int, Rect>() }
     var dragging by remember { mutableStateOf<Card?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    var dragOrigin by remember { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(gen, tick, g.attacker, g.taking, g.attack.size, g.defense.toList()) {
         delay(800)
@@ -264,38 +331,44 @@ fun DurakScreen(onBack: () -> Unit) {
     val humanAttacking = g.attacker == me
     val unbeaten = g.unbeaten()
 
-    fun tryPlay(c: Card, dropAt: Offset?): Boolean {
+    /** Карту кладут только перетаскиванием: на стол — атака, на карту соперника — отбой. */
+    fun tryPlay(c: Card, dropAt: Offset): Boolean {
+        if (g.over != null) return false
         if (humanAttacking) {
-            if (dropAt != null && !tableRect.contains(dropAt)) return false
-            return g.playAttack(0, c).also { if (it) tick++ }
+            if (!tableRect.contains(dropAt)) return false
+            return g.playAttack(0, c).also { if (it) tick++ else g.message = "Этой картой сейчас нельзя" }
         }
-        val target = when {
-            dropAt != null -> slotRects.entries.firstOrNull { it.value.inflate(30f).contains(dropAt) && it.key in unbeaten && g.beats(c, g.attack[it.key]) }?.key
-                ?: if (tableRect.contains(dropAt)) unbeaten.firstOrNull { g.beats(c, g.attack[it]) } else null
-            pickIdx in unbeaten && g.beats(c, g.attack[pickIdx]) -> pickIdx
-            else -> unbeaten.firstOrNull { g.beats(c, g.attack[it]) }
-        } ?: return false
-        return g.playDefense(c, target).also { if (it) { pickIdx = -1; tick++ } }
+        if (g.taking) return false
+        val target = slotRects.entries.firstOrNull { it.value.inflate(24f).contains(dropAt) && it.key in unbeaten }?.key
+            ?: if (tableRect.contains(dropAt) && unbeaten.size == 1) unbeaten.first() else null
+        if (target == null) return false
+        if (!g.beats(c, g.attack[target])) { g.message = "Эта карта не бьёт"; tick++; return false }
+        return g.playDefense(c, target).also { if (it) tick++ }
     }
 
     ScreenScaffold("Дурак", onBack) {
         Column(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // соперник и колода
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Бот · ${g.hands[1].size}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.width(76.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy((-36).dp)) { repeat(g.hands[1].size.coerceAtMost(12)) { CardView(null, faceDown = true, w = 42.dp, h = 60.dp) } }
-                Spacer(Modifier.weight(1f))
-                Box {
-                    if (g.deck.isNotEmpty()) CardView(g.trump, Modifier.padding(start = 20.dp).rotate(90f), w = 40.dp, h = 58.dp)
-                    if (g.deck.size > 1) CardView(null, faceDown = true, w = 40.dp, h = 58.dp)
+                Column(Modifier.width(56.dp)) {
+                    Text("Бот", style = MaterialTheme.typography.titleSmall)
+                    Text("${g.hands[1].size} карт", style = MaterialTheme.typography.labelSmall)
                 }
-                Column(Modifier.padding(start = 8.dp)) {
-                    Text("${g.deck.size}", style = MaterialTheme.typography.titleSmall)
-                    Text(g.trump.suitName, color = if (g.trump.red) Pal.RoseInk else Pal.Ink, fontSize = 18.sp)
+                Box(Modifier.weight(1f).height(76.dp)) {
+                    val n = g.hands[1].size.coerceAtMost(14)
+                    repeat(n) { i -> CardBack(50.dp, 72.dp, Modifier.offset(x = (i * 16).dp)) }
+                }
+                Box(Modifier.width(96.dp).height(76.dp)) {
+                    if (g.deck.isNotEmpty()) CardFace(g.trump, 50.dp, 72.dp, Modifier.align(Alignment.CenterEnd).offset(x = (-4).dp).rotate(90f))
+                    if (g.deck.size > 1) CardBack(50.dp, 72.dp, Modifier.align(Alignment.CenterStart))
+                    if (g.deck.isEmpty()) Text("козырь ${g.trump.suitName}", Modifier.align(Alignment.Center), color = if (g.trump.red) RED else BLACK, style = MaterialTheme.typography.labelLarge)
+                    else Text("${g.deck.size}", Modifier.align(Alignment.BottomStart).clip(RoundedCornerShape(6.dp)).background(Pal.Ink).padding(5.dp, 1.dp), color = Color.White, style = MaterialTheme.typography.labelMedium)
                 }
             }
-            // стол — большой
+            // стол — сукно
             Box(
-                Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Mint)
+                Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    .background(androidx.compose.ui.graphics.Brush.radialGradient(FELT))
                     .onGloballyPositioned { tableRect = it.boundsInRoot() }.padding(12.dp)
             ) {
                 Column {
@@ -305,26 +378,23 @@ fun DurakScreen(onBack: () -> Unit) {
                             g.taking -> "Ты берёшь"
                             humanAttacking && g.attack.isEmpty() -> "Твой ход — перетащи карту на стол"
                             humanAttacking -> if (unbeaten.isEmpty()) "Отбился. Подкинь или «Бито»" else "Бот отбивается…"
-                            unbeaten.isNotEmpty() -> "Отбивайся: перетащи карту на атакующую"
+                            unbeaten.isNotEmpty() -> "Отбивайся: перетащи карту на карту бота"
                             else -> "Бот думает…"
                         },
-                        style = MaterialTheme.typography.titleSmall, color = Pal.MintInk
+                        style = MaterialTheme.typography.titleSmall, color = Color.White
                     )
                     Spacer(Modifier.height(10.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         g.attack.forEachIndexed { i, a ->
-                            Box(Modifier.size(CARD_W + 18.dp, CARD_H + 24.dp)
-                                .onGloballyPositioned { slotRects[i] = it.boundsInRoot() }
-                                .clickable(enabled = !humanAttacking && g.defense[i] == null) { pickIdx = i }) {
-                                FlyIn(a, fromTop = !humanAttacking) {
-                                    CardView(a, selected = !humanAttacking && g.defense[i] == null && (pickIdx == i || (pickIdx !in unbeaten && unbeaten.firstOrNull() == i)))
-                                }
-                                g.defense[i]?.let { d -> Box(Modifier.offset(18.dp, 24.dp)) { FlyIn(d, fromTop = humanAttacking) { CardView(d) } } }
+                            Box(Modifier.size(70.dp + 16.dp, 100.dp + 20.dp).onGloballyPositioned { slotRects[i] = it.boundsInRoot() }) {
+                                FlyIn(a, fromTop = !humanAttacking) { CardFace(a, 70.dp, 100.dp) }
+                                g.defense[i]?.let { d -> Box(Modifier.offset(16.dp, 20.dp).rotate(8f)) { FlyIn(d, fromTop = humanAttacking) { CardFace(d, 70.dp, 100.dp) } } }
                             }
                         }
                     }
                 }
-                if (g.message.isNotBlank() && g.over == null) Text(g.message, Modifier.align(Alignment.BottomStart), style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                if (g.message.isNotBlank() && g.over == null) Text(g.message, Modifier.align(Alignment.BottomStart), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (g.over != null) PillButton("Ещё партию", { gen++ }, Modifier.weight(1f))
@@ -336,37 +406,36 @@ fun DurakScreen(onBack: () -> Unit) {
                     PillButton("Заново", { gen++ }, Modifier.weight(0.6f), bg = Pal.Card, fg = Pal.Ink)
                 }
             }
-            // рука: карты можно тащить пальцем или просто нажать
-            Row(Modifier.horizontalScroll(rememberScrollState(), enabled = dragging == null).padding(bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                g.hands[0].forEach { c ->
-                    val playable = when {
-                        g.over != null -> false
-                        humanAttacking -> g.canAttackWith(c)
-                        else -> !g.taking && unbeaten.any { g.beats(c, g.attack[it]) }
-                    }
+            // рука веером: большие карты внахлёст, кладутся только перетаскиванием
+            BoxWithConstraints(Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp)) {
+                val cw = 92.dp; val ch = 132.dp
+                val n = g.hands[0].size
+                val step = if (n <= 1) 0.dp else minOf(cw * 0.62f, (maxWidth - cw) / (n - 1))
+                val startX = (maxWidth - (cw + step * (n - 1).coerceAtLeast(0))) / 2
+                g.hands[0].forEachIndexed { i, c ->
                     var origin by remember(c) { mutableStateOf(Offset.Zero) }
                     val isDrag = dragging == c
-                    CardView(c, Modifier
+                    val tilt = if (n > 1) (i - (n - 1) / 2f) * (16f / n.coerceAtLeast(4)) else 0f
+                    val lift = kotlin.math.abs(i - (n - 1) / 2f) * (if (n > 1) 18f / n else 0f)
+                    CardFace(c, cw, ch, Modifier
+                        .offset(x = startX + step * i, y = lift.dp + 4.dp)
+                        .zIndex(if (isDrag) 100f else i.toFloat())
                         .onGloballyPositioned { origin = it.boundsInRoot().center }
-                        .zIndex(if (isDrag) 10f else 0f)
-                        .graphicsLayer { if (isDrag) { translationX = dragOffset.x; translationY = dragOffset.y; scaleX = 1.08f; scaleY = 1.08f } }
-                        .pointerInput(c, playable) {
-                            if (!playable) return@pointerInput
-                            // тянешь вверх — берёшь карту; ведёшь вбок — листаешь руку
+                        .graphicsLayer {
+                            rotationZ = if (isDrag) 0f else tilt
+                            if (isDrag) { translationX = dragOffset.x; translationY = dragOffset.y; scaleX = 1.06f; scaleY = 1.06f }
+                        }
+                        .pointerInput(c, gen) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
-                                val start = awaitTouchSlopOrCancellation(down.id) { ch, over ->
-                                    if (kotlin.math.abs(over.y) > kotlin.math.abs(over.x)) ch.consume()
-                                } ?: return@awaitEachGesture
-                                dragging = c; dragOrigin = origin; dragOffset = start.position - down.position
-                                val ok = drag(start.id) { ch -> dragOffset += ch.positionChange(); ch.consume() }
-                                val drop = dragOrigin + dragOffset
+                                val start = awaitTouchSlopOrCancellation(down.id) { ch2, _ -> ch2.consume() } ?: return@awaitEachGesture
+                                dragging = c; dragOffset = start.position - down.position
+                                val ok = drag(start.id) { ch2 -> dragOffset += ch2.positionChange(); ch2.consume() }
+                                val drop = origin + dragOffset
                                 dragging = null; dragOffset = Offset.Zero
                                 if (ok) tryPlay(c, drop)
                             }
-                        }
-                        .clickable(enabled = playable) { tryPlay(c, null) },
-                        dim = !playable, w = 64.dp, h = 92.dp)
+                        })
                 }
             }
         }

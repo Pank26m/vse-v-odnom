@@ -49,6 +49,12 @@ import com.pank.vsevodnom.data.PassGen
 import com.pank.vsevodnom.data.Totp
 import com.pank.vsevodnom.data.Vault
 import com.pank.vsevodnom.data.VaultEntry
+import com.pank.vsevodnom.data.VaultExtra
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
 import com.pank.vsevodnom.ui.utils.findActivity
@@ -133,7 +139,7 @@ fun PasswordsScreen(onBack: () -> Unit) {
 @Composable
 private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>) -> Unit, onBack: () -> Unit, onLock: () -> Unit) {
     val ctx = LocalContext.current
-    var tab by remember { mutableIntStateOf(0) }
+    var tagFilter by remember { mutableStateOf<String?>(null) }
     var q by remember { mutableStateOf("") }
     var edit by remember { mutableStateOf<VaultEntry?>(null) }
     var menu by remember { mutableStateOf(false) }
@@ -164,7 +170,8 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
     LaunchedEffect(PendingVaultImport.uri) { PendingVaultImport.uri?.let { PendingVaultImport.uri = null; importKeepass(it) } }
 
     val shown = entries.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) }
-        .filter { tab == 0 || it.totp.isNotBlank() }.sortedBy { it.title.lowercase() }
+        .filter { tagFilter == null || (tagFilter == "" && it.tags.isEmpty()) || tagFilter in it.tags }.sortedBy { it.title.lowercase() }
+    val allTags = entries.flatMap { it.tags }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
 
     ScreenScaffold("Пароли", onBack, actions = {
         RoundIconButton(Icons.Rounded.Add, "Добавить", { edit = VaultEntry(UUID.randomUUID().toString(), "") }, bg = Pal.Ink, tint = androidx.compose.ui.graphics.Color.White)
@@ -180,6 +187,11 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
     }) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppTextField(q, { q = it }, "Поиск")
+            if (allTags.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("Все · ${entries.size}", tagFilter == null, { tagFilter = null })
+                allTags.forEach { t -> Chip(t, tagFilter == t, { tagFilter = if (tagFilter == t) null else t }) }
+                if (entries.any { it.tags.isEmpty() }) Chip("Без тега", tagFilter == "", { tagFilter = if (tagFilter == "") null else "" })
+            }
         }
         Spacer(Modifier.height(10.dp))
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -198,7 +210,7 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(e.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                            Text(e.login.ifBlank { e.url }, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            Text(listOf(e.login.ifBlank { e.url }, e.tags.joinToString(" · ") { "#$it" }).filter { it.isNotBlank() }.joinToString("  "), style = MaterialTheme.typography.bodySmall, maxLines = 1)
                         }
                         if (e.login.isNotBlank()) IconButton({ copySecret(ctx, "Логин", e.login) }) { Icon(Icons.Rounded.Person, "Скопировать логин", tint = Pal.Muted) }
                         if (e.password.isNotBlank()) IconButton({ copySecret(ctx, "Пароль", e.password) }) { Icon(Icons.Rounded.Key, "Скопировать пароль", tint = Pal.LilacInk) }
@@ -210,7 +222,7 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
 
     keepassMsg?.let { m -> AlertDialog(onDismissRequest = { keepassMsg = null }, title = { Text("Импорт KeePass") }, text = { Text(m) }, confirmButton = { TextButton({ keepassMsg = null }) { Text("Ок") } }) }
     edit?.let { e ->
-        EntryEditor(e, onDismiss = { edit = null }, onSave = { n ->
+        EntryEditor(e, allTags, onDismiss = { edit = null }, onSave = { n ->
             onChange(entries.filter { it.id != n.id } + n.copy(updatedAt = System.currentTimeMillis())); edit = null
         }, onDelete = if (entries.any { it.id == e.id }) ({ onChange(entries.filter { it.id != e.id }); edit = null }) else null)
     }
@@ -286,54 +298,135 @@ private fun TotpRow(e: VaultEntry, now: Long) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EntryEditor(e: VaultEntry, onDismiss: () -> Unit, onSave: (VaultEntry) -> Unit, onDelete: (() -> Unit)?) {
+private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () -> Unit, onSave: (VaultEntry) -> Unit, onDelete: (() -> Unit)?) {
     var title by remember { mutableStateOf(e.title) }
     var login by remember { mutableStateOf(e.login) }
     var pass by remember { mutableStateOf(e.password) }
     var url by remember { mutableStateOf(e.url) }
     var notes by remember { mutableStateOf(e.notes) }
-    var totp by remember { mutableStateOf(e.totp) }
+    val extras = remember { mutableStateListOf<VaultExtra>().apply { addAll(e.extra) } }
+    val tags = remember { mutableStateListOf<String>().apply { addAll(e.tags) } }
+    var newTag by remember { mutableStateOf("") }
     var show by remember { mutableStateOf(false) }
     var gen by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (e.title.isBlank()) "Новая запись" else e.title) },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { AppTextField(title, { title = it }, "Название (сайт, приложение)") }
-                item { AppTextField(login, { login = it }, "Логин / почта / телефон") }
+    val secure = DialogProperties(usePlatformDefaultWidth = false, securePolicy = SecureFlagPolicy.SecureOn)
+
+    fun save() {
+        if (title.isBlank()) { Toast.makeText(ctx, "Нужно название", Toast.LENGTH_SHORT).show(); return }
+        val ex = extras.filter { it.value.isNotBlank() }.toMutableList()
+        // сменили пароль — старый не теряем
+        if (e.password.isNotBlank() && pass != e.password && ex.none { it.value == e.password })
+            ex += VaultExtra("Старый пароль · " + java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")), e.password)
+        val t = (tags + newTag.trim()).filter { it.isNotBlank() }.distinct()
+        onSave(e.copy(title = title.trim(), login = login.trim(), password = pass, url = url.trim(), notes = notes, tags = t, extra = ex))
+    }
+
+    Dialog(onDismiss, secure) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                RoundIconButton(Icons.Rounded.Close, "Закрыть", onDismiss)
+                Text(if (e.title.isBlank()) "Новая запись" else e.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                RoundIconButton(Icons.Rounded.Check, "Сохранить", { save() }, bg = Pal.Ink, tint = androidx.compose.ui.graphics.Color.White)
+            }
+            LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item {
-                    OutlinedTextField(
-                        pass, { pass = it }, label = { Text("Пароль") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        trailingIcon = {
-                            Row {
-                                IconButton({ show = !show }) { Icon(if (show) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, "Показать") }
-                                IconButton({ copySecret(ctx, "Пароль", pass) }) { Icon(Icons.Rounded.ContentCopy, "Скопировать") }
+                    AppCard(Modifier.fillMaxWidth()) {
+                        AppTextField(title, { title = it }, "Название (сайт, приложение)")
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(login, { login = it }, label = { Text("Логин / почта / телефон") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = { if (login.isNotBlank()) IconButton({ copySecret(ctx, "Логин", login) }) { Icon(Icons.Rounded.ContentCopy, "Скопировать") } })
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            pass, { pass = it }, label = { Text("Пароль") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                            visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            trailingIcon = {
+                                Row {
+                                    IconButton({ show = !show }) { Icon(if (show) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, "Показать") }
+                                    IconButton({ copySecret(ctx, "Пароль", pass) }) { Icon(Icons.Rounded.ContentCopy, "Скопировать") }
+                                }
+                            }
+                        )
+                        Row {
+                            TextButton({ gen = true }) { Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Сгенерировать") }
+                            Spacer(Modifier.weight(1f))
+                            TextButton({ extras += VaultExtra("Пароль ${extras.size + 2}", "") }) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Ещё пароль") }
+                        }
+                    }
+                }
+                if (extras.isNotEmpty()) item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        SectionLabel("Другие и старые пароли")
+                        extras.forEachIndexed { i, x ->
+                            var vis by remember(i) { mutableStateOf(false) }
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                BasicLabelField(x.label, { extras[i] = x.copy(label = it) }, Modifier.weight(1f))
+                                IconButton({ extras.removeAt(i) }) { Icon(Icons.Rounded.DeleteOutline, "Убрать", tint = Pal.Muted) }
+                            }
+                            OutlinedTextField(x.value, { extras[i] = x.copy(value = it) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                                visualTransformation = if (vis) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    Row {
+                                        IconButton({ vis = !vis }) { Icon(if (vis) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, "Показать") }
+                                        IconButton({ copySecret(ctx, x.label, x.value) }) { Icon(Icons.Rounded.ContentCopy, "Скопировать") }
+                                    }
+                                })
+                        }
+                    }
+                }
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        OutlinedTextField(url, { url = it }, label = { Text("Ссылка") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            trailingIcon = {
+                                if (url.isNotBlank()) IconButton({
+                                    val u = if (url.startsWith("http")) url else "https://$url"
+                                    runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))) }
+                                }) { Icon(Icons.Rounded.OpenInNew, "Открыть") }
+                            })
+                        Spacer(Modifier.height(8.dp))
+                        AppTextField(notes, { notes = it }, "Заметка", singleLine = false)
+                    }
+                }
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        SectionLabel("Теги")
+                        Spacer(Modifier.height(6.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            (knownTags + tags + listOf("Почта", "Соцсети", "Банки", "Учёба", "Игры", "Работа", "Покупки")).distinct().forEach { t ->
+                                Chip(t, t in tags, { if (t in tags) tags.remove(t) else tags.add(t) })
                             }
                         }
-                    )
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { AppTextField(newTag, { newTag = it }, "Новый тег") }
+                            IconButton({ newTag.trim().takeIf { it.isNotBlank() }?.let { if (it !in tags) tags.add(it) }; newTag = "" }) { Icon(Icons.Rounded.Add, "Добавить тег") }
+                        }
+                    }
                 }
-                item { TextButton({ gen = true }) { Text("Сгенерировать надёжный пароль") } }
-                item { AppTextField(url, { url = it }, "Сайт") }
-                item { AppTextField(notes, { notes = it }, "Заметки", singleLine = false) }
+                if (e.updatedAt > 0 && e.title.isNotBlank()) item {
+                    Text("Изменено " + java.time.Instant.ofEpochMilli(e.updatedAt).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")),
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 4.dp))
+                }
                 if (onDelete != null) item { TextButton({ confirmDel = true }) { Text("Удалить запись", color = Pal.RoseInk) } }
             }
-        },
-        confirmButton = { TextButton({ if (title.isNotBlank()) onSave(e.copy(title = title.trim(), login = login.trim(), password = pass, url = url.trim(), notes = notes, totp = totp.trim())) }) { Text("Сохранить") } },
-        dismissButton = { TextButton(onDismiss) { Text("Отмена") } }
-    )
+        }
+    }
     if (gen) {
         var len by remember { mutableFloatStateOf(18f) }
         var up by remember { mutableStateOf(true) }; var dg by remember { mutableStateOf(true) }; var sy by remember { mutableStateOf(true) }
         var cand by remember { mutableStateOf(PassGen.generate(18, true, true, true)) }
         LaunchedEffect(len, up, dg, sy) { cand = PassGen.generate(len.toInt(), up, dg, sy) }
-        AlertDialog(onDismissRequest = { gen = false }, title = { Text("Генератор") },
+        AlertDialog(onDismissRequest = { gen = false }, title = { Text("Генератор") }, properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(cand, fontFamily = FontFamily.Monospace, fontSize = 18.sp, modifier = Modifier.clickable { cand = PassGen.generate(len.toInt(), up, dg, sy) })
@@ -348,4 +441,11 @@ private fun EntryEditor(e: VaultEntry, onDismiss: () -> Unit, onSave: (VaultEntr
     if (confirmDel) AlertDialog(onDismissRequest = { confirmDel = false }, title = { Text("Удалить «${e.title}»?") },
         confirmButton = { TextButton({ confirmDel = false; onDelete?.invoke() }) { Text("Удалить", color = Pal.RoseInk) } },
         dismissButton = { TextButton({ confirmDel = false }) { Text("Отмена") } })
+}
+
+/** Подпись поля, которую можно переименовать прямо на месте. */
+@Composable
+private fun BasicLabelField(value: String, onChange: (String) -> Unit, modifier: Modifier) {
+    androidx.compose.foundation.text.BasicTextField(value, onChange, modifier, singleLine = true,
+        textStyle = MaterialTheme.typography.labelLarge.copy(color = Pal.LilacInk))
 }

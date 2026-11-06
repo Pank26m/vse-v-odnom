@@ -11,8 +11,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,6 +75,9 @@ fun MoodScreen(onBack: () -> Unit) {
     val dao = remember { AppDb.get(ctx).life() }
     val moods by dao.moods().collectAsState(initial = emptyList())
     var adding by remember { mutableStateOf<Int?>(null) }
+    val voice = remember { VoiceNote(ctx, "mood") }
+    DisposableEffect(Unit) { onDispose { voice.release() } }
+    var bigPhoto by remember { mutableStateOf<String?>(null) }
     ScreenScaffold("Дневник настроения", onBack) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { AppCard(Modifier.fillMaxWidth()) { SectionLabel("Как ты сейчас?"); Spacer(Modifier.height(8.dp)); MoodPicker({ adding = it }) } }
@@ -79,31 +85,70 @@ fun MoodScreen(onBack: () -> Unit) {
             if (moods.isEmpty()) item { EmptyHint("Записей пока нет") }
             items(moods, key = { it.id }) { m ->
                 AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.Top) {
                         Canvas(Modifier.size(34.dp)) { moodFace(m.level, MOOD_COLORS[m.level - 1]) }
                         Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(MOOD_NAMES[m.level - 1], style = MaterialTheme.typography.titleSmall)
                             if (m.note.isNotBlank()) Text(m.note, style = MaterialTheme.typography.bodyMedium)
+                            if (m.photo.isNotBlank()) AppImage(m.photo, Modifier.fillMaxWidth().height(160.dp).clickable { bigPhoto = m.photo }, maxPx = 900)
+                            if (m.audio.isNotBlank() && java.io.File(m.audio).exists()) VoiceChip(m.audio, voice)
                             Text(Instant.ofEpochMilli(m.at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM HH:mm")), style = MaterialTheme.typography.labelSmall)
                         }
-                        TextButton({ AppScope.io.launch { dao.deleteMood(m) } }) { Text("✕", color = Pal.Muted) }
+                        TextButton({ AppScope.io.launch { dao.deleteMood(m); listOf(m.photo, m.audio).filter { it.startsWith(ctx.filesDir.path) }.forEach { java.io.File(it).delete() } } }) { Text("✕", color = Pal.Muted) }
                     }
                 }
             }
         }
     }
     adding?.let { l -> MoodNoteDialog(l) { adding = null } }
+    bigPhoto?.let { p ->
+        androidx.compose.ui.window.Dialog({ bigPhoto = null }) { AppImage(p, Modifier.fillMaxWidth().aspectRatio(0.75f).clickable { bigPhoto = null }, maxPx = 1600) }
+    }
 }
 
 @Composable
 fun MoodNoteDialog(level: Int, onDone: () -> Unit) {
     val ctx = LocalContext.current
     var note by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDone, title = { Text(MOOD_NAMES[level - 1]) },
-        text = { Column { Text("Пара слов о самочувствии (можно пусто)", style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(6.dp)); AppTextField(note, { note = it }, "Заметка", singleLine = false) } },
-        confirmButton = { TextButton({ AppScope.io.launch { AppDb.get(ctx).life().addMood(MoodEntry(level = level, note = note.trim())) }; onDone() }) { Text("Записать") } },
-        dismissButton = { TextButton(onDone) { Text("Отмена") } })
+    var photo by remember { mutableStateOf("") }
+    var audio by remember { mutableStateOf("") }
+    val voice = remember { VoiceNote(ctx, "mood") }
+    DisposableEffect(Unit) { onDispose { voice.release() } }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> u?.let { copyIntoApp(ctx, it, "mood")?.let { p -> photo = p } } }
+    val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) voice.start() }
+    fun cancel() { voice.release(); listOf(photo, audio).filter { it.isNotBlank() }.forEach { java.io.File(it).delete() }; onDone() }
+    AlertDialog(onDismissRequest = { cancel() }, title = { Text(MOOD_NAMES[level - 1]) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Пара слов о самочувствии (можно пусто)", style = MaterialTheme.typography.bodySmall)
+                AppTextField(note, { note = it }, "Заметка", singleLine = false)
+                if (photo.isNotBlank()) Box {
+                    AppImage(photo, Modifier.fillMaxWidth().height(140.dp))
+                    IconButton({ java.io.File(photo).delete(); photo = "" }, Modifier.align(Alignment.TopEnd)) { Icon(Icons.Rounded.Close, "Убрать фото", tint = Color.White) }
+                }
+                if (audio.isNotBlank()) VoiceChip(audio, voice, onDelete = { voice.stopPlay(); java.io.File(audio).delete(); audio = "" })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Chip("Фото", photo.isNotBlank(), { picker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+                    if (voice.recording) {
+                        Chip("Стоп", true, { voice.stop()?.let { audio = it } })
+                        RecordingTimer()
+                    } else if (audio.isBlank()) Chip("Голосом", false, {
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) voice.start()
+                        else mic.launch(android.Manifest.permission.RECORD_AUDIO)
+                    })
+                }
+            }
+        },
+        confirmButton = {
+            TextButton({
+                if (voice.recording) voice.stop()?.let { audio = it }
+                voice.stopPlay()
+                val e = MoodEntry(level = level, note = note.trim(), photo = photo, audio = audio)
+                AppScope.io.launch { AppDb.get(ctx).life().addMood(e) }; onDone()
+            }) { Text("Записать") }
+        },
+        dismissButton = { TextButton({ cancel() }) { Text("Отмена") } })
 }
 
 /** Средний уровень по дням за 30 дней. */
@@ -130,74 +175,211 @@ private fun MoodChart(moods: List<MoodEntry>) {
 
 // ================= Корзина =================
 
+private fun cur(c: CartItem) = if (c.currency == "UAH" || c.currency.isBlank()) "₴" else c.currency
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CartScreen(onBack: () -> Unit, startNew: Boolean = false) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).life() }
     val items by dao.cart().collectAsState(initial = emptyList())
-    var adding by remember { mutableStateOf(startNew) }
-    var edit by remember { mutableStateOf<CartItem?>(null) }
-    ScreenScaffold("Корзина", onBack, actions = { RoundIconButton(Icons.Rounded.Add, "Добавить", { adding = true }, bg = Pal.Ink, tint = Color.White) }) {
+    var edit by remember { mutableStateOf(if (startNew) CartItem(title = "") else null) }
+    var tab by remember { mutableIntStateOf(0) }
+    var tag by remember { mutableStateOf<String?>(null) }
+    val allTags = items.flatMap { it.tagList() }.distinct().sorted()
+    ScreenScaffold("Корзина", onBack, actions = { RoundIconButton(Icons.Rounded.Add, "Добавить", { edit = CartItem(title = "") }, bg = Pal.Ink, tint = Color.White) }) {
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Segmented(listOf("Хочу · ${items.count { !it.bought }}", "Куплено · ${items.count { it.bought }}"), tab, { tab = it }, Modifier.fillMaxWidth())
+            if (allTags.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("Все", tag == null, { tag = null })
+                allTags.forEach { t -> Chip(t, tag == t, { tag = if (tag == t) null else t }) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        val shown = items.filter { it.bought == (tab == 1) && (tag == null || tag in it.tagList()) }
+            .let { l -> if (tab == 1) l.sortedByDescending { it.boughtAt ?: it.addedAt } else l }
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val open = items.filter { !it.bought }
             item {
-                AppCard(Modifier.fillMaxWidth(), color = Pal.Peach) {
-                    SectionLabel("Хочу купить: ${open.size}", Pal.PeachInk)
-                    val total = open.filter { it.currency.isBlank() || it.currency == "UAH" }.mapNotNull { it.price }.sum()
-                    if (total > 0) Text("≈ ${fmtPrice(total)} ₴", style = MaterialTheme.typography.headlineMedium)
-                    Text("Добавляй ссылки здесь, через «Поделиться → Всё в одном» или фразой Капри: «добавь в корзину» + ссылка.", style = MaterialTheme.typography.bodySmall)
+                AppCard(Modifier.fillMaxWidth(), color = if (tab == 0) Pal.Peach else Pal.Mint) {
+                    val total = shown.filter { it.currency.isBlank() || it.currency == "UAH" }.mapNotNull { it.price }.sum()
+                    SectionLabel(if (tab == 0) "Хочу купить: ${shown.size}" else "Куплено: ${shown.size}", if (tab == 0) Pal.PeachInk else Pal.MintInk)
+                    if (total > 0) Text("${if (tab == 0) "≈ " else ""}${fmtPrice(total)} ₴", style = MaterialTheme.typography.headlineMedium)
+                    if (tab == 0) Text("Вставь ссылку — название, цена и фото подтянутся сами. Или «Поделиться → Всё в одном» из магазина. Галочка — переносит в «Куплено».", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            items(items, key = { it.id }) { c ->
-                var menu by remember { mutableStateOf(false) }
-                AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { if (c.url.isNotBlank()) runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(c.url))) } }) {
+            if (shown.isEmpty()) item { EmptyHint(if (tab == 0) "Пусто" else "Пока ничего не куплено") }
+            items(shown, key = { it.id }) { c ->
+                AppCard(Modifier.fillMaxWidth(), padding = 10.dp, onClick = { edit = c }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(c.bought, { b -> AppScope.io.launch { dao.upsertCart(c.copy(bought = b)) } })
+                        Checkbox(c.bought, { b -> AppScope.io.launch { dao.upsertCart(c.copy(bought = b, boughtAt = if (b) System.currentTimeMillis() else null)) } })
+                        if (c.photo.isNotBlank() || c.image.isNotBlank()) { AppImage(c.photo.ifBlank { c.image }, Modifier.size(56.dp), maxPx = 200); Spacer(Modifier.width(10.dp)) }
                         Column(Modifier.weight(1f)) {
                             Text(c.title, style = MaterialTheme.typography.titleSmall.copy(textDecoration = if (c.bought) TextDecoration.LineThrough else null), maxLines = 2)
-                            Text(listOfNotNull(c.store.ifBlank { null }, c.note.ifBlank { null }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            val sub = listOfNotNull(
+                                c.store.ifBlank { null },
+                                c.planDay?.let { "купить " + LocalDate.ofEpochDay(it).format(DateTimeFormatter.ofPattern("dd.MM")) }?.takeIf { !c.bought },
+                                c.boughtAt?.takeIf { c.bought }?.let { "куплено " + Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM.yy")) },
+                                c.note.ifBlank { null },
+                            ).joinToString(" · ")
+                            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            if (c.tagList().isNotEmpty()) Text(c.tagList().joinToString(" ") { "#$it" }, style = MaterialTheme.typography.labelSmall, color = Pal.PeachInk)
                         }
-                        c.price?.let { Text("${fmtPrice(it)} ${if (c.currency == "UAH" || c.currency.isBlank()) "₴" else c.currency}", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold)) }
-                        Box {
-                            IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Ещё", tint = Pal.Muted) }
-                            DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem({ Text("Изменить") }, { menu = false; edit = c })
-                                DropdownMenuItem({ Text("Поделиться") }, { menu = false; ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "${c.title}\n${c.url}"), c.title)) })
-                                DropdownMenuItem({ Text("Удалить", color = Pal.RoseInk) }, { menu = false; AppScope.io.launch { dao.deleteCart(c) } })
-                            }
-                        }
+                        c.price?.let { Text("${fmtPrice(it)} ${cur(c)}", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold)) }
                     }
                 }
             }
         }
     }
-    if (adding) {
-        var url by remember { mutableStateOf("") }
-        var busy by remember { mutableStateOf(false) }
-        val scope = rememberCoroutineScope()
-        AlertDialog(onDismissRequest = { adding = false }, title = { Text("В корзину") },
-            text = { Column { AppTextField(url, { url = it }, "Ссылка на товар или название"); if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp)) } },
-            confirmButton = {
-                TextButton({
-                    val u = Regex("https?://\\S+").find(url)?.value
-                    if (u == null) { if (url.isNotBlank()) AppScope.io.launch { dao.upsertCart(CartItem(title = url.trim())) }; adding = false; return@TextButton }
-                    busy = true
-                    scope.launch {
-                        val info = runCatching { ProductInfo.fetch(u) }.getOrNull()
-                        AppScope.io.launch { dao.upsertCart(CartItem(url = u, title = info?.title ?: u.substringAfter("//").substringBefore('/'), price = info?.price, currency = info?.currency ?: "", image = info?.image ?: "", store = info?.store ?: "")) }
-                        busy = false; adding = false
+    edit?.let { c -> CartEditor(c, allTags) { edit = null } }
+}
+
+fun CartItem.tagList() = tags.split(',').map { it.trim() }.filter { it.isNotBlank() }
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).life() }
+    val scope = rememberCoroutineScope()
+    var url by remember { mutableStateOf(c.url) }
+    var title by remember { mutableStateOf(c.title) }
+    var price by remember { mutableStateOf(c.price?.let { fmtPrice(it).replace(" ", "").replace("\u00a0", "") } ?: "") }
+    var currency by remember { mutableStateOf(c.currency) }
+    var store by remember { mutableStateOf(c.store) }
+    var note by remember { mutableStateOf(c.note) }
+    var image by remember { mutableStateOf(c.image) }
+    var photo by remember { mutableStateOf(c.photo) }
+    val tags = remember { mutableStateListOf<String>().apply { addAll(c.tagList()) } }
+    var newTag by remember { mutableStateOf("") }
+    var planDay by remember { mutableStateOf(c.planDay) }
+    var toCal by remember { mutableStateOf(c.planDay == null) }
+    var busy by remember { mutableStateOf(false) }
+    var pickDate by remember { mutableStateOf(false) }
+    var confirmDel by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> u?.let { copyIntoApp(ctx, it, "cart")?.let { p -> photo = p } } }
+
+    fun fetch(u: String) {
+        busy = true
+        scope.launch {
+            runCatching { ProductInfo.fetch(u) }.getOrNull()?.let { i ->
+                if (title.isBlank()) title = i.title ?: ""
+                if (price.isBlank()) i.price?.let { price = fmtPrice(it).replace(" ", "").replace("\u00a0", "") }
+                if (currency.isBlank()) currency = i.currency ?: ""
+                if (store.isBlank()) store = i.store
+                if (image.isBlank()) image = i.image ?: ""
+            }
+            if (title.isBlank()) title = u.substringAfter("//").substringBefore('/')
+            busy = false
+        }
+    }
+    LaunchedEffect(url) {
+        val u = Regex("https?://\\S+").find(url)?.value
+        if (u != null && u != c.url && title.isBlank()) { kotlinx.coroutines.delay(500); fetch(u) }
+    }
+
+    fun save() {
+        val u = Regex("https?://\\S+").find(url)?.value ?: ""
+        val t = title.trim().ifBlank { url.trim() }
+        if (t.isBlank()) return
+        val item = c.copy(url = u, title = t, price = price.replace(',', '.').replace(" ", "").replace("\u00a0", "").toDoubleOrNull(),
+            currency = if (price.isBlank()) currency else currency.ifBlank { "UAH" }, store = store.trim().ifBlank { runCatching { java.net.URL(u).host.removePrefix("www.") }.getOrDefault("") },
+            note = note.trim(), image = image, photo = photo, tags = (tags + newTag.trim()).filter { it.isNotBlank() }.distinct().joinToString(","), planDay = planDay)
+        AppScope.io.launch {
+            dao.upsertCart(item)
+            if (toCal && planDay != null && planDay != c.planDay) {
+                val z = ZoneId.systemDefault(); val d = LocalDate.ofEpochDay(planDay!!)
+                AppDb.get(ctx).schedule().upsertEvent(CalEvent(title = "Купить: $t", startMillis = d.atStartOfDay(z).toInstant().toEpochMilli(),
+                    endMillis = d.plusDays(1).atStartOfDay(z).toInstant().toEpochMilli(), allDay = true, note = listOf(item.price?.let { "${fmtPrice(it)} ${cur(item)}" }, u.ifBlank { null }).filterNotNull().joinToString("\n"), tint = 2))
+            }
+        }
+        onDismiss()
+    }
+
+    androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                RoundIconButton(Icons.Rounded.Close, "Закрыть", onDismiss)
+                Text(if (c.id == 0L) "В корзину" else "Товар", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                RoundIconButton(Icons.Rounded.Check, "Сохранить", { save() }, bg = Pal.Ink, tint = Color.White)
+            }
+            LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { AppTextField(url, { url = it }, "Ссылка на товар") }
+                            IconButton({ Regex("https?://\\S+").find(url)?.value?.let { fetch(it) } }) { Icon(Icons.Rounded.Refresh, "Подтянуть с сайта") }
+                            if (c.url.isNotBlank()) IconButton({ runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(c.url))) } }) { Icon(Icons.Rounded.OpenInNew, "Открыть") }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        AppTextField(title, { title = it }, "Название")
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.weight(1f)) { AppTextField(price, { price = it }, "Цена") }
+                            Box(Modifier.weight(1f)) { AppTextField(store, { store = it }, "Магазин") }
+                        }
                     }
-                }, enabled = !busy) { Text("Добавить") }
-            },
-            dismissButton = { TextButton({ adding = false }) { Text("Отмена") } })
+                }
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        SectionLabel("Фото")
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (photo.isNotBlank() || image.isNotBlank()) AppImage(photo.ifBlank { image }, Modifier.size(96.dp), maxPx = 400)
+                            Column {
+                                TextButton({ picker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text(if (photo.isBlank()) "Выбрать из галереи" else "Другое фото") }
+                                if (photo.isNotBlank()) TextButton({ photo = "" }) { Text("Убрать своё фото", color = Pal.RoseInk) }
+                            }
+                        }
+                    }
+                }
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        SectionLabel("Когда купить")
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Chip(planDay?.let { LocalDate.ofEpochDay(it).format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) } ?: "Выбрать дату", planDay != null, { pickDate = true })
+                            if (planDay != null) TextButton({ planDay = null }) { Text("Без даты") }
+                        }
+                        if (planDay != null && planDay != c.planDay) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Добавить в календарь", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f)); Switch(toCal, { toCal = it })
+                        }
+                    }
+                }
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        SectionLabel("Теги")
+                        Spacer(Modifier.height(6.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            (knownTags + tags + listOf("Одежда", "Техника", "Дом", "Подарок", "Учёба", "Еда")).distinct().forEach { t ->
+                                Chip(t, t in tags, { if (t in tags) tags.remove(t) else tags.add(t) })
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { AppTextField(newTag, { newTag = it }, "Новый тег") }
+                            IconButton({ newTag.trim().takeIf { it.isNotBlank() }?.let { if (it !in tags) tags.add(it) }; newTag = "" }) { Icon(Icons.Rounded.Add, "Добавить тег") }
+                        }
+                    }
+                }
+                item { AppCard(Modifier.fillMaxWidth()) { AppTextField(note, { note = it }, "Заметка (размер, цвет…)", singleLine = false) } }
+                if (c.id != 0L) item {
+                    Row {
+                        TextButton({ ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "${c.title}\n${c.url}"), c.title)) }) { Text("Поделиться") }
+                        Spacer(Modifier.weight(1f))
+                        TextButton({ confirmDel = true }) { Text("Удалить", color = Pal.RoseInk) }
+                    }
+                }
+            }
+        }
     }
-    edit?.let { c ->
-        var title by remember { mutableStateOf(c.title) }
-        var price by remember { mutableStateOf(c.price?.let { fmtPrice(it).replace(" ", "") } ?: "") }
-        var note by remember { mutableStateOf(c.note) }
-        AlertDialog(onDismissRequest = { edit = null }, title = { Text("Товар") },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { AppTextField(title, { title = it }, "Название"); AppTextField(price, { price = it }, "Цена, ₴"); AppTextField(note, { note = it }, "Заметка") } },
-            confirmButton = { TextButton({ AppScope.io.launch { dao.upsertCart(c.copy(title = title.trim(), price = price.replace(',', '.').replace(" ", "").toDoubleOrNull(), currency = if (price.isBlank()) c.currency else "UAH", note = note.trim())) }; edit = null }) { Text("Сохранить") } },
-            dismissButton = { TextButton({ edit = null }) { Text("Отмена") } })
+    if (pickDate) {
+        val dp = rememberDatePickerState(initialSelectedDateMillis = (planDay?.let { LocalDate.ofEpochDay(it) } ?: LocalDate.now()).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli())
+        DatePickerDialog(onDismissRequest = { pickDate = false }, confirmButton = {
+            TextButton({ dp.selectedDateMillis?.let { planDay = Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate().toEpochDay() }; pickDate = false }) { Text("Ок") }
+        }) { DatePicker(dp) }
     }
+    if (confirmDel) AlertDialog(onDismissRequest = { confirmDel = false }, title = { Text("Удалить «${c.title}»?") },
+        confirmButton = { TextButton({ AppScope.io.launch { dao.deleteCart(c); if (c.photo.startsWith(ctx.filesDir.path)) java.io.File(c.photo).delete() }; confirmDel = false; onDismiss() }) { Text("Удалить", color = Pal.RoseInk) } },
+        dismissButton = { TextButton({ confirmDel = false }) { Text("Отмена") } })
 }

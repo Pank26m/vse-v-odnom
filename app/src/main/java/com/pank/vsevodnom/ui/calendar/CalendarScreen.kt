@@ -66,6 +66,9 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
     var sysVersion by remember { mutableIntStateOf(0) }
     var confirmClear by remember { mutableStateOf(false) }
     var lessonInfo by remember { mutableStateOf<Agenda.Pair?>(null) }
+    val calPrefs = remember { ctx.getSharedPreferences("calendar", android.content.Context.MODE_PRIVATE) }
+    var mode by remember { mutableIntStateOf(calPrefs.getInt("mode", 2)) }   // 0 день, 1 неделя, 2 месяц
+    fun select(d: LocalDate) { selected = d; month = YearMonth.from(d) }
 
     // окно данных: видимый месяц целиком (+ хвосты соседних недель)
     val gridStart = month.atDay(1).let { it.minusDays((it.dayOfWeek.value - 1).toLong()) }
@@ -131,6 +134,10 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
     }) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
+                Segmented(listOf("День", "Неделя", "Месяц"), mode, { mode = it; month = YearMonth.from(selected); calPrefs.edit().putInt("mode", it).apply() }, Modifier.fillMaxWidth())
+            }
+            when (mode) {
+                2 -> item {
                 AppCard(modifier = Modifier.fillMaxWidth(), padding = 12.dp) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { month = month.minusMonths(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Назад") }
@@ -156,6 +163,55 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
                         }
                     }
                 }
+                }
+                1 -> {
+                    val mon = selected.minusDays((selected.dayOfWeek.value - 1).toLong())
+                    item {
+                        AppCard(modifier = Modifier.fillMaxWidth(), padding = 12.dp) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { select(selected.minusDays(7)) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Назад") }
+                                Text("${mon.format(DateTimeFormatter.ofPattern("d MMM", RU))} – ${mon.plusDays(6).format(DateTimeFormatter.ofPattern("d MMM yyyy", RU))}",
+                                    style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(1f).clickable { select(LocalDate.now()) })
+                                IconButton(onClick = { select(selected.plusDays(7)) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Вперёд") }
+                            }
+                            Row(Modifier.fillMaxWidth()) {
+                                for (d in 0 until 7) {
+                                    val date = mon.plusDays(d.toLong())
+                                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(DOW[d], style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                                        DayCell(date, true, date == selected, date == LocalDate.now(), byDay[date].orEmpty(), Modifier.fillMaxWidth()) { selected = date }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for (d in 0 until 7) {
+                        val date = mon.plusDays(d.toLong())
+                        val list = byDay[date].orEmpty()
+                        item {
+                            Text(dayTitle(date), style = MaterialTheme.typography.titleMedium,
+                                color = if (date == LocalDate.now()) Pal.LilacInk else Pal.Ink, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+                        }
+                        if (list.isEmpty()) item { Text("—", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 4.dp)) }
+                        items(list) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
+                    }
+                }
+                else -> {
+                    item {
+                        AppCard(modifier = Modifier.fillMaxWidth(), padding = 12.dp) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { select(selected.minusDays(1)) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Назад") }
+                                Text(dayTitle(selected), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(1f).clickable { select(LocalDate.now()) })
+                                IconButton(onClick = { select(selected.plusDays(1)) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Вперёд") }
+                            }
+                        }
+                    }
+                    item {
+                        DayTimeline(byDay[selected].orEmpty(), selected) { a -> when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }
+                    }
+                }
             }
             if (CalendarRepo.hasSysPermission(ctx).not() && lessons.isEmpty() && own.isEmpty()) item {
                 AppCard(color = Pal.Lilac, modifier = Modifier.fillMaxWidth()) {
@@ -164,10 +220,12 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
                     Text("• Меню ⋮ → «Загрузить расписание пар» и выбери файл .xls из портала.\n• Или открой этот файл из Telegram/Файлов через «Открыть с помощью → Всё в одном».\n• «Показывать Google Календарь» — подтянет события из других приложений.", style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            item { Text(dayTitle(selected), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
-            val dayItems = byDay[selected].orEmpty()
-            if (dayItems.isEmpty()) item { EmptyHint("Ничего не запланировано") }
-            items(dayItems) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
+            if (mode == 2) {
+                item { Text(dayTitle(selected), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
+                val dayItems = byDay[selected].orEmpty()
+                if (dayItems.isEmpty()) item { EmptyHint("Ничего не запланировано") }
+                items(dayItems) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
+            }
         }
     }
 
@@ -280,7 +338,7 @@ private fun SubjectNamesDialog(aliases: List<SubjectAlias>, onDismiss: () -> Uni
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
+fun EventEditor(e: CalEvent, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).schedule() }
     val scope = com.pank.vsevodnom.data.AppScope.io
@@ -408,4 +466,64 @@ private fun LessonDialog(a: Agenda.Pair, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onDismiss) { Text("Закрыть") } }
     )
+}
+
+/** Начало и конец пункта в минутах от полуночи этого дня (null — весь день). */
+private fun Agenda.span(day: LocalDate): Pair<Int, Int>? {
+    val zone = ZoneId.systemDefault()
+    fun mins(ms: Long): Int { val t = Instant.ofEpochMilli(ms).atZone(zone); return if (t.toLocalDate() < day) 0 else if (t.toLocalDate() > day) 1440 else t.hour * 60 + t.minute }
+    return when (this) {
+        is Agenda.Pair -> runCatching { LocalTime.parse(l.start).let { it.hour * 60 + it.minute } to LocalTime.parse(l.end).let { it.hour * 60 + it.minute } }.getOrNull()
+        is Agenda.Own -> if (e.allDay) null else mins(e.startMillis) to mins(e.endMillis).coerceAtLeast(mins(e.startMillis) + 20)
+        is Agenda.Sys -> if (allDay) null else mins(begin) to mins(end).coerceAtLeast(mins(begin) + 20)
+    }
+}
+
+/** День по часам: блоки событий на шкале, пересекающиеся — рядом. */
+@Composable
+private fun DayTimeline(items: List<Agenda>, day: LocalDate, onClick: (Agenda) -> Unit) {
+    val allDay = items.filter { it.span(day) == null }
+    val timed = items.mapNotNull { a -> a.span(day)?.let { a to it } }.sortedBy { it.second.first }
+    // раскладка по дорожкам
+    val laneEnd = ArrayList<Int>()
+    val lanes = timed.map { (_, sp) ->
+        val i = laneEnd.indexOfFirst { it <= sp.first }.let { if (it < 0) { laneEnd += 0; laneEnd.size - 1 } else it }
+        laneEnd[i] = sp.second; i
+    }
+    val lanesN = laneEnd.size.coerceAtLeast(1)
+    val fromH = (timed.minOfOrNull { it.second.first / 60 } ?: 8).coerceAtMost(8)
+    val toH = (timed.maxOfOrNull { (it.second.second + 59) / 60 } ?: 21).coerceAtLeast(21).coerceAtMost(24)
+    val hourH = 56.dp
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        allDay.forEach { AgendaCard(it) { onClick(it) } }
+        AppCard(Modifier.fillMaxWidth(), padding = 8.dp) {
+            BoxWithConstraints(Modifier.fillMaxWidth().height(hourH * (toH - fromH))) {
+                val labelW = 44.dp
+                val colW = (maxWidth - labelW) / lanesN
+                for (h in fromH until toH) {
+                    Row(Modifier.offset(y = hourH * (h - fromH)).fillMaxWidth()) {
+                        Text("%02d:00".format(h), style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(labelW))
+                        Box(Modifier.padding(top = 7.dp).height(1.dp).weight(1f).background(Pal.Line))
+                    }
+                }
+                if (day == LocalDate.now()) {
+                    val n = LocalTime.now(); val y = hourH * ((n.hour * 60 + n.minute - fromH * 60) / 60f)
+                    Box(Modifier.offset(x = labelW, y = y + 7.dp).fillMaxWidth().height(2.dp).background(Pal.RoseInk))
+                }
+                timed.forEachIndexed { i, (a, sp) ->
+                    val r = a.row()
+                    val top = hourH * ((sp.first - fromH * 60) / 60f) + 8.dp
+                    val h = (hourH * ((sp.second - sp.first) / 60f) - 2.dp).coerceAtLeast(22.dp)
+                    Column(
+                        Modifier.offset(x = labelW + colW * lanes[i], y = top).width(colW - 3.dp).height(h)
+                            .clip(RoundedCornerShape(8.dp)).background(Color(r.color).copy(alpha = 0.18f)).clickable { onClick(a) }.padding(6.dp, 3.dp)
+                    ) {
+                        Text(r.title, style = MaterialTheme.typography.labelMedium, maxLines = if (h > 40.dp) 2 else 1, color = Color(r.color))
+                        if (h > 52.dp && r.sub.isNotBlank()) Text(r.sub, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
+            }
+        }
+        if (items.isEmpty()) EmptyHint("Ничего не запланировано")
+    }
 }

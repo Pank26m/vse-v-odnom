@@ -73,6 +73,7 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.4")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.4")
 

@@ -127,6 +127,7 @@ class MainActivity : FragmentActivity() {
                     composable("contacts") { ContactsScreen(back) }
                     composable("health") { HealthScreen(back) }
                     composable("downloads") { DownloadsScreen(back) }
+                    composable("map") { com.pank.vsevodnom.ui.map.MapScreen(back) }
                 }
                 }
                 if (barVisible) androidx.compose.material3.NavigationBar(containerColor = com.pank.vsevodnom.ui.theme.Pal.Card) {
@@ -173,6 +174,7 @@ class MainActivity : FragmentActivity() {
             "sms" -> "sms"
             "todo" -> "todo"
             "power" -> "power"
+            "map" -> "map"
             "contacts" -> "contacts"
             else -> if (i?.action == "androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" || i?.action == "android.intent.action.VIEW_PERMISSION_USAGE") "health" else null
         }

@@ -48,6 +48,7 @@
         </intent>
     </queries>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
@@ -140,6 +141,10 @@
             android:name=".ui.downloads.DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".data.TrackService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
         <service
             android:name=".ui.recorder.RecorderService"
             android:exported="false"

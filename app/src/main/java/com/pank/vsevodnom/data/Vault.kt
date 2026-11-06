@@ -20,6 +20,9 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.pow
 
+/** Дополнительное поле записи: «Старый пароль», «PIN», «Секретный вопрос»… */
+data class VaultExtra(val label: String, val value: String)
+
 data class VaultEntry(
     val id: String,
     val title: String,
@@ -27,16 +30,22 @@ data class VaultEntry(
     val password: String = "",
     val url: String = "",
     val notes: String = "",
-    val totp: String = "",       // секрет base32 для кодов 2FA
+    val totp: String = "",       // секрет base32 для кодов 2FA (поле больше не показывается, но не теряем)
     val updatedAt: Long = System.currentTimeMillis(),
+    val tags: List<String> = emptyList(),
+    val extra: List<VaultExtra> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject().put("id", id).put("title", title).put("login", login).put("password", password)
         .put("url", url).put("notes", notes).put("totp", totp).put("updatedAt", updatedAt)
+        .put("tags", org.json.JSONArray(tags))
+        .put("extra", org.json.JSONArray(extra.map { JSONObject().put("label", it.label).put("value", it.value) }))
 
     companion object {
         fun fromJson(o: JSONObject) = VaultEntry(
             o.getString("id"), o.optString("title"), o.optString("login"), o.optString("password"),
-            o.optString("url"), o.optString("notes"), o.optString("totp"), o.optLong("updatedAt")
+            o.optString("url"), o.optString("notes"), o.optString("totp"), o.optLong("updatedAt"),
+            o.optJSONArray("tags")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+            o.optJSONArray("extra")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).let { x -> VaultExtra(x.optString("label"), x.optString("value")) } } } ?: emptyList(),
         )
     }
 }

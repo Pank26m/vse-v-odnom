@@ -41,12 +41,14 @@ object KeePassImport {
         val url = col("web site", "url", "website", "сайт")
         val notes = col("comments", "notes", "заметки", "примечания")
         val totp = col("totp", "otp")
+        val group = col("group", "группа")
         require(pass != null && (title != null || url != null)) { "Не узнаю формат CSV: нет столбцов «Password» и «Account/Title»" }
         return rows.drop(1).mapNotNull { r ->
             fun g(i: Int?) = i?.let { r.getOrNull(it) }?.trim().orEmpty()
             val t = g(title).ifBlank { g(url).removePrefix("https://").removePrefix("http://").substringBefore('/') }
             if (t.isBlank() && g(pass).isBlank()) null
-            else VaultEntry(UUID.randomUUID().toString(), t.ifBlank { "Без названия" }, g(user), g(pass), g(url), g(notes), g(totp))
+            else VaultEntry(UUID.randomUUID().toString(), t.ifBlank { "Без названия" }, g(user), g(pass), g(url), g(notes), g(totp),
+                tags = g(group).split('/').last().trim().takeIf { it.isNotBlank() && !it.equals("Root", true) && !it.equals("Корень", true) }?.let { listOf(it) } ?: emptyList())
         }
     }
 
