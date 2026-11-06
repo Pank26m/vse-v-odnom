@@ -2,7 +2,7 @@ package com.pank.vsevodnom
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -21,6 +21,7 @@ import com.pank.vsevodnom.ui.calc.CalcScreen
 import com.pank.vsevodnom.ui.alerts.AlertsScreen
 import com.pank.vsevodnom.ui.markets.MarketsScreen
 import com.pank.vsevodnom.ui.recorder.RecorderScreen
+import com.pank.vsevodnom.ui.utils.UtilsScreen
 import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
@@ -32,7 +33,7 @@ import com.pank.vsevodnom.ui.theme.AppTheme
 import com.pank.vsevodnom.ui.weather.WeatherScreen
 import com.pank.vsevodnom.ui.weight.WeightScreen
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val pendingRoute = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,6 +71,7 @@ class MainActivity : ComponentActivity() {
                     composable("alerts") { AlertsScreen(back) }
                     composable("markets") { MarketsScreen(back) }
                     composable("recorder") { RecorderScreen(back) }
+                    composable("utils") { UtilsScreen(back) }
                 }
             }
         }

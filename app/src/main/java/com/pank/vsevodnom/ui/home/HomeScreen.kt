@@ -61,7 +61,7 @@ val TILES = listOf(
     // следующие этапы
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, "markets"),
     Tile("Тревоги", Icons.Rounded.Campaign, Tints.Rose, "alerts"),
-    Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, null),
+    Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, "utils"),
     Tile("Файлы", Icons.Rounded.Description, Tints.Butter, null),
     Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, "recorder"),
     Tile("Игры", Icons.Rounded.SportsEsports, Tints.Peach, null),
