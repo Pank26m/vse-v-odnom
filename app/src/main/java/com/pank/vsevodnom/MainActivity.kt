@@ -22,6 +22,7 @@ import com.pank.vsevodnom.ui.alerts.AlertsScreen
 import com.pank.vsevodnom.ui.markets.MarketsScreen
 import com.pank.vsevodnom.ui.recorder.RecorderScreen
 import com.pank.vsevodnom.ui.utils.UtilsScreen
+import com.pank.vsevodnom.ui.files.FilesScreen
 import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
@@ -72,6 +73,7 @@ class MainActivity : FragmentActivity() {
                     composable("markets") { MarketsScreen(back) }
                     composable("recorder") { RecorderScreen(back) }
                     composable("utils") { UtilsScreen(back) }
+                    composable("files") { FilesScreen(back) }
                 }
             }
         }
@@ -84,7 +86,7 @@ class MainActivity : FragmentActivity() {
 
     private fun routeFrom(i: Intent?): String? {
         // файл расписания, открытый через «Открыть с помощью»
-        if (i?.action == Intent.ACTION_VIEW && i.data != null) {
+        if (i?.action == Intent.ACTION_VIEW && i.data != null && i.getBooleanExtra("import_schedule", false)) {
             PendingImport.uri = i.data
             return "calendar"
         }

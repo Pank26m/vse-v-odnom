@@ -39,12 +39,26 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- «Открыть с помощью» для файла расписания из портала -->
+        </activity>
+
+        <!-- «Открыть с помощью»: PDF, картинки, текст, Word, EPUB, Excel (в т.ч. расписание из портала) -->
+        <activity
+            android:name=".ui.files.ViewerActivity"
+            android:exported="true"
+            android:label="Всё в одном"
+            android:theme="@style/Theme.App">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/epub+zip" />
                 <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
             </intent-filter>
         </activity>
 
