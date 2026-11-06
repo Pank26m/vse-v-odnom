@@ -34,7 +34,10 @@ object Rich {
         var pos = 0
         text.split('\n').forEach { line ->
             when {
-                line.startsWith("# ") -> { addStyle(MARK, pos, pos + 2); addStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 20.sp), pos + 2, pos + line.length) }
+                line.startsWith("### ") -> { addStyle(MARK, pos, pos + 4); addStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 17.sp), pos + 4, pos + line.length) }
+                line.startsWith("## ") -> { addStyle(MARK, pos, pos + 3); addStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 19.sp), pos + 3, pos + line.length) }
+                line.startsWith("# ") -> { addStyle(MARK, pos, pos + 2); addStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 22.sp), pos + 2, pos + line.length) }
+                line.startsWith("> ") -> { addStyle(MARK, pos, pos + 2); addStyle(SpanStyle(fontStyle = FontStyle.Italic, color = Color(0xFF6B6A75)), pos + 2, pos + line.length) }
                 line.startsWith("- ") || line.startsWith("• ") -> addStyle(SpanStyle(color = Color(0xFF4772F5), fontWeight = FontWeight.Bold), pos, pos + 1)
                 line.startsWith("[x] ") -> { addStyle(SpanStyle(color = Color(0xFF4772F5)), pos, pos + 3); addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = Color(0xFF9AA0AA)), pos + 4, pos + line.length) }
                 line.startsWith("[ ] ") -> addStyle(SpanStyle(color = Color(0xFF4772F5)), pos, pos + 3)
@@ -61,7 +64,10 @@ object Rich {
             var line = raw
             var lineStyle: SpanStyle? = null
             when {
+                line.startsWith("### ") -> { line = line.drop(4); lineStyle = SpanStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp) }
+                line.startsWith("## ") -> { line = line.drop(3); lineStyle = SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 16.sp) }
                 line.startsWith("# ") -> { line = line.drop(2); lineStyle = SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
+                line.startsWith("> ") -> { append("┃ "); line = line.drop(2); lineStyle = SpanStyle(fontStyle = FontStyle.Italic, color = Color(0xFF6B6A75)) }
                 line.startsWith("- ") || line.startsWith("• ") -> { append("•  "); line = line.drop(2) }
                 line.startsWith("[x] ") -> { append("☑ "); line = line.drop(4); lineStyle = SpanStyle(textDecoration = TextDecoration.LineThrough, color = Color(0xFF9AA0AA)) }
                 line.startsWith("[ ] ") -> { append("☐ "); line = line.drop(4) }
@@ -99,7 +105,7 @@ object Rich {
         val ls = t.lastIndexOf('\n', (v.selection.min - 1).coerceAtLeast(0)).let { if (v.selection.min == 0) 0 else it + 1 }.coerceAtMost(t.length)
         val le = t.indexOf('\n', ls).let { if (it < 0) t.length else it }
         val line = t.substring(ls, le)
-        val existing = listOf("# ", "- ", "• ", "[ ] ", "[x] ").firstOrNull { line.startsWith(it) } ?: NUM.find(line)?.value
+        val existing = listOf("### ", "## ", "# ", "> ", "- ", "• ", "[ ] ", "[x] ").firstOrNull { line.startsWith(it) } ?: NUM.find(line)?.value
         val bare = existing?.let { line.removePrefix(it) } ?: line
         val prefix = when (kind) {
             "num" -> { val prev = t.substring(0, ls).trimEnd('\n').substringAfterLast('\n'); (NUM.find(prev)?.groupValues?.get(1)?.toIntOrNull()?.plus(1) ?: 1).toString() + ". " }
@@ -132,6 +138,16 @@ object Rich {
         }
         val nt = new.text.substring(0, p + 1) + prefix + new.text.substring(p + 1)
         return TextFieldValue(nt, TextRange(p + 1 + prefix.length))
+    }
+
+    /** Кнопка чек-листа: обычная строка → «[ ] », «[ ] » → «[x] » (зачёркнуто), «[x] » → «[ ] ». */
+    fun toggleCheckAtCursor(v: TextFieldValue): TextFieldValue {
+        val t = v.text
+        val ls = if (v.selection.min == 0) 0 else t.lastIndexOf('\n', v.selection.min - 1) + 1
+        val le = t.indexOf('\n', ls).let { if (it < 0) t.length else it }
+        val line = t.substring(ls, le)
+        val nl = when { line.startsWith("[ ] ") -> "[x] " + line.drop(4); line.startsWith("[x] ") -> "[ ] " + line.drop(4); else -> return linePrefix(v, "[ ] ") }
+        return TextFieldValue(t.substring(0, ls) + nl + t.substring(le), v.selection)
     }
 
     /** Отметить/снять пункт чек-листа в строке номер idx (для просмотра). */

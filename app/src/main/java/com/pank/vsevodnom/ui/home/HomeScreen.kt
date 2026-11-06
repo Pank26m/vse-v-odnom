@@ -54,7 +54,7 @@ import java.util.Locale
 data class Tile(val title: String, val icon: ImageVector, val tint: Tint, val route: String?)
 
 val TILES = listOf(
-    Tile("Дела", Icons.Rounded.Checklist, Tints.Lilac, "todo"),
+    Tile("ToDo", Icons.Rounded.Checklist, Tints.Lilac, "todo"),
     Tile("Финансы", Icons.Rounded.AccountBalanceWallet, Tints.Mint, "money"),
     Tile("Календарь", Icons.Rounded.CalendarMonth, Tints.Lilac, "calendar"),
     Tile("Погода", Icons.Rounded.Cloud, Tints.Sky, "weather"),
@@ -274,33 +274,31 @@ private fun Summary(open: (String) -> Unit) {
             SummaryRow(if (a is Agenda.Pair) Icons.Rounded.School else Icons.Rounded.Event, r.title, listOf(r.time.replace('\n', '–'), r.sub).filter { it.isNotBlank() }.joinToString(" · "), Pal.Lilac, Color(r.color)) { open("calendar") }
         }
         todayTasks.forEach { t ->
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(6.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(false, { AppScope.io.launch { Todo.complete(ctx, t) } })
-                Column(Modifier.weight(1f).clickable { open("todo") }) {
-                    Text(t.title, style = MaterialTheme.typography.titleSmall)
-                    val overdue = t.dueDay!! < today.toEpochDay()
-                    Text(listOfNotNull(if (overdue) "просрочено" else null, t.dueMinute?.let { "%02d:%02d".format(it / 60, it % 60) }, t.list.ifBlank { null }).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall, color = if (overdue) Pal.RoseInk else Pal.Muted)
-                }
-                if (t.priority > 0) Icon(Icons.Rounded.PriorityHigh, null, tint = Pal.RoseInk)
-            }
+            key("t${t.id}") { com.pank.vsevodnom.ui.todo.TaskRow(t) { open("todo") } }
         }
-        if (todayHabits.isNotEmpty()) {
-            Text("Привычки", style = MaterialTheme.typography.labelLarge, color = Pal.Muted)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                todayHabits.take(4).forEach { h ->
-                    val done = logs.firstOrNull { it.habitId == h.id }?.count ?: 0
+        // выполненные привычки не показываем — сводка только про то, что ещё нужно сделать
+        val leftHabits = todayHabits.filter { h -> (logs.firstOrNull { it.habitId == h.id }?.count ?: 0) < h.perDay }
+        leftHabits.forEach { h ->
+            key("h${h.id}") {
+                com.pank.vsevodnom.ui.todo.Leaving(h.id, onLeft = { AppScope.io.launch { Todo.tickHabit(ctx, h, today) } }) { done, leave ->
                     val t = Tints.all[h.tint % 6]
-                    Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if (done >= h.perDay) t.bg else Pal.Card)
-                        .clickable { AppScope.io.launch { Todo.tickHabit(ctx, h, today) } }.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(h.title, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                        Text(if (done >= h.perDay) "✓" else "$done/${h.perDay}", style = MaterialTheme.typography.titleMedium, color = t.ink)
+                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(if (done) t.bg else Pal.Card).clickable { open("todo") }.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(t.bg), contentAlignment = Alignment.Center) { Text(h.icon.ifBlank { "✓" }) }
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(h.title, style = MaterialTheme.typography.titleSmall)
+                            Text("привычка" + if (h.perDay > 1) " · ${logs.firstOrNull { it.habitId == h.id }?.count ?: 0}/${h.perDay}" else "", style = MaterialTheme.typography.bodySmall)
+                        }
+                        com.pank.vsevodnom.ui.todo.CheckCircle(done, t.ink, 26.dp) {
+                            val c = logs.firstOrNull { it.habitId == h.id }?.count ?: 0
+                            if (c + 1 >= h.perDay) leave() else AppScope.io.launch { Todo.tickHabit(ctx, h, today) }
+                        }
                     }
                 }
             }
         }
-        if (hol == null && bdays.isEmpty() && agendaLeft.isEmpty() && todayTasks.isEmpty() && todayHabits.isEmpty())
-            Text("На сегодня всё чисто. Добавь дела в разделе «Дела».", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+        if (hol == null && bdays.isEmpty() && agendaLeft.isEmpty() && todayTasks.isEmpty() && leftHabits.isEmpty())
+            Text("На сегодня всё чисто. Добавь задачи в разделе ToDo.", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
     }
 }
 

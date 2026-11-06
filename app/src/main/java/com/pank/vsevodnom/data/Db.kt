@@ -320,7 +320,7 @@ interface LifeDao {
         TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
         Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -341,6 +341,17 @@ abstract class AppDb : RoomDatabase() {
         fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
 
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        /** v5 → v6: заметки — архив, корзина, вложения; даты — связь с контактом. */
+        val M5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `note` ADD COLUMN `archived` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `note` ADD COLUMN `deletedAt` INTEGER")
+                db.execSQL("ALTER TABLE `note` ADD COLUMN `createdAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `note` ADD COLUMN `attachments` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `birthday` ADD COLUMN `contactKey` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** v4 → v5: теги/фото/длительность задач, настройки привычек, страницы списков, фильмы, даты с приоритетом, значки категорий. */
         val M4_5 = object : androidx.room.migration.Migration(4, 5) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -427,7 +438,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3, M3_4, M4_5)
+                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6)
                 .build().also { inst = it }
         }
     }

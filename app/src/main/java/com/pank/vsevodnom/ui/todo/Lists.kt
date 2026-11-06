@@ -56,8 +56,6 @@ import com.pank.vsevodnom.ui.theme.Tints
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val PAGE_TYPES = listOf("MOVIES" to "Фильмы и сериалы", "SHOP" to "Список с галочками", "NOTES" to "Заметки")
-private val NOTE_COLORS = listOf(Color(0xFFFFFFFF), Color(0xFFFFF4C7), Color(0xFFDDF2E6), Color(0xFFDCEBFA), Color(0xFFF8DDE6), Color(0xFFE7E1F7), Color(0xFFFCE5D6))
 
 /** Создаёт три стандартные страницы и переносит в них старые записи. */
 suspend fun ensureListPages(ctx: android.content.Context) {
@@ -70,209 +68,20 @@ suspend fun ensureListPages(ctx: android.content.Context) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun ListsPage(onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    val dao = remember { AppDb.get(ctx).todo() }
-    LaunchedEffect(Unit) { ensureListPages(ctx) }
-    val pages by dao.pages().collectAsState(initial = emptyList())
-    val media by dao.media().collectAsState(initial = emptyList())
-    val notes by dao.notes().collectAsState(initial = emptyList())
-    var open by remember { mutableStateOf<ListPage?>(null) }
-    var editPage by remember { mutableStateOf<ListPage?>(null) }
-
-    open?.let { p ->
-        BackHandler { open = null }
-        when (p.type) {
-            "MOVIES" -> MoviesPage(p) { open = null }
-            "SHOP" -> ShopPage(p) { open = null }
-            else -> NotesPage(p) { open = null }
-        }
-        return
-    }
-    ScreenScaffold("Списки", onBack) {
-        LazyVerticalGrid(GridCells.Fixed(2), contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(pages, key = { it.id }) { p ->
-                val t = Tints.all[p.tint % 6]
-                val count = when (p.type) { "MOVIES" -> media.count { it.pageId == p.id }; "NOTES" -> notes.count { it.pageId == p.id }; else -> null }
-                Column(Modifier.height(120.dp).clip(RoundedCornerShape(16.dp)).background(t.bg).combinedClickable(onClick = { open = p }, onLongClick = { editPage = p }).padding(14.dp)) {
-                    Icon(when (p.type) { "MOVIES" -> Icons.Rounded.Movie; "SHOP" -> Icons.Rounded.ShoppingCart; else -> Icons.Rounded.StickyNote2 }, null, tint = t.ink, modifier = Modifier.size(30.dp))
-                    Spacer(Modifier.weight(1f))
-                    Text(p.name, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-                    if (count != null) Text("$count", style = MaterialTheme.typography.bodySmall, color = t.ink)
-                }
-            }
-            item {
-                Box(Modifier.height(120.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Card).clickable { editPage = ListPage(name = "", type = "NOTES", tint = pages.size % 6, sort = pages.size) }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Add, "Новый список", tint = Pal.Muted, modifier = Modifier.size(36.dp))
-                }
-            }
-            item(span = { GridItemSpan(2) }) { Text("Долгое нажатие на плитку — переименовать или удалить.", style = MaterialTheme.typography.bodySmall) }
-        }
-    }
-    editPage?.let { p ->
-        var name by remember { mutableStateOf(p.name) }
-        var type by remember { mutableStateOf(p.type) }
-        var tint by remember { mutableIntStateOf(p.tint) }
-        var del by remember { mutableStateOf(false) }
-        AlertDialog(onDismissRequest = { editPage = null }, title = { Text(if (p.id == 0L) "Новый список" else "Список") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppTextField(name, { name = it }, "Название")
-                    if (p.id == 0L) PAGE_TYPES.forEach { (k, s) -> Row(Modifier.fillMaxWidth().clickable { type = k }, verticalAlignment = Alignment.CenterVertically) { RadioButton(type == k, { type = k }); Text(s) } }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Tints.all.forEachIndexed { i, t -> Box(Modifier.size(if (i == tint) 32.dp else 26.dp).clip(CircleShape).background(t.ink.copy(alpha = if (i == tint) 0.85f else 0.35f)).clickable { tint = i }) } }
-                    if (p.id != 0L) TextButton({ del = true }) { Text(if (del) "Нажми ещё раз — удалится со всем содержимым" else "Удалить список", color = Pal.RoseInk) }
-                }
-            },
-            confirmButton = {
-                TextButton({
-                    if (del) { AppScope.io.launch { dao.deletePage(p) }; editPage = null; return@TextButton }
-                    if (name.isNotBlank()) AppScope.io.launch { dao.upsertPage(p.copy(name = name.trim(), type = type, tint = tint)) }
-                    editPage = null
-                }) { Text(if (del) "Удалить" else "Сохранить", color = if (del) Pal.RoseInk else Color.Unspecified) }
-            },
-            dismissButton = { TextButton({ editPage = null }) { Text("Отмена") } })
-    }
-}
-
-// ================= Список с галочками (покупки) =================
-
-@Composable
-private fun ShopPage(p: ListPage, onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    val dao = remember { AppDb.get(ctx).todo() }
-    val items by remember(p.id) { dao.entries(p.id) }.collectAsState(initial = emptyList())
-    var text by remember { mutableStateOf("") }
-    var edit by remember { mutableStateOf<ListEntry?>(null) }
-    fun add() { val t = text.trim(); if (t.isNotEmpty()) AppScope.io.launch { dao.upsertEntry(ListEntry(pageId = p.id, text = t)) }; text = "" }
-    ScreenScaffold(p.name, onBack, actions = {
-        if (items.any { it.done }) TextButton({ AppScope.io.launch { dao.clearDone(p.id) } }) { Text("Убрать отмеченные") }
-    }) {
-        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) {
-                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), placeholder = { Text("Добавить пункт") }, singleLine = true, shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { add() }),
-                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Pal.Card, unfocusedContainerColor = Pal.Card))
-            }
-            IconButton({ add() }) { Icon(Icons.Rounded.Add, "Добавить", tint = BLUE) }
-        }
-        LazyColumn(contentPadding = PaddingValues(16.dp, 10.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (items.isEmpty()) item { EmptyHint("Пусто. Пиши пункт и жми Enter.") }
-            items(items, key = { it.id }) { e ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Pal.Card).clickable { edit = e }.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(e.done, { d -> AppScope.io.launch { dao.upsertEntry(e.copy(done = d)) } })
-                    Text(e.text, style = MaterialTheme.typography.bodyLarge.copy(textDecoration = if (e.done) TextDecoration.LineThrough else null), color = if (e.done) Pal.Muted else Pal.Ink, modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-    edit?.let { e ->
-        var t by remember { mutableStateOf(e.text) }
-        AlertDialog(onDismissRequest = { edit = null }, text = { AppTextField(t, { t = it }, "Пункт") },
-            confirmButton = { TextButton({ if (t.isNotBlank()) AppScope.io.launch { dao.upsertEntry(e.copy(text = t.trim())) }; edit = null }) { Text("Сохранить") } },
-            dismissButton = { TextButton({ AppScope.io.launch { dao.deleteEntry(e) }; edit = null }) { Text("Удалить", color = Pal.RoseInk) } })
-    }
-}
-
-// ================= Заметки: плитки + редактор с форматированием =================
-
-@Composable
-private fun NotesPage(p: ListPage, onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    val dao = remember { AppDb.get(ctx).todo() }
-    val all by dao.notes().collectAsState(initial = emptyList())
-    val notes = all.filter { it.pageId == p.id }
-    var edit by remember { mutableStateOf<Note?>(null) }
-    var q by remember { mutableStateOf("") }
-    Box(Modifier.fillMaxSize()) {
-        ScreenScaffold(p.name, onBack) {
-            if (notes.size > 4) Box(Modifier.padding(horizontal = 16.dp)) { AppTextField(q, { q = it }, "Поиск") }
-            val shown = notes.filter { q.isBlank() || it.title.contains(q, true) || it.body.contains(q, true) }
-            LazyVerticalStaggeredGrid(StaggeredGridCells.Fixed(2), contentPadding = PaddingValues(16.dp, 10.dp, 16.dp, 96.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalItemSpacing = 10.dp) {
-                if (shown.isEmpty()) item { EmptyHint("Заметок нет") }
-                items(shown, key = { it.id }) { n ->
-                    Column(Modifier.clip(RoundedCornerShape(14.dp)).background(NOTE_COLORS[n.tint % NOTE_COLORS.size]).clickable { edit = n }.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.Top) {
-                            if (n.title.isNotBlank()) Text(n.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 2)
-                            if (n.pinned) Icon(Icons.Rounded.PushPin, null, Modifier.size(14.dp), tint = Pal.Muted)
-                        }
-                        if (n.body.isNotBlank()) Text(Rich.render(n.body), style = MaterialTheme.typography.bodyMedium, maxLines = 9, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
-        Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(58.dp).clip(CircleShape).background(BLUE).clickable { edit = Note(title = "", pageId = p.id, tint = 0) }, contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.Add, "Новая заметка", tint = Color.White)
-        }
-    }
-    edit?.let { NoteEditor(it) { edit = null } }
-}
-
-@Composable
-private fun NoteEditor(n0: Note, onDone: () -> Unit) {
-    val ctx = LocalContext.current
-    var title by remember { mutableStateOf(n0.title) }
-    var body by remember { mutableStateOf(TextFieldValue(n0.body)) }
-    var tint by remember { mutableIntStateOf(n0.tint) }
-    var pinned by remember { mutableStateOf(n0.pinned) }
-    var colors by remember { mutableStateOf(false) }
-    val fr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (n0.id == 0L) runCatching { fr.requestFocus() } }
-    fun save() {
-        if (title.isBlank() && body.text.isBlank()) { if (n0.id != 0L) AppScope.io.launch { AppDb.get(ctx).todo().deleteNote(n0) }; onDone(); return }
-        AppScope.io.launch { AppDb.get(ctx).todo().upsertNote(n0.copy(title = title.trim(), body = body.text.trimEnd(), tint = tint, pinned = pinned, updatedAt = System.currentTimeMillis())) }
-        onDone()
-    }
-    Dialog({ save() }, DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxSize().background(NOTE_COLORS[tint % NOTE_COLORS.size]).statusBarsPadding().navigationBarsPadding().imePadding()) {
-            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ save() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Сохранить и выйти") }
-                Spacer(Modifier.weight(1f))
-                IconButton({ pinned = !pinned }) { Icon(Icons.Rounded.PushPin, "Закрепить", tint = if (pinned) BLUE else Pal.Muted) }
-                IconButton({ colors = !colors }) { Icon(Icons.Rounded.Palette, "Цвет") }
-                if (n0.id != 0L) IconButton({ AppScope.io.launch { AppDb.get(ctx).todo().deleteNote(n0) }; onDone() }) { Icon(Icons.Rounded.DeleteOutline, "Удалить") }
-            }
-            if (colors) Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NOTE_COLORS.forEachIndexed { i, c -> Box(Modifier.size(if (i == tint) 34.dp else 28.dp).clip(CircleShape).background(c).clickable { tint = i }.then(if (c == Color.White) Modifier.background(Color.Transparent) else Modifier)) }
-            }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
-                BasicTextField(title, { title = it }, Modifier.fillMaxWidth().padding(vertical = 8.dp), textStyle = MaterialTheme.typography.headlineMedium.copy(color = Pal.Ink), cursorBrush = SolidColor(BLUE),
-                    decorationBox = { inner -> if (title.isEmpty()) Text("Заголовок", style = MaterialTheme.typography.headlineMedium, color = Color(0xFFB8BCC6)); inner() })
-                BasicTextField(body, { body = Rich.onEdit(body, it) }, Modifier.fillMaxWidth().heightIn(min = 300.dp).focusRequester(fr),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Pal.Ink, lineHeight = 24.sp), cursorBrush = SolidColor(BLUE), visualTransformation = Rich.transformation,
-                    decorationBox = { inner -> if (body.text.isEmpty()) Text("Текст заметки", style = MaterialTheme.typography.bodyLarge, color = Color(0xFFB8BCC6)); inner() })
-            }
-            // панель форматирования
-            Row(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.9f)).horizontalScroll(rememberScrollState()).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                FmtBtn(Icons.Rounded.FormatBold, "Жирный") { body = Rich.wrap(body, "**") }
-                FmtBtn(Icons.Rounded.FormatItalic, "Курсив") { body = Rich.wrap(body, "*") }
-                FmtBtn(Icons.Rounded.FormatUnderlined, "Подчеркнуть") { body = Rich.wrap(body, "__") }
-                FmtBtn(Icons.Rounded.FormatStrikethrough, "Зачеркнуть") { body = Rich.wrap(body, "~~") }
-                FmtBtn(Icons.Rounded.Title, "Заголовок") { body = Rich.linePrefix(body, "# ") }
-                FmtBtn(Icons.AutoMirrored.Rounded.FormatListBulleted, "Точки") { body = Rich.linePrefix(body, "- ") }
-                FmtBtn(Icons.Rounded.FormatListNumbered, "Нумерация") { body = Rich.linePrefix(body, "num") }
-                FmtBtn(Icons.Rounded.CheckBox, "Чек-лист") { body = Rich.linePrefix(body, "[ ] ") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FmtBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, d: String, onClick: () -> Unit) {
-    IconButton(onClick) { Icon(icon, d, tint = Pal.Ink) }
-}
-
 // ================= Фильмы и сериалы =================
 
 private val WATCH = listOf("Хочу", "Смотрю", "Посмотрел")
 
 @Composable
-private fun MoviesPage(p: ListPage, onBack: () -> Unit) {
+fun MoviesPage(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).todo() }
+    LaunchedEffect(Unit) { ensureListPages(ctx) }
+    val pages by dao.pages().collectAsState(initial = emptyList())
+    val moviePages = pages.filter { it.type == "MOVIES" }.map { it.id }.toSet()
+    val p = pages.firstOrNull { it.type == "MOVIES" } ?: ListPage(name = "Фильмы", type = "MOVIES")
     val all by dao.media().collectAsState(initial = emptyList())
-    val items = all.filter { it.pageId == p.id }
+    val items = all.filter { it.pageId in moviePages || it.pageId == 0L }
     var filter by remember { mutableIntStateOf(0) }
     var search by remember { mutableStateOf(false) }
     var edit by remember { mutableStateOf<MediaItem?>(null) }
@@ -280,7 +89,7 @@ private fun MoviesPage(p: ListPage, onBack: () -> Unit) {
         when (filter) { 1 -> it.kind == "film"; 2 -> it.kind == "series"; 3 -> it.status == 0; 4 -> it.status == 2; else -> true }
     }.sortedWith(compareBy({ it.status == 2 }, { -it.addedAt }))
     Box(Modifier.fillMaxSize()) {
-        ScreenScaffold(p.name, onBack) {
+        ScreenScaffold("Фильмы и сериалы", onBack) {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("Все", "Фильмы", "Сериалы", "Хочу", "Посмотрел").forEachIndexed { i, s -> Chip(s, filter == i, { filter = i }) }
             }
@@ -378,6 +187,7 @@ private fun MovieEditor(m0: MediaItem, onDone: () -> Unit) {
     val ctx = LocalContext.current
     var m by remember { mutableStateOf(m0) }
     var refreshing by remember { mutableStateOf(false) }
+    var linkEdit by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val info = remember(m.details) { MovieInfo.fromItem(m) }
     fun save() { if (m.title.isNotBlank()) AppScope.io.launch { AppDb.get(ctx).todo().upsertMedia(m.copy(title = m.title.trim(), link = m.link.trim())) }; onDone() }
@@ -417,10 +227,9 @@ private fun MovieEditor(m0: MediaItem, onDone: () -> Unit) {
                 }
                 if (m0.id == 0L && m.extId.isBlank()) AppTextField(m.title, { m = m.copy(title = it) }, "Название")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { WATCH.forEachIndexed { i, s -> Chip(s, m.status == i, { m = m.copy(status = i) }) } }
-                OutlinedTextField(m.link, { m = m.copy(link = it) }, Modifier.fillMaxWidth(), label = { Text("Ссылка из Telegram на скачанный файл") }, singleLine = true, shape = RoundedCornerShape(12.dp),
-                    leadingIcon = { Icon(Icons.Rounded.Send, null, tint = Color(0xFF2AABEE)) },
-                    trailingIcon = { if (m.link.isNotBlank()) IconButton({ open(m.link) }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Открыть") } },
-                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Pal.Card, unfocusedContainerColor = Pal.Card))
+                TelegramLink(m.link, editing = linkEdit || m.link.isBlank(), onEdit = { linkEdit = true }, onChange = { m = m.copy(link = it) },
+                    onConfirm = { linkEdit = false; if (m0.id != 0L && m.link.isNotBlank()) AppScope.io.launch { AppDb.get(ctx).todo().upsertMedia(m.copy(link = m.link.trim())) } },
+                    onRemove = { m = m.copy(link = ""); linkEdit = true }, onOpen = { open(m.link) })
                 info?.let { i ->
                     AppCard(Modifier.fillMaxWidth()) {
                         listOf("Режиссёр" to i.directors, "Сценарий" to i.writers, "В ролях" to i.cast, "Жанр" to i.genres, "Страна" to i.countries).forEach { (k, v) ->
@@ -439,6 +248,39 @@ private fun MovieEditor(m0: MediaItem, onDone: () -> Unit) {
                 }
                 AppTextField(m.note, { m = m.copy(note = it) }, "Заметка", singleLine = false)
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+/** Ссылка на скачанный файл в Telegram: ввёл → галочка → застывает в синюю кнопку «Смотреть в Telegram», справа ⋮. */
+@Composable
+private fun TelegramLink(link: String, editing: Boolean, onEdit: () -> Unit, onChange: (String) -> Unit, onConfirm: () -> Unit, onRemove: () -> Unit, onOpen: () -> Unit) {
+    val tg = Color(0xFF2AABEE)
+    if (editing) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Send, null, tint = tg, modifier = Modifier.size(20.dp))
+            BasicTextField(link, onChange, Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 14.dp), singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Pal.Ink), cursorBrush = SolidColor(tg),
+                decorationBox = { inner -> if (link.isEmpty()) Text("Ссылка из Telegram (t.me/…)", style = MaterialTheme.typography.bodyLarge, color = Color(0xFFB8BCC6)); inner() })
+            val ok = link.isNotBlank()
+            Box(Modifier.size(42.dp).clip(CircleShape).background(if (ok) tg else Pal.Ink.copy(alpha = 0.08f)).clickable(enabled = ok, onClick = onConfirm), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Check, "Готово", tint = if (ok) Color.White else Pal.Muted)
+            }
+        }
+    } else {
+        var menu by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(14.dp)).background(tg).clickable(onClick = onOpen), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = Color.White)
+                Text(" Смотреть в Telegram", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            }
+            Box {
+                IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Ссылка") }
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem({ Text("Изменить ссылку") }, { menu = false; onEdit() }, leadingIcon = { Icon(Icons.Rounded.Edit, null) })
+                    DropdownMenuItem({ Text("Удалить ссылку", color = Pal.RoseInk) }, { menu = false; onRemove() }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = Pal.RoseInk) })
+                }
             }
         }
     }

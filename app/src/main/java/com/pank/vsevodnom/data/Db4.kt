@@ -94,6 +94,10 @@ data class Note(
     val tags: String = "",
     val updatedAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "0") val pageId: Long = 0,
+    @ColumnInfo(defaultValue = "0") val archived: Boolean = false,
+    val deletedAt: Long? = null,                                    // в корзине: удаляется насовсем через 60 дней
+    @ColumnInfo(defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "") val attachments: String = "",   // JSON: фото, аудио, рисунки, место
 )
 
 /** Страница в «Списках»: фильмы, покупки, заметки или своя. */
@@ -128,6 +132,7 @@ data class Birthday(
     @ColumnInfo(defaultValue = "0") val priority: Int = 0,
     @ColumnInfo(defaultValue = "0") val tint: Int = 0,
     @ColumnInfo(defaultValue = "birthday") val kind: String = "birthday",   // birthday | holiday | anniversary | other
+    @ColumnInfo(defaultValue = "") val contactKey: String = "",     // связь с контактом телефона
 )
 
 // ================= Деньги =================
@@ -232,8 +237,11 @@ interface TodoDao {
     @Query("SELECT * FROM list_page") suspend fun pagesOnce(): List<ListPage>
     @Upsert suspend fun upsertPage(p: ListPage): Long
     @Delete suspend fun deletePage(p: ListPage)
-    @Query("SELECT * FROM list_entry WHERE pageId = :page ORDER BY done, sort, createdAt") fun entries(page: Long): Flow<List<ListEntry>>
+    @Query("SELECT * FROM list_entry WHERE pageId = :page ORDER BY sort, createdAt") fun entries(page: Long): Flow<List<ListEntry>>
     @Upsert suspend fun upsertEntry(e: ListEntry): Long
+    @Upsert suspend fun upsertEntries(e: List<ListEntry>)
+    @Query("SELECT * FROM list_entry") fun allEntries(): Flow<List<ListEntry>>
+    @Query("DELETE FROM note WHERE deletedAt IS NOT NULL AND deletedAt < :before") suspend fun purgeNotes(before: Long)
     @Delete suspend fun deleteEntry(e: ListEntry)
     @Query("DELETE FROM list_entry WHERE pageId = :page AND done = 1") suspend fun clearDone(page: Long)
     @Query("UPDATE media_item SET pageId = :page WHERE pageId = 0") suspend fun adoptMedia(page: Long)

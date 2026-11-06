@@ -89,7 +89,7 @@ class MainActivity : FragmentActivity() {
                 val route = entry?.destination?.route ?: "home"
                 val tabs = listOf(
                     Triple("home", "Главная", androidx.compose.material.icons.Icons.Rounded.Home),
-                    Triple("todo", "Дела", androidx.compose.material.icons.Icons.Rounded.Checklist),
+                    Triple("todo", "ToDo", androidx.compose.material.icons.Icons.Rounded.Checklist),
                     Triple("money", "Финансы", androidx.compose.material.icons.Icons.Rounded.AccountBalanceWallet),
                     Triple("calendar?new={new}", "Календарь", androidx.compose.material.icons.Icons.Rounded.CalendarMonth),
                     Triple("apps", "Все", androidx.compose.material.icons.Icons.Rounded.Apps),

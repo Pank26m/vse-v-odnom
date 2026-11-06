@@ -110,7 +110,8 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
         modifier
             .height(36.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Pal.Ink else Pal.Card)
+            // невыбранные — полупрозрачная подложка: видно и на белом, и на сером фоне
+            .background(if (selected) Pal.Ink else Pal.Ink.copy(alpha = 0.06f))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
