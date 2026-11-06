@@ -47,13 +47,16 @@ private val rnd = SecureRandom()
 fun RandomScreen(onBack: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     ScreenScaffold("Рандом", onBack) {
-        Segmented(listOf("Монетка", "Колесо", "Шар", "Число", "Кубики"), tab, { tab = it }, Modifier.padding(horizontal = 16.dp), track = Pal.Peach)
+        androidx.compose.material3.ScrollableTabRow(selectedTabIndex = tab, edgePadding = 16.dp, containerColor = Pal.Bg, divider = {}) {
+            listOf("Монетка", "Колесо", "Шар", "Бутылочка", "Число", "Кубики").forEachIndexed { i, t -> androidx.compose.material3.Tab(tab == i, { tab = i }, text = { Text(t) }) }
+        }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             when (tab) {
                 0 -> Coin()
                 1 -> Wheel()
                 2 -> EightBall()
-                3 -> NumberTab()
+                3 -> Bottle()
+                4 -> NumberTab()
                 else -> Dice()
             }
         }
@@ -310,4 +313,30 @@ private fun Dice() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..6).forEach { k -> Chip("$k", n == k, { n = k; values = List(k) { 1 } }) } }
     Spacer(Modifier.height(16.dp))
     PillButton("Бросить", { scope.launch { repeat(8) { values = List(n) { rnd.nextInt(6) + 1 }; delay(60L + it * 15) } } }, Modifier.fillMaxWidth())
+}
+
+// ---------------- Бутылочка ----------------
+
+@Composable
+private fun Bottle() {
+    val angle = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    Spacer(Modifier.height(24.dp))
+    Box(Modifier.size(300.dp).clip(CircleShape).background(Pal.Card).clickable {
+        if (!angle.isRunning) scope.launch { angle.animateTo(angle.value + 360f * (4 + rnd.nextInt(4)) + rnd.nextFloat() * 360f, tween(3200, easing = CubicBezierEasing(0.1f, 0.7f, 0.1f, 1f))) }
+    }, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(240.dp).graphicsLayer { rotationZ = angle.value }) {
+            val w = size.width; val h = size.height; val cx = w / 2
+            val glass = Color(0xFF6FB28A)
+            // корпус, плечики, горлышко, этикетка
+            drawRoundRect(glass, Offset(cx - w * 0.13f, h * 0.42f), Size(w * 0.26f, h * 0.5f), androidx.compose.ui.geometry.CornerRadius(w * 0.06f))
+            drawPath(Path().apply { moveTo(cx - w * 0.13f, h * 0.46f); quadraticBezierTo(cx - w * 0.13f, h * 0.32f, cx - w * 0.045f, h * 0.27f); lineTo(cx + w * 0.045f, h * 0.27f); quadraticBezierTo(cx + w * 0.13f, h * 0.32f, cx + w * 0.13f, h * 0.46f); close() }, glass)
+            drawRect(glass, Offset(cx - w * 0.045f, h * 0.08f), Size(w * 0.09f, h * 0.2f))
+            drawRect(Color(0xFFB08A2E), Offset(cx - w * 0.05f, h * 0.06f), Size(w * 0.1f, h * 0.04f))
+            drawRoundRect(Color(0xFFFFF6DC), Offset(cx - w * 0.11f, h * 0.58f), Size(w * 0.22f, h * 0.16f), androidx.compose.ui.geometry.CornerRadius(8f))
+            drawRect(Color.White.copy(alpha = 0.35f), Offset(cx - w * 0.09f, h * 0.45f), Size(w * 0.03f, h * 0.42f))
+        }
+    }
+    Spacer(Modifier.height(16.dp))
+    Text("Нажми на бутылочку — горлышко покажет, на кого", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, textAlign = TextAlign.Center)
 }

@@ -58,17 +58,19 @@ private val HM = DateTimeFormatter.ofPattern("HH:mm")
 fun ClockScreen(onBack: () -> Unit, startTab: Int = 0) {
     var tab by rememberSaveable { mutableIntStateOf(startTab) }
     ScreenScaffold("Часы", onBack) {
+        // вкладки внизу — до них легко дотянуться большим пальцем
+        Box(Modifier.weight(1f)) {
+            when (tab) {
+                0 -> WorldTab()
+                1 -> AlarmsTab()
+                2 -> StopwatchTab()
+                else -> TimerTab()
+            }
+        }
         Segmented(
             listOf("Мир", "Будильник", "Секундомер", "Таймер"), tab, { tab = it },
-            Modifier.padding(horizontal = 16.dp)
+            Modifier.padding(16.dp, 8.dp, 16.dp, 12.dp)
         )
-        Spacer(Modifier.height(16.dp))
-        when (tab) {
-            0 -> WorldTab()
-            1 -> AlarmsTab()
-            2 -> StopwatchTab()
-            else -> TimerTab()
-        }
     }
 }
 

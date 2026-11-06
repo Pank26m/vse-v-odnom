@@ -49,6 +49,12 @@ object SmsRepo {
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("sms", Context.MODE_PRIVATE)
     private val DEFAULT_SPAM_WORDS = listOf("казино", "casino", "выигр", "виграл", "кредит онлайн", "займ", "позик", "ставк", "бонус до", "розыгрыш", "розіграш", "приз", "акция!", "знижка до", "скидка до")
 
+    /** Отметки «прочитано» храним у себя: системный флаг может менять только основное СМС-приложение. */
+    fun readAllAt(ctx: Context) = prefs(ctx).getLong("read_all", 0)
+    fun markAllRead(ctx: Context) = prefs(ctx).edit().putLong("read_all", System.currentTimeMillis()).apply()
+    fun readAt(ctx: Context, address: String) = prefs(ctx).getLong("read_" + address.filter { it.isLetterOrDigit() }, 0)
+    fun markRead(ctx: Context, address: String) = prefs(ctx).edit().putLong("read_" + address.filter { it.isLetterOrDigit() }, System.currentTimeMillis()).apply()
+
     fun spamSenders(ctx: Context): Set<String> = prefs(ctx).getStringSet("spam", emptySet())!!
     fun hamSenders(ctx: Context): Set<String> = prefs(ctx).getStringSet("ham", emptySet())!!
     fun spamWords(ctx: Context): List<String> = prefs(ctx).getString("words", null)?.split('\n')?.filter { it.isNotBlank() } ?: DEFAULT_SPAM_WORDS
@@ -98,7 +104,8 @@ object SmsRepo {
             val last = list.first()
             val name = names.getOrPut(last.address) { contactName(ctx, last.address) }
             val code = list.firstOrNull { it.inbox }?.takeIf { System.currentTimeMillis() - it.date < 24 * 3600_000L }?.let { extractCode(it.body) }
-            SmsThread(last.address, name, last, list.count { it.inbox && !it.read }, list.size, isSpam(ctx, last.address, last.body, name != null), code)
+            val seen = maxOf(readAllAt(ctx), readAt(ctx, last.address))
+            SmsThread(last.address, name, last, list.count { it.inbox && !it.read && it.date > seen }, list.size, isSpam(ctx, last.address, last.body, name != null), code)
         }
     }
 

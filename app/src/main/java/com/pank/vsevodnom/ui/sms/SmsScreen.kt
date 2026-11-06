@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -95,7 +96,10 @@ fun SmsScreen(onBack: () -> Unit) {
         return
     }
 
-    ScreenScaffold("СМС", onBack, actions = { RoundIconButton(Icons.Rounded.Settings, "Фильтр спама", { settings = true }) }) {
+    ScreenScaffold("СМС", onBack, actions = {
+        RoundIconButton(Icons.Rounded.DoneAll, "Прочитать всё", { SmsRepo.markAllRead(ctx); version++ })
+        RoundIconButton(Icons.Rounded.Settings, "Фильтр спама", { settings = true })
+    }) {
         if (!granted) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppCard(Modifier.fillMaxWidth(), color = Pal.Peach) {
@@ -124,7 +128,7 @@ fun SmsScreen(onBack: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (all != null && list.isEmpty()) item { EmptyHint(when (tab) { 1 -> "Свежих кодов за сутки нет"; 2 -> "Спама нет"; else -> "Сообщений нет" }) }
             items(list, key = { it.address }) { t ->
-                AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { open = t }) {
+                AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { SmsRepo.markRead(ctx, t.address); version++; open = t }) {
                     Row(verticalAlignment = Alignment.Top) {
                         Box(Modifier.size(40.dp).clip(CircleShape).background(if (t.spam) Pal.Line else Pal.Sky), contentAlignment = Alignment.Center) {
                             Text((t.name ?: t.address).take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = Pal.SkyInk)

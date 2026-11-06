@@ -61,25 +61,25 @@ fun WeatherScene(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier) {
             }
         }
         if (showSun) {
-            val c = Offset(w * 0.74f, h * 0.30f)
+            val c = Offset(w * 0.72f, h * 0.40f)
             if (isDay) sun(c, w * 0.11f, t * 360f * 3) else moon(c, w * 0.09f)
         }
         when (scene) {
             Scene.PARTLY -> {
-                cloud(Offset(w * (0.50f + 0.05f * sin(slow * 2 * PI).toFloat()), h * 0.40f), w * 0.26f, Color.White.copy(alpha = 0.95f))
+                cloud(Offset(w * (0.50f + 0.05f * sin(slow * 2 * PI).toFloat()), h * 0.50f), w * 0.26f, Color.White.copy(alpha = 0.95f))
             }
             Scene.CLOUDY, Scene.FOG, Scene.DRIZZLE, Scene.RAIN, Scene.SNOW, Scene.THUNDER -> {
                 val dark = scene == Scene.THUNDER || scene == Scene.RAIN
                 val base = if (dark) Color(0xFFEEF1F6) else Color.White
-                cloud(Offset(w * (0.18f + 0.04f * sin(slow * 2 * PI).toFloat()), h * 0.30f), w * 0.20f, base.copy(alpha = 0.75f))
-                cloud(Offset(w * (0.70f - 0.05f * sin(slow * 2 * PI).toFloat()), h * 0.25f), w * 0.28f, base.copy(alpha = 0.95f))
-                cloud(Offset(w * (0.45f + 0.03f * cos(slow * 2 * PI).toFloat()), h * 0.38f), w * 0.24f, base)
+                cloud(Offset(w * (0.18f + 0.04f * sin(slow * 2 * PI).toFloat()), h * 0.40f), w * 0.20f, base.copy(alpha = 0.75f))
+                cloud(Offset(w * (0.70f - 0.05f * sin(slow * 2 * PI).toFloat()), h * 0.36f), w * 0.28f, base.copy(alpha = 0.95f))
+                cloud(Offset(w * (0.45f + 0.03f * cos(slow * 2 * PI).toFloat()), h * 0.48f), w * 0.24f, base)
             }
             Scene.CLEAR -> {}
         }
         when (scene) {
             Scene.RAIN, Scene.DRIZZLE, Scene.THUNDER -> {
-                val top = h * 0.42f
+                val top = h * 0.52f
                 val dropLen = if (scene == Scene.DRIZZLE) 10f else 22f
                 particles.forEach { p ->
                     val prog = (fast * p.speed + p.phase) % 1f
@@ -119,7 +119,6 @@ fun WeatherScene(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier) {
 }
 
 private fun DrawScope.sun(c: Offset, r: Float, deg: Float) {
-    drawCircle(Color(0xFFFFF1C4).copy(alpha = 0.6f), radius = r * 1.6f, center = c)
     rotate(deg, c) {
         for (i in 0 until 10) {
             val a = i * (2 * PI / 10)
@@ -137,11 +136,13 @@ private fun DrawScope.moon(c: Offset, r: Float) {
     drawCircle(Color(0xFFE9E4CF), radius = r * 0.12f, center = Offset(c.x + r * 0.35f, c.y + r * 0.3f))
 }
 
-/** Облако из нескольких кругов и «подошвы». */
+/** Пышное облако: несколько «шапок» разного размера и мягкая подошва. */
 private fun DrawScope.cloud(c: Offset, r: Float, color: Color) {
-    drawCircle(color, radius = r * 0.55f, center = Offset(c.x - r * 0.45f, c.y + r * 0.1f))
-    drawCircle(color, radius = r * 0.75f, center = Offset(c.x, c.y - r * 0.15f))
-    drawCircle(color, radius = r * 0.5f, center = Offset(c.x + r * 0.55f, c.y + r * 0.12f))
+    drawCircle(color, radius = r * 0.42f, center = Offset(c.x - r * 0.7f, c.y + r * 0.18f))
+    drawCircle(color, radius = r * 0.58f, center = Offset(c.x - r * 0.35f, c.y - r * 0.08f))
+    drawCircle(color, radius = r * 0.78f, center = Offset(c.x + r * 0.12f, c.y - r * 0.28f))
+    drawCircle(color, radius = r * 0.55f, center = Offset(c.x + r * 0.62f, c.y + r * 0.02f))
+    drawCircle(color, radius = r * 0.4f, center = Offset(c.x + r * 0.9f, c.y + r * 0.22f))
     drawRoundRect(
         color, topLeft = Offset(c.x - r * 0.95f, c.y + r * 0.05f), size = Size(r * 1.95f, r * 0.58f),
         cornerRadius = androidx.compose.ui.geometry.CornerRadius(r * 0.29f)
