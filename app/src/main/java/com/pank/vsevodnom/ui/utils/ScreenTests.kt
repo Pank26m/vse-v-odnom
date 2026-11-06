@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -82,7 +83,7 @@ private val TEST_COLORS = listOf(
 )
 
 @Composable
-private fun ColorsTest(onDone: () -> Unit) {
+fun ColorsTest(onDone: () -> Unit) {
     Immersive(); BackHandler(onBack = onDone)
     var i by remember { mutableIntStateOf(0) }
     var hint by remember { mutableStateOf(true) }
@@ -95,13 +96,30 @@ private fun ColorsTest(onDone: () -> Unit) {
     }
 }
 
+/**
+ * Градиенты: сверху плавный переход, снизу тот же переход из 16 ступеней для сравнения.
+ * Если на плавном видны полосы, как на ступенчатом, — это экран или его настройки (режим цвета/яркости).
+ */
 @Composable
-private fun GradientTest(onDone: () -> Unit) {
+fun GradientTest(onDone: () -> Unit) {
     Immersive(); BackHandler(onBack = onDone)
-    Column(Modifier.fillMaxSize().pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); onDone() } }) {
-        listOf(Color.White, Color.Red, Color.Green, Color.Blue).forEach { c ->
-            Box(Modifier.weight(1f).fillMaxWidth().background(Brush.horizontalGradient(listOf(Color.Black, c))))
+    val colors = listOf(Color.White, Color.Red, Color.Green, Color.Blue)
+    Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); onDone() } }) {
+        Canvas(Modifier.fillMaxSize()) {
+            val bandH = size.height / colors.size
+            colors.forEachIndexed { i, c ->
+                val top = i * bandH
+                // плавный
+                drawRect(Brush.horizontalGradient(listOf(Color.Black, c), startX = 0f, endX = size.width), Offset(0f, top), Size(size.width, bandH * 0.62f))
+                // ступенчатый (эталон «как выглядят полосы»)
+                val steps = 16
+                for (k in 0 until steps) {
+                    val f = k / (steps - 1f)
+                    drawRect(Color(c.red * f, c.green * f, c.blue * f), Offset(size.width * k / steps, top + bandH * 0.66f), Size(size.width / steps + 1, bandH * 0.3f))
+                }
+            }
         }
+        Text("Верхние полосы должны быть плавными, нижние — ступеньки для сравнения.\nКасание — выход", Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.5f)).padding(8.dp), color = Color.White, textAlign = TextAlign.Center)
     }
 }
 
@@ -142,35 +160,44 @@ fun TouchGridTest(onDone: () -> Unit, onPassed: () -> Unit = {}) {
     }
 }
 
+/**
+ * Тест движения как TestUFO: все «тарелки» летят с ОДНОЙ скоростью и долетают до края одновременно,
+ * но картинка обновляется с разной частотой: каждый кадр экрана, каждый 2-й, каждый 4-й.
+ * Верхняя должна быть самой чёткой и плавной; если она «двоится» — шлейф у матрицы.
+ */
 @Composable
-private fun MotionTest(onDone: () -> Unit) {
+fun MotionTest(onDone: () -> Unit) {
     Immersive(); BackHandler(onBack = onDone)
+    val ctx = LocalContext.current
+    @Suppress("DEPRECATION")
+    val hz = remember { (ctx.findActivity()?.display?.refreshRate ?: 60f).coerceIn(30f, 165f) }
     var t by remember { mutableLongStateOf(0L) }
     var fps by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         var last = 0L; var frames = 0; var acc = 0L
-        while (true) {
-            withFrameNanos { now ->
-                if (last != 0L) { acc += now - last; frames++ }
-                if (acc >= 1_000_000_000L) { fps = (frames * 1e9 / acc).roundToInt(); frames = 0; acc = 0 }
-                last = now; t = now
-            }
+        while (true) withFrameNanos { now ->
+            if (last != 0L) { acc += now - last; frames++ }
+            if (acc >= 1_000_000_000L) { fps = (frames * 1e9 / acc).roundToInt(); frames = 0; acc = 0 }
+            last = now; t = now
         }
     }
+    val speed = 960f // пикселей в секунду — как в TestUFO
     Box(Modifier.fillMaxSize().background(Color(0xFF2B2A33)).pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); onDone() } }) {
         Canvas(Modifier.fillMaxSize()) {
-            val lanes = listOf(240f, 480f, 960f) // пикселей в секунду
             val sec = t / 1e9f
-            lanes.forEachIndexed { i, speed ->
+            val period = (size.width + 120f) / speed
+            listOf(1, 2, 4).forEachIndexed { i, div ->
+                val laneFps = hz / div
+                val q = kotlin.math.floor((sec % period) * laneFps) / laneFps   // время, округлённое до кадров этой полосы
+                val x = q * speed - 60f
                 val y = size.height * (0.25f + i * 0.25f)
                 drawLine(Color.White.copy(alpha = 0.08f), Offset(0f, y), Offset(size.width, y), 2f)
-                val x = (sec * speed) % (size.width + 120f) - 60f
-                // «тарелка»
                 drawOval(Color(0xFFDCEBFA), Offset(x - 50, y - 14), Size(100f, 28f))
                 drawOval(Color(0xFFB9A9E8), Offset(x - 24, y - 34), Size(48f, 34f))
                 drawCircle(Color(0xFFFCE7A6), 5f, Offset(x - 20, y + 2)); drawCircle(Color(0xFFFCE7A6), 5f, Offset(x, y + 4)); drawCircle(Color(0xFFFCE7A6), 5f, Offset(x + 20, y + 2))
+                drawContext.canvas.nativeCanvas.drawText("${laneFps.roundToInt()} кадр/с", 24f, y - 46f, android.graphics.Paint().apply { color = android.graphics.Color.WHITE; textSize = 36f; isAntiAlias = true })
             }
         }
-        Text("$fps кадр/с · 240 / 480 / 960 пикс/с · касание — выход", Modifier.align(Alignment.TopCenter).padding(top = 32.dp), color = Color.White)
+        Text("Экран ${hz.roundToInt()} Гц · сейчас $fps кадр/с · скорость 960 пикс/с · касание — выход", Modifier.align(Alignment.TopCenter).padding(top = 32.dp), color = Color.White)
     }
 }

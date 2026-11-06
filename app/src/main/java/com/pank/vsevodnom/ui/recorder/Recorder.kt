@@ -82,13 +82,15 @@ class RecorderService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) { stop(); return START_NOT_STICKY }
         if (rec != null) return START_NOT_STICKY
-        Channels.ensure(this)
+        getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(
+            android.app.NotificationChannel("rec", "Запись диктофона", android.app.NotificationManager.IMPORTANCE_MIN).apply { setSound(null, null); enableVibration(false); setShowBadge(false) }
+        )
         val open = PendingIntent.getActivity(this, 40, Intent(this, MainActivity::class.java).putExtra("route", "recorder"),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stopPi = PendingIntent.getService(this, 41, Intent(this, RecorderService::class.java).setAction(STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val n: Notification = NotificationCompat.Builder(this, Channels.REMINDER)
-            .setSmallIcon(R.drawable.ic_notify).setContentTitle("Идёт запись").setOngoing(true)
+        val n: Notification = NotificationCompat.Builder(this, "rec")
+            .setSmallIcon(R.drawable.ic_notify).setContentTitle("Идёт запись").setOngoing(true).setSilent(true).setPriority(NotificationCompat.PRIORITY_MIN)
             .setUsesChronometer(true).setWhen(System.currentTimeMillis())
             .setContentIntent(open).addAction(0, "Остановить", stopPi).build()
         ServiceCompat.startForeground(this, 8, n,

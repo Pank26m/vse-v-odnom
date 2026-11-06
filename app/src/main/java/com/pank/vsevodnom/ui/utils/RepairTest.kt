@@ -77,6 +77,9 @@ private enum class Res { NONE, OK, FAIL }
 private data class Check(val key: String, val title: String, val hint: String)
 
 private val CHECKS = listOf(
+    Check("colors", "Экран: цвета", "Битые пиксели, пятна, выгорание"),
+    Check("gradient", "Экран: градиенты", "Плавные переходы без полос"),
+    Check("motion", "Экран: движение", "Шлейфы и плавность (как TestUFO)"),
     Check("touch", "Сенсорный экран", "Закрась все клетки пальцем"),
     Check("multitouch", "Мультитач", "Приложи несколько пальцев сразу"),
     Check("speaker", "Основной динамик", "Играет тон — слышно громко и чисто?"),
@@ -103,11 +106,17 @@ fun RepairTestScreen(onBack: () -> Unit) {
     val full = remember { mutableStateOf<String?>(null) }
 
     when (full.value) {
-        "touch" -> { TouchGridTest({ full.value = null; if (res["touch"] != Res.OK) running = CHECKS[0] }, { res["touch"] = Res.OK }); return }
+        "touch" -> { TouchGridTest({ full.value = null; if (res["touch"] != Res.OK) running = CHECKS.first { it.key == "touch" } }, { res["touch"] = Res.OK }); return }
+        "colors", "gradient", "motion" -> {
+            val k = full.value!!
+            val done = { full.value = null; running = CHECKS.first { it.key == k } }
+            when (k) { "colors" -> ColorsTest(done); "gradient" -> GradientTest(done); else -> MotionTest(done) }
+            return
+        }
         "multitouch" -> { MultiTouch { n -> full.value = null; res["multitouch"] = if (n >= 2) Res.OK else Res.FAIL }; return }
     }
 
-    ScreenScaffold("Тест после ремонта", onBack, actions = {
+    ScreenScaffold("Тесты телефона", onBack, actions = {
         RoundIconButton(Icons.Rounded.ContentCopy, "Скопировать отчёт", {
             val txt = "Тест ${Build.MANUFACTURER} ${Build.MODEL}\n" + CHECKS.joinToString("\n") {
                 (when (res[it.key]) { Res.OK -> "✔"; Res.FAIL -> "✘"; else -> "–" }) + " " + it.title
@@ -127,7 +136,7 @@ fun RepairTestScreen(onBack: () -> Unit) {
             items(CHECKS) { c ->
                 val r = res[c.key] ?: Res.NONE
                 AppCard(Modifier.fillMaxWidth(), padding = 14.dp, onClick = {
-                    if (c.key == "touch" || c.key == "multitouch") full.value = c.key else running = c
+                    if (c.key in setOf("touch", "multitouch", "colors", "gradient", "motion")) full.value = c.key else running = c
                 }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -266,6 +275,7 @@ private fun CheckDialog(c: Check, onResult: (Res) -> Unit, onDismiss: () -> Unit
     var autoOk by remember { mutableStateOf(false) }
     val content: @Composable () -> Unit = {
         when (c.key) {
+            "colors", "gradient", "motion" -> Text("Всё выглядело нормально?")
             "speaker", "earpiece" -> {
                 LaunchedEffect(Unit) { phase = "Играет тон…"; runCatching { playTone(ctx, c.key == "earpiece") }; phase = "Было слышно?" }
                 Text(phase)

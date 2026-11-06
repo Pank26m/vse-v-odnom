@@ -16,9 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,7 +63,7 @@ fun FilesScreen(onBack: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { PillButton("Открыть файл", { picker.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth()) }
             item { Text("PDF, картинки, текст, Word (.docx), книги (.epub), Excel (.xls, .xlsx). Файлы из Telegram и проводника можно открывать через «Открыть с помощью».", style = MaterialTheme.typography.bodySmall) }
-            if (recents.isNotEmpty()) item { SectionLabel("Недавние · удерживай, чтобы убрать") }
+            if (recents.isNotEmpty()) item { SectionLabel("Недавние") }
             items(recents, key = { it.toString() }) { u ->
                 val name = remember(u) { displayName(ctx, u) }
                 val kind = remember(u) { kindOf(name, runCatching { ctx.contentResolver.getType(u) }.getOrNull()) }
@@ -77,12 +75,29 @@ fun FilesScreen(onBack: () -> Unit) {
                     Kind.XLS, Kind.XLSX -> Icons.Rounded.TableChart to Tints.Mint
                     Kind.OTHER -> Icons.Rounded.InsertDriveFile to Tints.Butter
                 }
-                Box(Modifier.clip(RoundedCornerShape(24.dp)).combinedClickable(onClick = { open = u }, onLongClick = { Recents.remove(ctx, u); recents = Recents.list(ctx) })) {
-                    AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(tint.bg), contentAlignment = Alignment.Center) { Icon(icon, null, tint = tint.ink) }
-                            Spacer(Modifier.width(12.dp))
-                            Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                var menu by remember { mutableStateOf(false) }
+                AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { open = u }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(tint.bg), contentAlignment = Alignment.Center) { Icon(icon, null, tint = tint.ink) }
+                        Spacer(Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 2, modifier = Modifier.weight(1f))
+                        Box {
+                            IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Ещё", tint = Pal.Muted) }
+                            DropdownMenu(menu, { menu = false }) {
+                                val mime = runCatching { ctx.contentResolver.getType(u) }.getOrNull() ?: "*/*"
+                                DropdownMenuItem({ Text("Открыть") }, { menu = false; open = u })
+                                DropdownMenuItem({ Text("Поделиться") }, {
+                                    menu = false
+                                    ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, u).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), name))
+                                })
+                                DropdownMenuItem({ Text("Открыть в другом приложении") }, {
+                                    menu = false
+                                    runCatching { ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(u, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Открыть в…")) }
+                                })
+                                if (kind == Kind.XLS) DropdownMenuItem({ Text("Загрузить как расписание пар") }, { menu = false; importAsSchedule(ctx, u) })
+                                FileImports.menuItems(ctx, u, name) { menu = false }
+                                DropdownMenuItem({ Text("Убрать из списка", color = Pal.RoseInk) }, { menu = false; Recents.remove(ctx, u); recents = Recents.list(ctx) })
+                            }
                         }
                     }
                 }

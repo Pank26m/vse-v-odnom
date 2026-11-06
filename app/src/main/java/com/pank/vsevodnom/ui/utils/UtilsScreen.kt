@@ -28,8 +28,7 @@ private data class Util(val key: String, val title: String, val sub: String, val
 private val UTILS = listOf(
     Util("device", "Об устройстве", "Модель, процессор, память, экран, камеры, датчики", Icons.Rounded.PhoneAndroid, Tints.Sky),
     Util("battery", "Батарея", "Ток, мощность зарядки, температура, циклы, износ", Icons.Rounded.BatteryChargingFull, Tints.Mint),
-    Util("repair", "Тест после ремонта", "Тач, динамики, микрофон, камеры, кнопки, датчики", Icons.Rounded.Build, Tints.Peach),
-    Util("screen", "Тест экрана", "Битые пиксели, выгорание, шлейфы движения, частота", Icons.Rounded.Monitor, Tints.Lilac),
+    Util("repair", "Тесты телефона", "Экран, тач, динамики, микрофон, камеры, кнопки, датчики — с отчётом", Icons.Rounded.Build, Tints.Peach),
     Util("wifi", "Wi-Fi сканер", "Сети вокруг, сигнал, каналы, защита", Icons.Rounded.Wifi, Tints.Sky),
 )
 
@@ -42,7 +41,6 @@ fun UtilsScreen(onBack: () -> Unit) {
         "device" -> DeviceInfoScreen(close)
         "battery" -> BatteryScreen(close)
         "repair" -> RepairTestScreen(close)
-        "screen" -> ScreenTestScreen(close)
         "wifi" -> WifiScreen(close)
         else -> ScreenScaffold("Утилиты", onBack) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
