@@ -30,11 +30,17 @@ class AlertWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
         val st = runCatching { AlertsApi.fetch(applicationContext) }.getOrElse { return Result.retry() }
         val prefs = applicationContext.getSharedPreferences("alerts", Context.MODE_PRIVATE)
         listOf(AlertsApi.KYIV_CITY to "Киев", AlertsApi.KYIV_OBL to "Киевская область").forEachIndexed { i, (key, title) ->
-            val now = st.active[key] ?: return@forEachIndexed
-            val was = prefs.getBoolean("last_$key", false)
-            if (now != was) {
-                prefs.edit().putBoolean("last_$key", now).apply()
-                notify(100 + i, if (now) "Тревога: $title" else "Отбой: $title", if (now) "Пройди в укрытие" else "Тревога закончилась")
+            if (!st.known(key)) return@forEachIndexed
+            val now = st.of(key)
+            val was = prefs.getString("lvl_$key", "NONE")
+            if (now.name != was) {
+                prefs.edit().putString("lvl_$key", now.name).apply()
+                val where = st.districts[key].orEmpty().take(3).joinToString(", ")
+                when (now) {
+                    com.pank.vsevodnom.data.AlertLevel.FULL -> notify(100 + i, "Тревога: $title", "Пройди в укрытие")
+                    com.pank.vsevodnom.data.AlertLevel.PARTIAL -> notify(100 + i, "Тревога в части: $title", where.ifBlank { "Отдельные районы" })
+                    com.pank.vsevodnom.data.AlertLevel.NONE -> notify(100 + i, "Отбой: $title", "Тревога закончилась")
+                }
             }
         }
         return Result.success()

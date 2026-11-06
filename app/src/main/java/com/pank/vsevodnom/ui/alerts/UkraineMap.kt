@@ -36,3 +36,6 @@ val REGION_SHAPES: Map<String, FloatArray> = mapOf(
 
 /** Киев на карте. */
 val KYIV_POINT = floatArrayOf(465f, 161f)
+
+/** Севастополь на карте. */
+val SEVASTOPOL_POINT = floatArrayOf(632f, 649f)
