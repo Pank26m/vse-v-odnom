@@ -118,7 +118,7 @@ object AlarmScheduler {
     /** Напоминание о взвешивании: каждый понедельник в 9:00. */
     fun scheduleWeightReminder(ctx: Context) {
         val now = LocalDateTime.now()
-        var next = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY)).atTime(9, 0)
+        var next = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY)).atTime(8, 0)
         if (!next.isAfter(now)) next = next.plusWeeks(1)
         val op = PendingIntent.getBroadcast(
             ctx, REQ_WEIGHT, Intent(ctx, WeightReminderReceiver::class.java),

@@ -120,10 +120,11 @@ object HealthRepo {
 }
 
 @Composable
-fun HealthScreen(onBack: () -> Unit) {
+fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var workout by remember { mutableStateOf(false) }
+    var weightOpen by remember { mutableStateOf(startWeight) }
     var summary by remember { mutableStateOf<HealthSummary?>(null) }
     var granted by remember { mutableStateOf<Set<String>?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
@@ -140,9 +141,18 @@ fun HealthScreen(onBack: () -> Unit) {
     }
 
     if (workout) { BackHandler { workout = false }; CyclingWorkout { workout = false; version++ }; return }
+    if (weightOpen) { BackHandler { weightOpen = false }; com.pank.vsevodnom.ui.weight.WeightScreen({ weightOpen = false }); return }
 
     ScreenScaffold("Здоровье", onBack) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                val w by remember { com.pank.vsevodnom.data.AppDb.get(ctx).weight().all() }.collectAsState(initial = emptyList())
+                AppCard(Modifier.fillMaxWidth(), color = Pal.Mint, onClick = { weightOpen = true }) {
+                    Text("Вес, ИМТ и цель", style = MaterialTheme.typography.labelLarge, color = Pal.MintInk)
+                    Text(w.lastOrNull()?.let { "${com.pank.vsevodnom.ui.weight.fmtKg(it.kg)} кг" } ?: "— кг", style = MaterialTheme.typography.headlineLarge)
+                    Text("Графики за неделю, месяц, год · взвешивание по понедельникам в 08:00", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (status != HealthConnectClient.SDK_AVAILABLE) {
                 item {
                     AppCard(Modifier.fillMaxWidth(), color = Pal.Peach) {

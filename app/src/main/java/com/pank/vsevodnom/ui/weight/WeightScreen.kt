@@ -49,6 +49,12 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
     val entries by dao.all().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var dialog by remember { mutableStateOf(startNew) }
+    var range by remember { mutableIntStateOf(100_000) }
+    val wp = remember { ctx.getSharedPreferences("weight", android.content.Context.MODE_PRIVATE) }
+    var goal by remember { mutableStateOf(wp.getFloat("goal", 0f).takeIf { it > 0 }?.toDouble()) }
+    var heightCm by remember { mutableStateOf(wp.getInt("height", 0).takeIf { it > 0 }) }
+    var askGoal by remember { mutableStateOf(false) }
+    var askHeight by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<List<com.pank.vsevodnom.data.WeightCsv.Row>?>(null) }
     var importErr by remember { mutableStateOf<String?>(null) }
     fun readCsv(u: android.net.Uri) {
@@ -80,17 +86,32 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    WeightChart(entries.takeLast(26), Modifier.fillMaxWidth().height(140.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(7 to "Неделя", 31 to "Месяц", 365 to "Год", 100_000 to "Всё").forEach { (d, t) -> Chip(t, range == d, { range = d }) }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    val from = LocalDate.now().minusDays(range.toLong()).toEpochDay()
+                    val shown = entries.filter { it.epochDay >= from }.ifEmpty { entries.takeLast(2) }
+                    WeightChart(shown, Modifier.fillMaxWidth().height(160.dp))
+                    if (shown.size >= 2) Row(Modifier.fillMaxWidth()) {
+                        Text(shown.first().dateStr(true), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                        Text("мин ${fmtKg(shown.minOf { it.kg })} · макс ${fmtKg(shown.maxOf { it.kg })}", style = MaterialTheme.typography.labelSmall)
+                    }
                     Spacer(Modifier.height(12.dp))
                     val today = LocalDate.now()
                     Text(
                         if (today.dayOfWeek == DayOfWeek.MONDAY) "Сегодня понедельник — день взвешивания"
-                        else "Следующее взвешивание через ${daysToMonday()} дн. Напомню в понедельник в 9:00",
+                        else "Следующее взвешивание через ${daysToMonday()} дн. Напомню в понедельник в 08:00",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(12.dp))
                     PillButton("Записать вес", { dialog = true }, Modifier.fillMaxWidth(), bg = Pal.Mint, fg = Color(0xFF1F5C3F))
                 }
+            }
+            entries.lastOrNull()?.let { last ->
+                item { BmiCard(last.kg, heightCm) { askHeight = true } }
+                item { GoalCard(last.kg, goal) { askGoal = true } }
+                item { ChangesCard(entries) }
             }
             if (entries.isEmpty()) item { EmptyHint("Записей пока нет") }
             items(entries.reversed(), key = { it.id }) { e ->
@@ -105,6 +126,8 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
         }
     }
 
+    if (askGoal) NumberDialog("Цель, кг", goal?.let { fmtKg(it) } ?: "", { askGoal = false }) { v -> goal = v; wp.edit().putFloat("goal", v.toFloat()).apply() }
+    if (askHeight) NumberDialog("Рост, см", heightCm?.toString() ?: "", { askHeight = false }) { v -> heightCm = v.toInt(); wp.edit().putInt("height", v.toInt()).apply() }
     preview?.let { rows ->
         AlertDialog(
             onDismissRequest = { preview = null },
@@ -179,5 +202,81 @@ fun WeightChart(entries: List<WeightEntry>, modifier: Modifier = Modifier, line:
         val p = Path().apply { moveTo(pts[0].x, pts[0].y); pts.drop(1).forEach { lineTo(it.x, it.y) } }
         drawPath(p, line, style = Stroke(6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         drawCircle(Pal.MintInk, 10f, pts.last())
+    }
+}
+
+@Composable
+private fun NumberDialog(title: String, initial: String, onDismiss: () -> Unit, onValue: (Double) -> Unit) {
+    var t by remember { mutableStateOf(initial) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) },
+        text = { AppTextField(t, { t = it }, title, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) },
+        confirmButton = { TextButton({ t.replace(',', '.').toDoubleOrNull()?.let(onValue); onDismiss() }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
+}
+
+/** ИМТ и оценка по шкале ВОЗ. */
+@Composable
+private fun BmiCard(kg: Double, heightCm: Int?, onSetHeight: () -> Unit) {
+    AppCard(Modifier.fillMaxWidth(), onClick = onSetHeight) {
+        SectionLabel("Индекс массы тела")
+        if (heightCm == null) { Text("Укажи рост — нажми сюда", style = MaterialTheme.typography.bodyMedium); return@AppCard }
+        val bmi = kg / (heightCm / 100.0).let { it * it }
+        val (label, color) = when {
+            bmi < 18.5 -> "недостаток веса" to Pal.SkyInk
+            bmi < 25 -> "норма" to Pal.MintInk
+            bmi < 30 -> "избыточный вес" to Pal.ButterInk
+            bmi < 35 -> "ожирение I степени" to Pal.PeachInk
+            bmi < 40 -> "ожирение II степени" to Pal.RoseInk
+            else -> "ожирение III степени" to Pal.RoseInk
+        }
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("%.1f".format(bmi).replace('.', ','), style = MaterialTheme.typography.displayMedium)
+            Spacer(Modifier.width(10.dp))
+            Text(label, style = MaterialTheme.typography.titleMedium, color = color, modifier = Modifier.padding(bottom = 8.dp))
+        }
+        // шкала 16…40
+        Canvas(Modifier.fillMaxWidth().height(14.dp)) {
+            val segs = listOf(16.0 to 18.5, 18.5 to 25.0, 25.0 to 30.0, 30.0 to 35.0, 35.0 to 40.0)
+            val cols = listOf(Pal.Sky, Pal.Mint, Pal.Butter, Pal.Peach, Pal.Rose)
+            segs.forEachIndexed { i, (a, b) -> drawRect(cols[i], Offset(((a - 16) / 24 * size.width).toFloat(), 0f), androidx.compose.ui.geometry.Size(((b - a) / 24 * size.width).toFloat(), size.height)) }
+            val x = ((bmi.coerceIn(16.0, 40.0) - 16) / 24 * size.width).toFloat()
+            drawLine(Pal.Ink, Offset(x, -4f), Offset(x, size.height + 4f), 5f)
+        }
+        val normHi = 24.9 * (heightCm / 100.0).let { it * it }
+        if (kg > normHi) Text("До верхней границы нормы: −${fmtKg(kg - normHi)} кг", style = MaterialTheme.typography.bodySmall)
+        Text("Рост $heightCm см · нажми, чтобы изменить", style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+/** Цель и сколько к ней идти при −0,5 и −0,8 кг в неделю. */
+@Composable
+private fun GoalCard(kg: Double, goal: Double?, onSet: () -> Unit) {
+    AppCard(Modifier.fillMaxWidth(), color = Pal.Mint, onClick = onSet) {
+        SectionLabel("Стремление", Pal.MintInk)
+        if (goal == null) { Text("Задай цель — нажми сюда", style = MaterialTheme.typography.bodyMedium); return@AppCard }
+        val left = kg - goal
+        Text("Цель ${fmtKg(goal)} кг · " + if (left > 0) "осталось ${fmtKg(left)} кг" else "достигнута!", style = MaterialTheme.typography.titleMedium)
+        if (left > 0) listOf(0.5, 0.8).forEach { rate ->
+            val weeks = kotlin.math.ceil(left / rate).toLong()
+            Text("При −${fmtKg(rate)} кг/нед: ~$weeks нед. → к ${LocalDate.now().plusWeeks(weeks).format(DMY)}", style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+/** Таблица изменений: за 7, 30, 180 и 365 дней. */
+@Composable
+private fun ChangesCard(entries: List<WeightEntry>) {
+    val last = entries.lastOrNull() ?: return
+    AppCard(Modifier.fillMaxWidth()) {
+        SectionLabel("Изменения")
+        listOf(7 to "за неделю", 30 to "за 30 дней", 180 to "за 180 дней", 365 to "за год").forEach { (d, t) ->
+            val ref = entries.lastOrNull { it.epochDay <= last.epochDay - d } ?: return@forEach
+            val diff = last.kg - ref.kg
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(t, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text((if (diff > 0) "+" else if (diff < 0) "−" else "") + fmtKg(kotlin.math.abs(diff)) + " кг", style = MaterialTheme.typography.titleSmall,
+                    color = if (diff > 0) Pal.PeachInk else Pal.MintInk)
+            }
+        }
     }
 }
