@@ -23,6 +23,9 @@ data class PiggyGoal(
     val tint: Int = 0,
     val note: String = "",
     val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "") val photo: String = "",      // Uri картинки
+    @ColumnInfo(defaultValue = "") val link: String = "",       // ссылка на товар
+    @ColumnInfo(defaultValue = "") val link2: String = "",      // ссылка на объявление аренды
 ) {
     companion object {
         const val KIND_SAVE = "SAVE"
@@ -114,6 +117,31 @@ data class CalEvent(
     val allDay: Boolean = false,
     val note: String = "",
     val tint: Int = 3,
+)
+
+/** Запись дневника настроения: 1 ужасно … 5 супер. */
+@Entity(tableName = "mood", indices = [Index("at")])
+data class MoodEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val at: Long = System.currentTimeMillis(),
+    val level: Int,
+    val note: String = "",
+)
+
+/** Корзина: что хочу купить. */
+@Entity(tableName = "cart_item")
+data class CartItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val url: String = "",
+    val title: String,
+    val price: Double? = null,
+    val currency: String = "",
+    val image: String = "",
+    val store: String = "",
+    val note: String = "",
+    val priority: Int = 1,
+    val addedAt: Long = System.currentTimeMillis(),
+    val bought: Boolean = false,
 )
 
 // ---------- DAO ----------
@@ -264,14 +292,27 @@ interface ScheduleDao {
     suspend fun deleteEvent(e: CalEvent)
 }
 
+@Dao
+interface LifeDao {
+    @Query("SELECT * FROM mood ORDER BY at DESC")
+    fun moods(): Flow<List<MoodEntry>>
+    @Insert suspend fun addMood(m: MoodEntry)
+    @Delete suspend fun deleteMood(m: MoodEntry)
+
+    @Query("SELECT * FROM cart_item ORDER BY bought, priority DESC, addedAt DESC")
+    fun cart(): Flow<List<CartItem>>
+    @Upsert suspend fun upsertCart(c: CartItem): Long
+    @Delete suspend fun deleteCart(c: CartItem)
+}
+
 // ---------- База ----------
 
 @Database(
     entities = [
         WeightEntry::class, PiggyGoal::class, PiggyTx::class, AlarmEntity::class, WorldCity::class, WeatherCity::class,
-        Lesson::class, SubjectAlias::class, CalEvent::class,
+        Lesson::class, SubjectAlias::class, CalEvent::class, MoodEntry::class, CartItem::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -280,9 +321,22 @@ abstract class AppDb : RoomDatabase() {
     abstract fun alarms(): AlarmDao
     abstract fun cities(): CityDao
     abstract fun schedule(): ScheduleDao
+    abstract fun life(): LifeDao
 
     companion object {
         @Volatile private var inst: AppDb? = null
+
+        /** v2 → v3: фото и ссылки у копилок, дневник настроения, корзина. */
+        val M2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `piggy_goal` ADD COLUMN `photo` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `piggy_goal` ADD COLUMN `link` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `piggy_goal` ADD COLUMN `link2` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `mood` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `at` INTEGER NOT NULL, `level` INTEGER NOT NULL, `note` TEXT NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_mood_at` ON `mood` (`at`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `cart_item` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `url` TEXT NOT NULL, `title` TEXT NOT NULL, `price` REAL, `currency` TEXT NOT NULL, `image` TEXT NOT NULL, `store` TEXT NOT NULL, `note` TEXT NOT NULL, `priority` INTEGER NOT NULL, `addedAt` INTEGER NOT NULL, `bought` INTEGER NOT NULL)")
+            }
+        }
 
         /** v1 → v2: расписание, сокращения предметов, свои события. Данные v1 не трогаем. */
         val M1_2 = object : androidx.room.migration.Migration(1, 2) {
@@ -296,7 +350,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2)
+                .addMigrations(M1_2, M2_3)
                 .build().also { inst = it }
         }
     }

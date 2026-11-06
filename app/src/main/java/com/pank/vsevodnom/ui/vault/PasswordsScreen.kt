@@ -67,6 +67,9 @@ fun copySecret(ctx: Context, label: String, value: String) {
     if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Скопировано · очистится через 45 с", Toast.LENGTH_SHORT).show()
 }
 
+/** Файл KeePass, выбранный в «Файлах» — импортируется после разблокировки. */
+object PendingVaultImport { var uri by mutableStateOf<android.net.Uri?>(null) }
+
 /** Пока открыт выбор файла для бэкапа, не блокируем хранилище (это другое окно, но наше действие). */
 private object LockGuard { var suppress = false }
 
@@ -144,6 +147,22 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
         if (u != null) { pendingBlob = runCatching { ctx.contentResolver.openInputStream(u)!!.use { it.readBytes() } }.getOrNull(); backup = "import" }
     }
 
+    var keepassMsg by remember { mutableStateOf<String?>(null) }
+    fun importKeepass(u: android.net.Uri) {
+        runCatching {
+            val name = com.pank.vsevodnom.ui.files.displayName(ctx, u)
+            val text = ctx.contentResolver.openInputStream(u)!!.use { it.readBytes().toString(Charsets.UTF_8) }
+            val imp = com.pank.vsevodnom.data.KeePassImport.parse(name, text)
+            val have = entries.map { it.title.lowercase() to it.login.lowercase() }.toSet()
+            val fresh = imp.filter { (it.title.lowercase() to it.login.lowercase()) !in have }
+            onChange(entries + fresh)
+            "Импортировано: ${fresh.size}" + (if (imp.size > fresh.size) " (повторов пропущено: ${imp.size - fresh.size})" else "") +
+                "\n\nТеперь удали файл экспорта с телефона — он не зашифрован."
+        }.onSuccess { keepassMsg = it }.onFailure { keepassMsg = "Не получилось: ${it.message}" }
+    }
+    val keepassPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> LockGuard.suppress = false; u?.let(::importKeepass) }
+    LaunchedEffect(PendingVaultImport.uri) { PendingVaultImport.uri?.let { PendingVaultImport.uri = null; importKeepass(it) } }
+
     val shown = entries.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) }
         .filter { tab == 0 || it.totp.isNotBlank() }.sortedBy { it.title.lowercase() }
 
@@ -154,6 +173,7 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem({ Text("Сохранить бэкап…") }, { menu = false; LockGuard.suppress = true; exporter.launch("пароли-бэкап.vvo") })
                 DropdownMenuItem({ Text("Восстановить из бэкапа…") }, { menu = false; LockGuard.suppress = true; importer.launch(arrayOf("*/*")) })
+                DropdownMenuItem({ Text("Импорт из KeePass (CSV / XML)…") }, { menu = false; LockGuard.suppress = true; keepassPicker.launch(arrayOf("text/*", "application/xml", "text/xml", "text/csv", "*/*")) })
                 DropdownMenuItem({ Text("Закрыть хранилище") }, { menu = false; onLock() })
             }
         }
@@ -188,6 +208,7 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
         }
     }
 
+    keepassMsg?.let { m -> AlertDialog(onDismissRequest = { keepassMsg = null }, title = { Text("Импорт KeePass") }, text = { Text(m) }, confirmButton = { TextButton({ keepassMsg = null }) { Text("Ок") } }) }
     edit?.let { e ->
         EntryEditor(e, onDismiss = { edit = null }, onSave = { n ->
             onChange(entries.filter { it.id != n.id } + n.copy(updatedAt = System.currentTimeMillis())); edit = null

@@ -48,8 +48,19 @@ fun WeightScreen(onBack: () -> Unit) {
     val entries by dao.all().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var dialog by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<List<com.pank.vsevodnom.data.WeightCsv.Row>?>(null) }
+    var importErr by remember { mutableStateOf<String?>(null) }
+    fun readCsv(u: android.net.Uri) {
+        runCatching { com.pank.vsevodnom.data.WeightCsv.parse(ctx.contentResolver.openInputStream(u)!!.use { it.readBytes().toString(Charsets.UTF_8) }) }
+            .onSuccess { if (it.isEmpty()) importErr = "В файле не нашлось записей веса" else preview = it }
+            .onFailure { importErr = "Не получилось прочитать: ${it.message}" }
+    }
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { it?.let(::readCsv) }
+    LaunchedEffect(Unit) { com.pank.vsevodnom.ui.files.WeightImport.pending?.let { com.pank.vsevodnom.ui.files.WeightImport.pending = null; readCsv(it) } }
 
-    ScreenScaffold("Вес", onBack) {
+    ScreenScaffold("Вес", onBack, actions = {
+        RoundIconButton(androidx.compose.material.icons.Icons.Rounded.FileUpload, "Импорт из CSV", { picker.launch(arrayOf("text/*", "text/csv", "*/*")) })
+    }) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 AppCard(modifier = Modifier.fillMaxWidth()) {
@@ -93,6 +104,23 @@ fun WeightScreen(onBack: () -> Unit) {
         }
     }
 
+    preview?.let { rows ->
+        AlertDialog(
+            onDismissRequest = { preview = null },
+            title = { Text("Импорт веса") },
+            text = { Text("Найдено записей: ${rows.size}\nс ${rows.first().day.format(DMY)} по ${rows.last().day.format(DMY)}\nот ${fmtKg(rows.minOf { it.kg })} до ${fmtKg(rows.maxOf { it.kg })} кг\n\nЕсли на какой-то день вес уже записан — заменю значением из файла.") },
+            confirmButton = {
+                TextButton({
+                    com.pank.vsevodnom.data.AppScope.io.launch {
+                        rows.forEach { r -> val ex = dao.byDay(r.day.toEpochDay()); dao.upsert(WeightEntry(id = ex?.id ?: 0, epochDay = r.day.toEpochDay(), kg = r.kg)) }
+                    }
+                    preview = null
+                }) { Text("Импортировать") }
+            },
+            dismissButton = { TextButton({ preview = null }) { Text("Отмена") } }
+        )
+    }
+    importErr?.let { AlertDialog(onDismissRequest = { importErr = null }, text = { Text(it) }, confirmButton = { TextButton({ importErr = null }) { Text("Ок") } }) }
     if (dialog) {
         var text by remember { mutableStateOf(entries.lastOrNull()?.let { fmtKg(it.kg) } ?: "") }
         var dayOffset by remember { mutableIntStateOf(0) }

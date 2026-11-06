@@ -109,6 +109,7 @@ class MainActivity : FragmentActivity() {
         }
         return when (i?.getStringExtra("route")) {
             "downloads" -> "downloads"
+            "passwords" -> "passwords"
             "clock" -> "clock/1"
             "weight" -> "weight"
             "calendar" -> "calendar"
