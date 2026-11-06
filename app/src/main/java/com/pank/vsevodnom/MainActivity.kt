@@ -26,6 +26,7 @@ import com.pank.vsevodnom.ui.files.FilesScreen
 import com.pank.vsevodnom.ui.games.GamesScreen
 import com.pank.vsevodnom.ui.vault.PasswordsScreen
 import com.pank.vsevodnom.ui.sms.SmsScreen
+import com.pank.vsevodnom.ui.contacts.ContactsScreen
 import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
@@ -80,6 +81,7 @@ class MainActivity : FragmentActivity() {
                     composable("games") { GamesScreen(back) }
                     composable("passwords") { PasswordsScreen(back) }
                     composable("sms") { SmsScreen(back) }
+                    composable("contacts") { ContactsScreen(back) }
                 }
             }
         }
@@ -103,6 +105,7 @@ class MainActivity : FragmentActivity() {
             "alerts" -> "alerts"
             "recorder" -> "recorder"
             "sms" -> "sms"
+            "contacts" -> "contacts"
             else -> null
         }
     }

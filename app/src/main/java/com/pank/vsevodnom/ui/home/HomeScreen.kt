@@ -69,7 +69,7 @@ val TILES = listOf(
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, null),
     Tile("Загрузки", Icons.Rounded.Download, Tints.Peach, null),
     Tile("СМС", Icons.Rounded.Sms, Tints.Sky, "sms"),
-    Tile("Контакты", Icons.Rounded.Person, Tints.Sky, null),
+    Tile("Контакты", Icons.Rounded.Person, Tints.Sky, "contacts"),
 )
 
 private val RU = Locale("ru")
