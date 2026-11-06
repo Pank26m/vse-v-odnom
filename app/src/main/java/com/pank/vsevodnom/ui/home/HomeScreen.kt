@@ -64,8 +64,8 @@ val TILES = listOf(
     Tile("Файлы", Icons.Rounded.Description, Tints.Butter, "files"),
     Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, "recorder"),
     Tile("Игры", Icons.Rounded.SportsEsports, Tints.Peach, "games"),
+    Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, "passwords"),
     // следующие этапы
-    Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, null),
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, null),
     Tile("Загрузки", Icons.Rounded.Download, Tints.Peach, null),
     Tile("СМС", Icons.Rounded.Sms, Tints.Sky, null),

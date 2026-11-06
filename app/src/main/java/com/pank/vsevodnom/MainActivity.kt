@@ -24,6 +24,7 @@ import com.pank.vsevodnom.ui.recorder.RecorderScreen
 import com.pank.vsevodnom.ui.utils.UtilsScreen
 import com.pank.vsevodnom.ui.files.FilesScreen
 import com.pank.vsevodnom.ui.games.GamesScreen
+import com.pank.vsevodnom.ui.vault.PasswordsScreen
 import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
@@ -76,6 +77,7 @@ class MainActivity : FragmentActivity() {
                     composable("utils") { UtilsScreen(back) }
                     composable("files") { FilesScreen(back) }
                     composable("games") { GamesScreen(back) }
+                    composable("passwords") { PasswordsScreen(back) }
                 }
             }
         }
