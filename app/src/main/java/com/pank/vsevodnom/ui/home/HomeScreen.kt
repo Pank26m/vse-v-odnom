@@ -59,7 +59,7 @@ val TILES = listOf(
     Tile("Вес", Icons.Rounded.MonitorWeight, Tints.Mint, "weight"),
     Tile("Календарь", Icons.Rounded.CalendarMonth, Tints.Lilac, "calendar"),
     // следующие этапы
-    Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, null),
+    Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, "markets"),
     Tile("Тревоги", Icons.Rounded.Campaign, Tints.Rose, "alerts"),
     Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, null),
     Tile("Файлы", Icons.Rounded.Description, Tints.Butter, null),

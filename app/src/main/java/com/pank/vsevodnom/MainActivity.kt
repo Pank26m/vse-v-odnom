@@ -19,6 +19,7 @@ import com.pank.vsevodnom.alarm.AlarmScheduler
 import com.pank.vsevodnom.alarm.Channels
 import com.pank.vsevodnom.ui.calc.CalcScreen
 import com.pank.vsevodnom.ui.alerts.AlertsScreen
+import com.pank.vsevodnom.ui.markets.MarketsScreen
 import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
                     composable("piggy") { PiggyScreen(back) }
                     composable("calendar") { CalendarScreen(back) }
                     composable("alerts") { AlertsScreen(back) }
+                    composable("markets") { MarketsScreen(back) }
                 }
             }
         }
