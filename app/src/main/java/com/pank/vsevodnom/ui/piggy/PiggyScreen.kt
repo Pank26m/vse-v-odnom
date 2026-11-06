@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -106,9 +108,7 @@ private fun GoalCard(g: GoalWithSum, onClick: () -> Unit) {
     val pct = if (g.goal.target > 0) (g.saved / g.goal.target).coerceIn(0.0, 1.0) else 1.0
     AppCard(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(tint.bg), contentAlignment = Alignment.Center) {
-                Text(g.goal.title.take(1).uppercase(), style = MaterialTheme.typography.titleLarge, color = tint.ink)
-            }
+            GoalThumb(g.goal, 48)
             Column(Modifier.weight(1f)) {
                 Text(g.goal.title, style = MaterialTheme.typography.titleMedium)
                 Text(
@@ -117,7 +117,11 @@ private fun GoalCard(g: GoalWithSum, onClick: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            if (g.goal.target > 0) Text("${(pct * 100).toInt()}%", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold))
+            if (g.goal.target > 0) Column(horizontalAlignment = Alignment.End) {
+                val left = (g.goal.target - g.saved).coerceAtLeast(0.0)
+                Text(if (left > 0) money(left) else "готово", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold))
+                Text(if (left > 0) "осталось" else if (g.goal.kind == PiggyGoal.KIND_PAYBACK) "окупилось" else "цель", style = MaterialTheme.typography.labelSmall)
+            }
         }
         if (g.goal.target > 0) {
             Spacer(Modifier.height(10.dp))
@@ -128,10 +132,68 @@ private fun GoalCard(g: GoalWithSum, onClick: () -> Unit) {
 
 @Composable
 private fun ProgressBar(p: Float, color: Color) {
-    Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Pal.Line)) {
-        Box(Modifier.fillMaxWidth(p).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(color))
+    Box(Modifier.fillMaxWidth().height(18.dp).clip(RoundedCornerShape(9.dp)).background(Pal.Line)) {
+        Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(9.dp)).background(color))
+        Text("${(p * 100).toInt()}%", Modifier.align(Alignment.Center), style = MaterialTheme.typography.labelSmall, color = Pal.Ink)
     }
 }
+
+@Composable
+private fun GoalThumb(g: PiggyGoal, sizeDp: Int) {
+    val ctx = LocalContext.current
+    val tint = Tints.all[g.tint % Tints.all.size]
+    val bmp = remember(g.photo) {
+        if (g.photo.isBlank()) null else runCatching {
+            ctx.contentResolver.openInputStream(android.net.Uri.parse(g.photo))?.use { s ->
+                android.graphics.BitmapFactory.decodeStream(s, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 })
+            }
+        }.getOrNull()
+    }
+    Box(Modifier.size(sizeDp.dp).clip(RoundedCornerShape(14.dp)).background(tint.bg), contentAlignment = Alignment.Center) {
+        if (bmp != null) androidx.compose.foundation.Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        else Text(g.title.take(1).uppercase(), style = MaterialTheme.typography.titleLarge, color = tint.ink)
+    }
+}
+
+/** График: накоплено по времени (линия) и поступления по месяцам (столбики). */
+@Composable
+private fun GoalChart(txs: List<PiggyTx>, color: Color) {
+    if (txs.size < 2) return
+    val sorted = txs.sortedBy { it.at }
+    val zone = ZoneId.systemDefault()
+    var acc = 0.0
+    val cum = sorted.map { acc += it.amount; it.at to acc }
+    val months = sorted.groupBy { java.time.YearMonth.from(Instant.ofEpochMilli(it.at).atZone(zone)) }.mapValues { (_, l) -> l.sumOf { it.amount } }.toSortedMap().entries.toList().takeLast(8)
+    AppCard(Modifier.fillMaxWidth()) {
+        SectionLabel("Накоплено со временем")
+        Canvas(Modifier.fillMaxWidth().height(110.dp)) {
+            val t0 = cum.first().first.toFloat(); val t1 = cum.last().first.toFloat().coerceAtLeast(t0 + 1)
+            val hi = cum.maxOf { it.second }.coerceAtLeast(1.0).toFloat(); val lo = minOf(0f, cum.minOf { it.second }.toFloat())
+            val path = androidx.compose.ui.graphics.Path()
+            cum.forEachIndexed { i, (t, v) ->
+                val x = (t - t0) / (t1 - t0) * size.width; val y = size.height - (v.toFloat() - lo) / (hi - lo) * size.height
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(5f))
+        }
+        if (months.size >= 2) {
+            Spacer(Modifier.height(10.dp))
+            SectionLabel("По месяцам")
+            val mx = months.maxOf { kotlin.math.abs(it.value) }.coerceAtLeast(1.0)
+            Row(Modifier.fillMaxWidth().height(90.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+                months.forEach { (ym, v) ->
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+                        Text(compact(v), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        Box(Modifier.fillMaxWidth().height((60 * kotlin.math.abs(v) / mx).dp.coerceAtLeast(2.dp)).clip(RoundedCornerShape(6.dp)).background(if (v >= 0) color.copy(alpha = 0.6f) else Pal.RoseInk.copy(alpha = 0.5f)))
+                        Text(ym.month.getDisplayName(java.time.format.TextStyle.SHORT_STANDALONE, java.util.Locale("ru")).take(3), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun compact(v: Double) = if (kotlin.math.abs(v) >= 1000) "%.1fк".format(v / 1000).replace('.', ',').replace(",0к", "к") else v.roundToLong().toString()
 
 @Composable
 private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
@@ -163,6 +225,7 @@ private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
                             Text(if (payback) "Окупилось! Дальше — чистая прибыль" else "Цель достигнута", style = MaterialTheme.typography.titleSmall, color = tint.ink)
                         }
                     }
+                    if (g.goal.photo.isNotBlank()) { Spacer(Modifier.height(8.dp)); GoalThumb(g.goal, 72) }
                     forecast(g, txs)?.let {
                         Spacer(Modifier.height(8.dp))
                         Text(it, style = MaterialTheme.typography.bodyMedium)
@@ -179,6 +242,13 @@ private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
                     PillButton(if (payback) "− Расход" else "− Снять", { adding = false }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
                 }
             }
+            if (g.goal.link.isNotBlank() || g.goal.link2.isNotBlank()) item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (g.goal.link.isNotBlank()) Chip("Товар ↗", false, { runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(g.goal.link))) } })
+                    if (g.goal.link2.isNotBlank()) Chip("Объявление ↗", false, { runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(g.goal.link2))) } })
+                }
+            }
+            item { GoalChart(txs, tint.ink) }
             if (txs.isEmpty()) item { EmptyHint("Операций пока нет") }
             items(txs, key = { it.id }) { t ->
                 AppCard(modifier = Modifier.fillMaxWidth(), padding = 12.dp) {
@@ -207,6 +277,11 @@ private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppTextField(amount, { amount = it }, "Сумма, ₴", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    // последние суммы — одним нажатием
+                    val recent = txs.filter { (it.amount > 0) == plus }.map { kotlin.math.abs(it.amount) }.distinct().take(4)
+                    if (recent.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        recent.forEach { v -> Chip(money(v), false, { amount = v.roundToLong().toString() }) }
+                    }
                     AppTextField(note, { note = it }, "Комментарий (необязательно)")
                 }
             },
@@ -235,6 +310,12 @@ private fun GoalEditor(g: PiggyGoal, onDismiss: () -> Unit, onDelete: (() -> Uni
     var tint by remember { mutableIntStateOf(g.tint) }
     var note by remember { mutableStateOf(g.note) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var photo by remember { mutableStateOf(g.photo) }
+    var link by remember { mutableStateOf(g.link) }
+    var link2 by remember { mutableStateOf(g.link2) }
+    val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) { runCatching { ctx.contentResolver.takePersistableUriPermission(u, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }; photo = u.toString() }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -252,6 +333,13 @@ private fun GoalEditor(g: PiggyGoal, onDismiss: () -> Unit, onDelete: (() -> Uni
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
                 AppTextField(note, { note = it }, "Заметка")
+                AppTextField(link, { link = it }, "Ссылка на товар")
+                if (kind == PiggyGoal.KIND_PAYBACK) AppTextField(link2, { link2 = it }, "Ссылка на объявление аренды")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GoalThumb(g.copy(photo = photo, title = title.ifBlank { "?" }, tint = tint), 44)
+                    TextButton({ photoPicker.launch(arrayOf("image/*")) }) { Text(if (photo.isBlank()) "Добавить фото" else "Сменить фото") }
+                    if (photo.isNotBlank()) TextButton({ photo = "" }) { Text("Убрать", color = Pal.RoseInk) }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Tints.all.forEachIndexed { i, t ->
                         Box(
@@ -268,7 +356,7 @@ private fun GoalEditor(g: PiggyGoal, onDismiss: () -> Unit, onDelete: (() -> Uni
             TextButton(onClick = {
                 if (title.isBlank()) return@TextButton
                 scope.launch {
-                    dao.upsertGoal(g.copy(title = title.trim(), kind = kind, target = target.replace(" ", "").toDoubleOrNull() ?: 0.0, tint = tint, note = note.trim()))
+                    dao.upsertGoal(g.copy(title = title.trim(), kind = kind, target = target.replace(" ", "").toDoubleOrNull() ?: 0.0, tint = tint, note = note.trim(), photo = photo, link = link.trim(), link2 = link2.trim()))
                 }
                 onDismiss()
             }) { Text("Сохранить") }
