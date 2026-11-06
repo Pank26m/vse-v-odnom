@@ -58,12 +58,12 @@ val TILES = listOf(
     Tile("Копилки", Icons.Rounded.Savings, Tints.Mint, "piggy"),
     Tile("Вес", Icons.Rounded.MonitorWeight, Tints.Mint, "weight"),
     Tile("Календарь", Icons.Rounded.CalendarMonth, Tints.Lilac, "calendar"),
-    // следующие этапы
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, "markets"),
     Tile("Тревоги", Icons.Rounded.Campaign, Tints.Rose, "alerts"),
     Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, "utils"),
     Tile("Файлы", Icons.Rounded.Description, Tints.Butter, "files"),
     Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, "recorder"),
+    // следующие этапы
     Tile("Игры", Icons.Rounded.SportsEsports, Tints.Peach, null),
     Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, null),
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, null),
