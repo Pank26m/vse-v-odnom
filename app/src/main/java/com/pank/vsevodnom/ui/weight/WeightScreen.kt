@@ -43,12 +43,12 @@ fun daysToMonday(): Int {
 }
 
 @Composable
-fun WeightScreen(onBack: () -> Unit) {
+fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).weight() }
     val entries by dao.all().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
-    var dialog by remember { mutableStateOf(false) }
+    var dialog by remember { mutableStateOf(startNew) }
     var preview by remember { mutableStateOf<List<com.pank.vsevodnom.data.WeightCsv.Row>?>(null) }
     var importErr by remember { mutableStateOf<String?>(null) }
     fun readCsv(u: android.net.Uri) {

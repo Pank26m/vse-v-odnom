@@ -36,6 +36,21 @@ import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
 import com.pank.vsevodnom.ui.clock.ClockScreen
 import com.pank.vsevodnom.ui.home.HomeScreen
+import com.pank.vsevodnom.ui.home.AppsScreen
+import androidx.compose.material3.NavigationBarItem
+import com.pank.vsevodnom.ui.capri.CapriScreen
+import com.pank.vsevodnom.ui.life.MoodScreen
+import com.pank.vsevodnom.ui.life.CartScreen
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Face
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Apps
 import com.pank.vsevodnom.ui.piggy.PiggyScreen
 import com.pank.vsevodnom.ui.random.RandomScreen
 import com.pank.vsevodnom.ui.theme.AppTheme
@@ -63,20 +78,38 @@ class MainActivity : FragmentActivity() {
                     pendingRoute.value?.let { nav.navigate(it) { launchSingleTop = true }; pendingRoute.value = null }
                 }
                 val back: () -> Unit = { if (!nav.popBackStack()) finish() }
+                val entry by nav.currentBackStackEntryAsState()
+                val route = entry?.destination?.route ?: "home"
+                val tabs = listOf(
+                    Triple("home", "Главная", androidx.compose.material.icons.Icons.Rounded.Home),
+                    Triple("capri", "Капри", androidx.compose.material.icons.Icons.Rounded.Face),
+                    Triple("calendar?new={new}", "Календарь", androidx.compose.material.icons.Icons.Rounded.CalendarMonth),
+                    Triple("apps", "Все", androidx.compose.material.icons.Icons.Rounded.Apps),
+                )
+                androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize().background(com.pank.vsevodnom.ui.theme.Pal.Bg)) {
+                val barVisible = tabs.any { it.first == route }
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f).then(
+                    // нижний бар сам учитывает системную панель — внутри экранов её отступ не нужен
+                    if (barVisible) androidx.compose.ui.Modifier.consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.navigationBars) else androidx.compose.ui.Modifier
+                )) {
                 NavHost(
                     nav, startDestination = "home",
                     enterTransition = { fadeIn() }, exitTransition = { fadeOut() }
                 ) {
                     composable("home") { HomeScreen(open = { nav.navigate(it) }) }
+                    composable("capri") { CapriScreen() }
+                    composable("apps") { AppsScreen(open = { nav.navigate(it) }) }
+                    composable("mood") { MoodScreen(back) }
+                    composable("cart?new={new}", arguments = listOf(navArgument("new") { type = NavType.IntType; defaultValue = 0 })) { CartScreen(back, it.arguments?.getInt("new") == 1) }
                     composable("clock/{tab}", arguments = listOf(navArgument("tab") { type = NavType.IntType })) {
                         ClockScreen(back, it.arguments?.getInt("tab") ?: 0)
                     }
                     composable("weather") { WeatherScreen(back) }
                     composable("calc") { CalcScreen(back) }
                     composable("random") { RandomScreen(back) }
-                    composable("weight") { WeightScreen(back) }
+                    composable("weight?new={new}", arguments = listOf(navArgument("new") { type = NavType.IntType; defaultValue = 0 })) { WeightScreen(back, it.arguments?.getInt("new") == 1) }
                     composable("piggy") { PiggyScreen(back) }
-                    composable("calendar") { CalendarScreen(back) }
+                    composable("calendar?new={new}", arguments = listOf(navArgument("new") { type = NavType.IntType; defaultValue = 0 })) { CalendarScreen(back, it.arguments?.getInt("new") == 1) }
                     composable("alerts") { AlertsScreen(back) }
                     composable("markets") { MarketsScreen(back) }
                     composable("recorder") { RecorderScreen(back) }
@@ -88,6 +121,22 @@ class MainActivity : FragmentActivity() {
                     composable("contacts") { ContactsScreen(back) }
                     composable("health") { HealthScreen(back) }
                     composable("downloads") { DownloadsScreen(back) }
+                }
+                }
+                if (barVisible) androidx.compose.material3.NavigationBar(containerColor = com.pank.vsevodnom.ui.theme.Pal.Card) {
+                    tabs.forEach { (r, title, icon) ->
+                        NavigationBarItem(
+                            selected = route == r,
+                            onClick = {
+                                val target = if (r.startsWith("calendar")) "calendar" else r
+                                nav.navigate(target) { popUpTo("home") { saveState = true }; launchSingleTop = true; restoreState = true }
+                            },
+                            icon = { androidx.compose.material3.Icon(icon, title) },
+                            label = { androidx.compose.material3.Text(title) },
+                            colors = androidx.compose.material3.NavigationBarItemDefaults.colors(indicatorColor = com.pank.vsevodnom.ui.theme.Pal.Lilac)
+                        )
+                    }
+                }
                 }
             }
         }
@@ -116,6 +165,7 @@ class MainActivity : FragmentActivity() {
             "alerts" -> "alerts"
             "recorder" -> "recorder"
             "sms" -> "sms"
+            "capri" -> "capri"
             "contacts" -> "contacts"
             else -> if (i?.action == "androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" || i?.action == "android.intent.action.VIEW_PERMISSION_USAGE") "health" else null
         }

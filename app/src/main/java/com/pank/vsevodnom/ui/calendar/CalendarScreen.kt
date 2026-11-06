@@ -53,7 +53,7 @@ private val DOW = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 object PendingImport { var uri by mutableStateOf<Uri?>(null) }
 
 @Composable
-fun CalendarScreen(onBack: () -> Unit) {
+fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).schedule() }
     val scope = rememberCoroutineScope()
@@ -105,6 +105,9 @@ fun CalendarScreen(onBack: () -> Unit) {
         }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(::doImport) }
+    LaunchedEffect(Unit) {
+        if (startNew) { val st = LocalDate.now().atTime(LocalTime.now().plusHours(1).withMinute(0)).atZone(zone).toInstant().toEpochMilli(); editEvent = CalEvent(title = "", startMillis = st, endMillis = st + 3600_000) }
+    }
     LaunchedEffect(PendingImport.uri) { PendingImport.uri?.let { PendingImport.uri = null; doImport(it) } }
 
     ScreenScaffold("Календарь", onBack, actions = {
