@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,7 +60,7 @@ fun WeightScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { com.pank.vsevodnom.ui.files.WeightImport.pending?.let { com.pank.vsevodnom.ui.files.WeightImport.pending = null; readCsv(it) } }
 
     ScreenScaffold("Вес", onBack, actions = {
-        RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Upload, "Импорт из CSV", { picker.launch(arrayOf("text/*", "text/csv", "*/*")) })
+        RoundIconButton(androidx.compose.material.icons.Icons.Rounded.FileUpload, "Импорт из CSV", { picker.launch(arrayOf("text/*", "text/csv", "*/*")) })
     }) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
