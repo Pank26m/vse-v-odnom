@@ -163,12 +163,13 @@ private fun DrawScope.bolt(top: Offset, len: Float) {
 
 /** Маленькая статичная иконка погоды для списков. */
 @Composable
-fun WeatherGlyph(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier) {
+fun WeatherGlyph(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier, animated: Boolean = false) {
+    val ph = if (animated) rememberInfiniteTransition(label = "g").animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "p").value else 0.5f
     Canvas(modifier) {
         val w = size.width; val h = size.height
         val sunC = Offset(w * 0.62f, h * 0.36f)
         when (scene) {
-            Scene.CLEAR -> if (isDay) sun(Offset(w / 2, h / 2), w * 0.24f, 0f) else moon(Offset(w / 2, h / 2), w * 0.3f)
+            Scene.CLEAR -> if (isDay) sun(Offset(w / 2, h / 2), w * 0.24f, ph * 72f) else moon(Offset(w / 2, h / 2), w * 0.3f)
             Scene.PARTLY -> {
                 if (isDay) sun(sunC, w * 0.18f, 0f) else moon(sunC, w * 0.2f)
                 cloud(Offset(w * 0.45f, h * 0.55f), w * 0.3f, Color(0xFFB9C7D8))
@@ -179,9 +180,10 @@ fun WeatherGlyph(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier) {
                 when (scene) {
                     Scene.RAIN, Scene.DRIZZLE -> for (i in 0..2) {
                         val x = w * (0.3f + i * 0.2f)
-                        drawLine(Color(0xFF6E98C9), Offset(x, h * 0.72f), Offset(x - w * 0.05f, h * 0.92f), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
+                        val dy = ((ph + i * 0.33f) % 1f) * h * 0.14f
+                        drawLine(Color(0xFF6E98C9), Offset(x, h * 0.68f + dy), Offset(x - w * 0.05f, h * 0.84f + dy), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
                     }
-                    Scene.SNOW -> for (i in 0..2) drawCircle(Color(0xFF8FA9C7), radius = w * 0.06f, center = Offset(w * (0.3f + i * 0.2f), h * 0.82f))
+                    Scene.SNOW -> for (i in 0..2) drawCircle(Color(0xFF8FA9C7), radius = w * 0.06f, center = Offset(w * (0.3f + i * 0.2f), h * (0.74f + ((ph + i * 0.33f) % 1f) * 0.16f)))
                     Scene.THUNDER -> bolt(Offset(w * 0.52f, h * 0.6f), h * 0.38f)
                     Scene.FOG -> for (i in 0..1) drawLine(Color(0xFF9DAFC6), Offset(w * 0.15f, h * (0.75f + i * 0.14f)), Offset(w * 0.85f, h * (0.75f + i * 0.14f)), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
                     else -> {}
