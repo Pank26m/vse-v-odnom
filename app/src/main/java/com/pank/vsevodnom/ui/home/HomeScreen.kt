@@ -68,7 +68,7 @@ val TILES = listOf(
     // следующие этапы
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, null),
     Tile("Загрузки", Icons.Rounded.Download, Tints.Peach, null),
-    Tile("СМС", Icons.Rounded.Sms, Tints.Sky, null),
+    Tile("СМС", Icons.Rounded.Sms, Tints.Sky, "sms"),
     Tile("Контакты", Icons.Rounded.Person, Tints.Sky, null),
 )
 
