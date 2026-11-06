@@ -50,8 +50,6 @@ data class Tile(val title: String, val icon: ImageVector, val tint: Tint, val ro
 
 val TILES = listOf(
     Tile("Часы", Icons.Rounded.Schedule, Tints.Lilac, "clock/0"),
-    Tile("Будильник", Icons.Rounded.Alarm, Tints.Lilac, "clock/1"),
-    Tile("Таймер", Icons.Rounded.HourglassBottom, Tints.Lilac, "clock/3"),
     Tile("Погода", Icons.Rounded.Cloud, Tints.Sky, "weather"),
     Tile("Калькулятор", Icons.Rounded.Calculate, Tints.Butter, "calc"),
     Tile("Рандом", Icons.Rounded.Casino, Tints.Peach, "random"),

@@ -94,7 +94,11 @@ private fun WorldTab() {
         item {
             AppCard(color = Pal.Lilac, radius = 28.dp, padding = 24.dp, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(now.format(HM), style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(now.format(HM), style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp))
+                        Text(":%02d".format(now.second), style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.SemiBold), color = Color(0xFF5B4A93), modifier = Modifier.padding(bottom = 12.dp))
+                    }
+                    Text(utcLabel(now), style = MaterialTheme.typography.labelLarge, color = Color(0xFF5B4A93))
                     val d = now.toLocalDate()
                     Text(
                         "${d.dayOfWeek.getDisplayName(TextStyle.FULL, RU).replaceFirstChar { it.uppercase() }}, ${d.dayOfMonth} ${monthGenitive(d.monthValue)}",
@@ -139,6 +143,16 @@ private fun WorldTab() {
     )
 }
 
+/** «Киев · UTC+2 (EET)» — свой часовой пояс. */
+private fun utcLabel(t: ZonedDateTime): String {
+    val sec = t.offset.totalSeconds
+    val sign = if (sec >= 0) "+" else "−"
+    val h = kotlin.math.abs(sec) / 3600; val m = kotlin.math.abs(sec) / 60 % 60
+    val short = t.zone.getDisplayName(TextStyle.SHORT, Locale.ENGLISH).takeIf { !it.startsWith("GMT") && !it.contains('/') }
+    val city = CITY_ZONES.firstOrNull { it.second == t.zone.id }?.first ?: t.zone.id.substringAfterLast('/').replace('_', ' ')
+    return "$city · UTC$sign$h" + (if (m > 0) ":%02d".format(m) else "") + (short?.let { " ($it)" } ?: "")
+}
+
 private fun monthGenitive(m: Int) = listOf(
     "января", "февраля", "марта", "апреля", "мая", "июня",
     "июля", "августа", "сентября", "октября", "ноября", "декабря"
@@ -155,13 +169,13 @@ private fun formatDiff(h: Double): String {
 @Composable
 private fun CityPicker(onDismiss: () -> Unit, onPick: (String, String) -> Unit) {
     var q by remember { mutableStateOf("") }
-    val list = remember(q) {
-        val curated = CITY_ZONES.filter { it.first.contains(q, ignoreCase = true) }
-        val extra = if (q.length >= 2) ZoneId.getAvailableZoneIds()
-            .filter { it.contains(q, ignoreCase = true) && it.contains('/') }
-            .sorted().take(30).map { it.substringAfterLast('/').replace('_', ' ') to it }
-        else emptyList()
-        curated + extra
+    var online by remember { mutableStateOf<List<com.pank.vsevodnom.data.WeatherApi.Place>>(emptyList()) }
+    val local = remember(q) { CITY_ZONES.filter { it.first.contains(q, ignoreCase = true) } }
+    LaunchedEffect(q) {
+        online = emptyList()
+        if (q.trim().length < 2) return@LaunchedEffect
+        delay(350)
+        online = runCatching { com.pank.vsevodnom.data.WeatherApi.search(q.trim()) }.getOrDefault(emptyList()).filter { it.timezone.isNotBlank() }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -170,22 +184,28 @@ private fun CityPicker(onDismiss: () -> Unit, onPick: (String, String) -> Unit) 
         title = { Text("Добавить город") },
         text = {
             Column {
-                AppTextField(q, { q = it }, "Поиск")
+                AppTextField(q, { q = it }, "Любой город мира")
                 Spacer(Modifier.height(8.dp))
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    items(list) { (name, zone) ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { onPick(name, zone) }.padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            Text(ZonedDateTime.now(ZoneId.of(zone)).format(HM), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+                LazyColumn(Modifier.heightIn(max = 380.dp)) {
+                    items(local) { (name, zone) -> CityRow(name, "", zone) { onPick(name, zone) } }
+                    items(online.filter { p -> local.none { it.first.equals(p.name, true) } }) { p -> CityRow(p.name, p.region, p.timezone) { onPick(p.name, p.timezone) } }
+                    if (q.length >= 2 && local.isEmpty() && online.isEmpty()) item { Text("Ищу… (нужен интернет)", style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }
     )
+}
+
+@Composable
+private fun CityRow(name: String, region: String, zone: String, onClick: () -> Unit) {
+    val z = runCatching { ZoneId.of(zone) }.getOrNull() ?: return
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.bodyLarge)
+            if (region.isNotBlank()) Text(region, style = MaterialTheme.typography.bodySmall)
+        }
+        Text(ZonedDateTime.now(z).format(HM), style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 // ------------------------- Будильники -------------------------

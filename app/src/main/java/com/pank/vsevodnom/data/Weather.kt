@@ -144,7 +144,7 @@ object WeatherApi {
     private fun JSONArray.optDoubleOrNull(i: Int): Double? = if (isNull(i)) null else optDouble(i)
     private fun JSONObject.optDoubleOrNull(k: String): Double? = if (isNull(k)) null else optDouble(k)
 
-    data class Place(val name: String, val region: String, val lat: Double, val lon: Double)
+    data class Place(val name: String, val region: String, val lat: Double, val lon: Double, val timezone: String = "")
 
     suspend fun search(q: String): List<Place> = withContext(Dispatchers.IO) {
         val js = JSONObject(get("https://geocoding-api.open-meteo.com/v1/search?name=${URLEncoder.encode(q, "UTF-8")}&count=15&language=ru&format=json"))
@@ -154,7 +154,7 @@ object WeatherApi {
             Place(
                 o.getString("name"),
                 listOf(o.optString("admin1"), o.optString("country")).filter { it.isNotBlank() }.joinToString(", "),
-                o.getDouble("latitude"), o.getDouble("longitude")
+                o.getDouble("latitude"), o.getDouble("longitude"), o.optString("timezone")
             )
         }
     }
