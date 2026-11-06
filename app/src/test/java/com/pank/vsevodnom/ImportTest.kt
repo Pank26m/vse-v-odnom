@@ -28,3 +28,14 @@ class WeightCsvTest {
         assertEquals(2, r.size); assertEquals(83.7, r[1].kg, 1e-9)
     }
 }
+
+/** Проверка на реальном экспорте владельца (файл в репозиторий не кладём): WEIGHT_CSV=путь. */
+class WeightRealFileTest {
+    @Test fun betterWeight() {
+        val path = System.getenv("WEIGHT_CSV") ?: return
+        val r = com.pank.vsevodnom.data.WeightCsv.parse(java.io.File(path).readText())
+        println("rows=${r.size} first=${r.first()} last=${r.last()} min=${r.minOf { it.kg }} max=${r.maxOf { it.kg }}")
+        assertEquals(java.time.LocalDate.of(2026, 11, 2), r.last().day)
+        assertEquals(115.4, r.last().kg, 1e-9)
+    }
+}
