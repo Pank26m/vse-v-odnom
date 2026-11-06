@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Автокопия Android (Google Диск): всё, кроме паролей — их ключ не переносится между телефонами -->
+<full-backup-content>
+    <exclude domain="file" path="vault.key" />
+    <exclude domain="file" path="vault.dat" />
+    <exclude domain="file" path="vault.dat.tmp" />
+</full-backup-content>

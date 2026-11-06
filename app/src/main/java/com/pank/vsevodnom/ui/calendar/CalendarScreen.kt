@@ -447,6 +447,7 @@ private fun LessonDialog(a: Agenda.Pair, onDismiss: () -> Unit) {
                     l.teacher.takeIf { it.isNotBlank() }?.let { "Преподаватель" to it },
                 )) }
                 item { AppTextField(full, { full = it }, "Полное название") }
+                item { KnubaInfo(full.ifBlank { l.subject }, l.teacher) }
                 if (next.isNotEmpty()) item {
                     Text("Ближайшие занятия", style = MaterialTheme.typography.labelLarge)
                     next.forEach { n ->
@@ -525,5 +526,51 @@ private fun DayTimeline(items: List<Agenda>, day: LocalDate, onClick: (Agenda) -
             }
         }
         if (items.isEmpty()) EmptyHint("Ничего не запланировано")
+    }
+}
+
+/** Фамилия из «доц. Петренко О.В.» / «Петренко Олена Василівна». */
+internal fun teacherSurname(t: String): String? {
+    val skip = setOf("доц", "проф", "ст", "викл", "асист", "ас", "зав", "каф", "к", "т", "н", "д", "арх")
+    return Regex("(?U)[А-ЯІЇЄҐA-Z][а-яіїєґ'’a-z]{2,}(?:-[А-ЯІЇЄҐ][а-яіїєґ'’]+)?").findAll(t).map { it.value }
+        .firstOrNull { it.lowercase().trimEnd('.') !in skip }
+}
+
+/** Открытые сведения: поиск по сайту КНУБА (кафедра, сторінка викладача, силабус) и Google Scholar. */
+@Composable
+private fun KnubaInfo(subject: String, teacher: String) {
+    val ctx = LocalContext.current
+    val surname = teacherSurname(teacher)
+    var hits by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
+    LaunchedEffect(surname, subject) {
+        hits = withContext(Dispatchers.IO) {
+            val q = surname ?: subject
+            runCatching {
+                // сайт университета на WordPress: у него есть открытый поиск
+                val c = java.net.URL("https://www.knuba.edu.ua/wp-json/wp/v2/search?per_page=5&search=" + java.net.URLEncoder.encode(q, "UTF-8")).openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 8000; c.readTimeout = 10000
+                val a = org.json.JSONArray(c.inputStream.bufferedReader().use { it.readText() })
+                (0 until a.length()).map { a.getJSONObject(it).let { o -> android.text.Html.fromHtml(o.optString("title"), 0).toString() to o.optString("url") } }
+            }.getOrDefault(emptyList())
+        }
+    }
+    fun open(u: String) = runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(u))) }
+    fun g(q: String) = "https://www.google.com/search?q=" + Uri.encode(q)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Открытые сведения", style = MaterialTheme.typography.labelLarge)
+        when {
+            hits == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
+            hits!!.isNotEmpty() -> hits!!.forEach { (t, u) ->
+                Text("↗ $t", style = MaterialTheme.typography.bodyMedium, color = Pal.LilacInk, modifier = Modifier.clickable { open(u) }.padding(vertical = 2.dp))
+            }
+        }
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (surname != null) {
+                Chip("Викладач на сайті КНУБА", false, { open(g("site:knuba.edu.ua $surname кафедра")) })
+                Chip("Google Scholar", false, { open("https://scholar.google.com/scholar?q=" + Uri.encode("$surname КНУБА")) })
+            }
+            Chip("Предмет: силабус", false, { open(g("site:knuba.edu.ua \"$subject\" силабус")) })
+        }
     }
 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -417,8 +418,29 @@ private fun MoneySettings(onDone: () -> Unit) {
                     scope.launch { busy = true; msg = runCatching { MoneyRepo.syncMono(ctx) }.fold({ "Добавлено операций из mono: $it" }, { "mono: ${it.message}" }); busy = false }
                 }, Modifier.fillMaxWidth(), enabled = !busy && token.isNotBlank())
                 Text("Если карт несколько — между ними пауза минута (ограничение mono).", style = MaterialTheme.typography.labelSmall)
-                SectionLabel("Другие банки")
-                Text("Траты ПриватБанка и других банков приложение может ловить из их push-уведомлений: Утилиты → «Доступ к уведомлениям».", style = MaterialTheme.typography.bodySmall)
+                SectionLabel("Траты из уведомлений банков")
+                val listening = remember { com.pank.vsevodnom.data.Notif.enabled(ctx) }
+                var bankOn by remember { mutableStateOf(com.pank.vsevodnom.data.Notif.bankOn(ctx)) }
+                Text("Приват24, mono, A-Bank, ПУМБ, Ощад, Raiffeisen, Sense, izibank и Google Wallet: сумма из push сразу записывается в операции. Категорию потом выбираешь сам.", style = MaterialTheme.typography.bodySmall)
+                if (!listening) {
+                    Text("1. Нажми «Открыть доступ» и включи «Всё в одном».\n2. Если переключатель серый («Ограниченная настройка»): «О приложении» → ⋮ справа сверху → «Разрешить ограниченные настройки», затем снова шаг 1.", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PillButton("Открыть доступ", { com.pank.vsevodnom.data.Notif.openSettings(ctx) }, Modifier.weight(1f))
+                        PillButton("О приложении", { com.pank.vsevodnom.data.Notif.openAppInfo(ctx) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+                    }
+                } else Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Записывать траты из push", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Switch(bankOn, { bankOn = it; com.pank.vsevodnom.data.Notif.setBankOn(ctx, it) })
+                }
+                val accs by remember { com.pank.vsevodnom.data.AppDb.get(ctx).money().accounts() }.collectAsState(initial = emptyList())
+                var pushAcc by remember { mutableLongStateOf(com.pank.vsevodnom.data.Notif.pushAccount(ctx)) }
+                if (accs.isNotEmpty()) {
+                    Text("Куда записывать:", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        accs.filter { !it.archived }.forEach { a -> Chip(a.name, pushAcc == a.id || (pushAcc == 0L && a == accs.first()), { pushAcc = a.id; com.pank.vsevodnom.data.Notif.setPushAccount(ctx, a.id) }) }
+                    }
+                }
+                if (token.isNotBlank()) Text("Пуши mono пропускаются — mono и так идёт по токену, без дублей.", style = MaterialTheme.typography.labelSmall)
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 msg?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             }

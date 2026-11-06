@@ -337,6 +337,9 @@ abstract class AppDb : RoomDatabase() {
     companion object {
         @Volatile private var inst: AppDb? = null
 
+        /** Закрыть базу перед заменой файла из резервной копии. */
+        fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
+
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
         val M3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

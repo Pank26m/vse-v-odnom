@@ -2,6 +2,7 @@ package com.pank.vsevodnom
 
 import com.pank.vsevodnom.ui.calc.Expr
 import com.pank.vsevodnom.ui.calc.Solver
+import com.pank.vsevodnom.ui.calc.lin
 import org.junit.Test
 import kotlin.test.assertEquals
 
@@ -26,5 +27,30 @@ class CalcTest {
         assertEquals(listOf(4.0), Solver.solve("2x+3=11").roots)
         assertEquals(0, Solver.solve("x^2+1=0").roots.size)
         val r = Solver.solve("x^3=8").roots; assertEquals(1, r.size); assertEquals(2.0, r[0], 1e-6)
+    }
+}
+
+class MathEditorTest {
+    private fun r(ed: com.pank.vsevodnom.ui.calc.MathEditor) = Expr.format(Expr.eval(ed.root.lin()))
+    @Test fun fractionTakesNumber() {
+        val ed = com.pank.vsevodnom.ui.calc.MathEditor()
+        ed.text("12"); ed.fraction(); ed.text("4"); ed.right(); ed.text("+1")
+        assertEquals("4", r(ed))
+    }
+    @Test fun powerAndRoot() {
+        val ed = com.pank.vsevodnom.ui.calc.MathEditor()
+        ed.text("2"); ed.power(); ed.text("10"); ed.right(); ed.text("+"); ed.sqrt(); ed.text("16")
+        assertEquals("1 028", r(ed))
+        val e2 = com.pank.vsevodnom.ui.calc.MathEditor()
+        e2.nroot(); e2.text("3"); e2.right(); e2.text("27")
+        assertEquals("3", r(e2))
+    }
+    @Test fun navigationAndBackspace() {
+        val ed = com.pank.vsevodnom.ui.calc.MathEditor()
+        ed.fraction(); ed.text("1"); ed.down(); ed.text("2"); ed.up(); ed.text("0")
+        assertEquals("5", r(ed))               // 10/2
+        ed.right(); ed.right(); ed.backspace()  // курсор в конце знаменателя → стираем «2»
+        ed.backspace(); ed.text("5")           // пустой знаменатель: дробь распаковывается в «10÷»
+        assertEquals("2", r(ed))               // 10/5
     }
 }

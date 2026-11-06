@@ -125,7 +125,7 @@ class MainActivity : FragmentActivity() {
                     composable("passwords") { PasswordsScreen(back) }
                     composable("sms") { SmsScreen(back) }
                     composable("contacts") { ContactsScreen(back) }
-                    composable("health") { HealthScreen(back) }
+                    composable("health") { HealthScreen(back, onOpenMap = { nav.navigate("map") }) }
                     composable("downloads") { DownloadsScreen(back) }
                     composable("map") { com.pank.vsevodnom.ui.map.MapScreen(back) }
                 }
@@ -175,6 +175,7 @@ class MainActivity : FragmentActivity() {
             "todo" -> "todo"
             "power" -> "power"
             "map" -> "map"
+            "money" -> "money"
             "contacts" -> "contacts"
             else -> if (i?.action == "androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" || i?.action == "android.intent.action.VIEW_PERMISSION_USAGE") "health" else null
         }

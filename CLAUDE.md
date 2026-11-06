@@ -9,11 +9,15 @@
 - Файл расписания (ACY Portal, .xls) слегка битый — стандартные парсеры падают; нужен терпимый разбор. Структура: строка дня (Пн + даты недель по столбцам), затем строки «N пара\nHH:MM-HH:MM» с ячейками «Предмет [Лк/Пз]\nауд. X\nПреподаватель».
 - Версии, которые упираются в тулчейн (AGP 8.7.3, compileSdk 35): health connect-client 1.1.0-alpha11 (новее требуют AGP 8.9+ и SDK 36), youtubedl-android (io.github.junkfood02) 0.17.4. Обновлять — только вместе с AGP.
 - Сборка только под arm64-v8a (yt-dlp + ffmpeg занимают ~28 МБ нативных библиотек), jniLibs.useLegacyPackaging = true обязательно.
-- База Room: версия 3, миграции M1_2, M2_3 в `data/Db.kt`, схемы в `app/schemas`. Любое изменение сущностей = новая миграция, иначе у владельца пропадут данные.
+- База Room: версия 4, миграции M1_2, M2_3, M3_4 в `data/Db.kt` (сущности v4 — `data/Db4.kt`), схемы в `app/schemas`. Любое изменение сущностей = новая миграция, иначе у владельца пропадут данные. Проверка: `python3 -I tools/check_migration.py app/schemas/com.pank.vsevodnom.data.AppDb app/src/main/java/com/pank/vsevodnom/data/Db.kt 4`.
 - Подпись: ключ владельца (alias `vse`) у него на руках; секреты GitHub (`SIGNING_*`) записать из сессии нельзя — их добавляет владелец. Без ключа новая версия не встанет поверх.
-- Тесты логики (JVM): `ScheduleParserTest` (нужен SCHEDULE_XLS), `ChessTest` (perft), `GamesTest`, `TotpTest`, `SmsCodeTest`, `CalcTest`, `ImportTest`, `CapriTest`. Robolectric убран — прокси не отдаёт android-all jar.
-- Регэкспы с кириллицей: `\b` в Java ASCII-шный — нужен флаг `(?U)` (см. CapriParser).
+- Тесты логики (JVM): `ScheduleParserTest` (нужен SCHEDULE_XLS), `ChessTest` (perft), `GamesTest`, `TotpTest`, `SmsCodeTest`, `CalcTest` (+`MathEditorTest`), `ImportTest` (+Sumlio/вес через SUMLIO_CSV/WEIGHT_CSV), `HolidayTest`, `PushParseTest`. Robolectric убран — прокси не отдаёт android-all jar.
+- Регэкспы с кириллицей: `\b` в Java ASCII-шный — нужен флаг `(?U)` .
 - Миграции Room проверять скриптом: создать БД по N.json, применить SQL миграции, сравнить PRAGMA table_info/index_list с (N+1).json (так проверена M2_3).
 - Диалоги пишут в БД через `AppScope.io`, не через rememberCoroutineScope диалога — иначе запись отменяется при закрытии.
-- Ассистент «Капри» — правила, без ИИ: `ui/capri/CapriParser.kt` (разбор), `Capri.kt` (выполнение, чат). Персонаж нарисован свой; пользователь может поставить свою картинку.
-- Не проверено на устройстве: формат ответа ubilling.net.ua (тревоги) и Yahoo Finance — из сессии хосты недоступны.
+- Не проверено на устройстве: формат ответа ubilling.net.ua (тревоги), Yahoo Finance, YASNO (`data/Power.kt`), поиск по сайту КНУБА (`wp-json/wp/v2/search`), формат push банков (`data/NotifListener.kt`, `PushParse`) — из сессии хосты недоступны.
+- Капри удалён в 0.8. Главная — как «Київ Цифровий»: кружки статуса (погода, свет, тревога), выбираемые плитки (`HomeTiles`), «Сводка».
+- Разделы v0.8: Дела (`ui/todo`), Деньги (`ui/money`, `data/Money.kt`: импорт Sumlio, mono API, курсы НБУ), Свет (`data/Power.kt`), Карта (`ui/map`, osmdroid 6.1.20; поиск — Nominatim, не чаще 1 запроса/с; треки — `data/Geo.kt` TrackService, каждый трек = событие календаря).
+- Уведомления других приложений: `NotifListener` — коды из Gmail (показ в СМС → «Коды»), траты из push банков → операции в Деньгах (mono пропускается, если есть токен). Для сторонней установки Android 13+ требует «Разрешить ограниченные настройки».
+- Резервная копия всего — `data/Backup.kt` (zip: база, настройки, files/ без vault.*). Пароли — только своим бэкапом: ключ в Keystore не переносится. Автокопия Android тоже исключает vault.* (`res/xml/*backup*`).
+- Калькулятор — двумерный редактор формул `MathEditor` (дерево MRow/MFrac/MSup/MRoot/MFunc/MAbs → линейная строка → `Expr`/`Solver`).

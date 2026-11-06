@@ -358,5 +358,35 @@ fun AppsScreen(open: (String) -> Unit) {
                 Text(t.title, style = MaterialTheme.typography.labelMedium, maxLines = 1, textAlign = TextAlign.Center)
             }
         }
+        item(span = { GridItemSpan(4) }) { BackupCard() }
+    }
+}
+
+/** Резервная копия всего (кроме паролей — у них свой зашифрованный бэкап). */
+@Composable
+private fun BackupCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var msg by remember { mutableStateOf<String?>(null) }
+    var confirm by remember { mutableStateOf<android.net.Uri?>(null) }
+    val saver = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")) { u ->
+        if (u != null) scope.launch { msg = runCatching { com.pank.vsevodnom.data.Backup.export(ctx, u) }.fold({ "$it. Храни файл в Google Диске или Telegram «Избранное»." }, { "Не получилось: ${it.message}" }) }
+    }
+    val opener = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { u -> confirm = u }
+    AppCard(Modifier.fillMaxWidth().padding(top = 8.dp), color = Pal.Lilac) {
+        Text("Резервная копия", style = MaterialTheme.typography.titleSmall, color = Pal.LilacInk)
+        Text("Один файл: вес, дела, деньги, календарь и пары, места и треки, настроение, корзина, будильники, настройки. Пароли — отдельно: «Пароли» → ⋮ → «Сохранить бэкап».", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PillButton("Сохранить", { saver.launch("vse-v-odnom-" + java.time.LocalDate.now() + ".zip") }, Modifier.weight(1f))
+            PillButton("Восстановить", { opener.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+        }
+        msg?.let { Spacer(Modifier.height(6.dp)); Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+    confirm?.let { u ->
+        AlertDialog(onDismissRequest = { confirm = null }, title = { Text("Восстановить из копии?") },
+            text = { Text("Текущие данные (кроме паролей) заменятся данными из файла, приложение перезапустится.") },
+            confirmButton = { TextButton({ confirm = null; scope.launch { runCatching { com.pank.vsevodnom.data.Backup.restore(ctx, u) }.onFailure { msg = "Не получилось: ${it.message}" } } }) { Text("Восстановить", color = Pal.RoseInk) } },
+            dismissButton = { TextButton({ confirm = null }) { Text("Отмена") } })
     }
 }

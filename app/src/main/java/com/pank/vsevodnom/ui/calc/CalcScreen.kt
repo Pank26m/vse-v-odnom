@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -217,207 +218,338 @@ private object History {
 
 private val OPS = setOf('+', '−', '×', '÷', '^')
 
+// ================= Двумерная запись (как в Photomath) =================
+
+/** Узел формулы. Строки (MRow) — это места, куда можно ставить курсор. */
+sealed class MNode
+class MRow(val items: MutableList<MNode> = mutableListOf()) { fun isEmpty() = items.isEmpty() }
+class MChar(val c: Char) : MNode()
+class MFrac(val num: MRow = MRow(), val den: MRow = MRow()) : MNode()
+class MSup(val exp: MRow = MRow()) : MNode()
+class MRoot(val index: MRow?, val body: MRow = MRow()) : MNode()
+class MFunc(val name: String, val arg: MRow = MRow()) : MNode()
+class MAbs(val body: MRow = MRow()) : MNode()
+
+fun MNode.children(): List<MRow> = when (this) {
+    is MFrac -> listOf(num, den); is MSup -> listOf(exp); is MRoot -> listOfNotNull(index, body)
+    is MFunc -> listOf(arg); is MAbs -> listOf(body); is MChar -> emptyList()
+}
+
+fun MRow.lin(): String = items.joinToString("") { it.lin() }
+fun MNode.lin(): String = when (this) {
+    is MChar -> c.toString()
+    is MFrac -> "((${num.lin()})÷(${den.lin()}))"
+    is MSup -> "^(${exp.lin()})"
+    is MRoot -> if (index == null) "√(${body.lin()})" else "((${body.lin()})^(1÷(${index.lin()})))"
+    is MFunc -> "$name(${arg.lin()})"
+    is MAbs -> "abs(${body.lin()})"
+}
+
+/** Редактор: дерево формулы и курсор (строка + позиция). */
+class MathEditor {
+    var root = MRow(); private set
+    var row by mutableStateOf(root); private set
+    var idx by mutableIntStateOf(0); private set
+    var ver by mutableIntStateOf(0); private set
+
+    private fun changed() { ver++ }
+    fun clear() { root = MRow(); row = root; idx = 0; changed() }
+    fun place(r: MRow, i: Int) { row = r; idx = i.coerceIn(0, r.items.size); changed() }
+    fun isEmpty() = root.isEmpty()
+
+    /** Родитель строки: узел, строка, где он лежит, и его индекс. */
+    private fun parentOf(target: MRow, r: MRow = root): Triple<MNode, MRow, Int>? {
+        r.items.forEachIndexed { k, n ->
+            n.children().forEach { ch -> if (ch === target) return Triple(n, r, k); parentOf(target, ch)?.let { return it } }
+        }
+        return null
+    }
+
+    fun insert(n: MNode) { row.items.add(idx, n); idx++; changed() }
+    fun char(c: Char) = insert(MChar(c))
+    fun text(t: String) = t.forEach { char(it) }
+
+    fun enter(n: MNode, first: MRow) { row.items.add(idx, n); row = first; idx = 0; changed() }
+
+    fun fraction() {
+        // число или скобка перед курсором становится числителем
+        var st = idx
+        if (st > 0 && (row.items[st - 1] as? MChar)?.c == ')') {
+            var depth = 0
+            while (st > 0) {
+                val c = (row.items[st - 1] as? MChar)?.c
+                if (c == ')') depth++; if (c == '(') depth--
+                st--
+                if (depth == 0) break
+            }
+        } else while (st > 0 && (row.items[st - 1] as? MChar)?.c?.let { it.isLetterOrDigit() || it == ',' || it == 'π' } == true) st--
+        val f = MFrac()
+        if (st < idx) {
+            val moved = row.items.subList(st, idx).toList(); repeat(idx - st) { row.items.removeAt(st) }
+            f.num.items.addAll(moved); idx = st
+            row.items.add(idx, f); row = f.den; idx = 0; changed()
+        } else enter(f, f.num)
+    }
+    fun power() { val p = MSup(); enter(p, p.exp) }
+    fun square() { insert(MSup(MRow(mutableListOf(MChar('2'))))) }
+    fun sqrt() { val r = MRoot(null); enter(r, r.body) }
+    fun nroot() { val r = MRoot(MRow()); enter(r, r.index!!) }
+    fun func(name: String) { val f = MFunc(name); enter(f, f.arg) }
+    fun abs() { val a = MAbs(); enter(a, a.body) }
+
+    fun right() {
+        if (idx < row.items.size) {
+            val n = row.items[idx]
+            val ch = n.children()
+            if (ch.isNotEmpty()) { row = ch.first(); idx = 0 } else idx++
+        } else {
+            val (n, pr, k) = parentOf(row) ?: return
+            val ch = n.children(); val at = ch.indexOfFirst { it === row }
+            if (at < ch.size - 1) { row = ch[at + 1]; idx = 0 } else { row = pr; idx = k + 1 }
+        }
+        changed()
+    }
+    fun left() {
+        if (idx > 0) {
+            val n = row.items[idx - 1]
+            val ch = n.children()
+            if (ch.isNotEmpty()) { row = ch.last(); idx = row.items.size } else idx--
+        } else {
+            val (n, pr, k) = parentOf(row) ?: return
+            val ch = n.children(); val at = ch.indexOfFirst { it === row }
+            if (at > 0) { row = ch[at - 1]; idx = row.items.size } else { row = pr; idx = k }
+        }
+        changed()
+    }
+    fun up() {
+        val (n, _, _) = parentOf(row) ?: return
+        if (n is MFrac && row === n.den) { row = n.num; idx = row.items.size; changed() }
+    }
+    fun down() {
+        val (n, _, _) = parentOf(row) ?: return
+        if (n is MFrac && row === n.num) { row = n.den; idx = row.items.size; changed() }
+    }
+    fun backspace() {
+        if (idx > 0) {
+            val n = row.items[idx - 1]
+            if (n is MChar || n.children().all { it.isEmpty() }) { row.items.removeAt(idx - 1); idx-- }
+            else { row = n.children().last(); idx = row.items.size }
+        } else {
+            val (n, pr, k) = parentOf(row) ?: return
+            if (n.children().all { it.isEmpty() }) { pr.items.removeAt(k); row = pr; idx = k }
+            else {
+                // выносим содержимое наружу: «распаковываем» дробь/корень/степень
+                val flat = n.children().flatMapIndexed { i, r -> (if (i > 0 && n is MFrac) listOf(MChar('÷')) else emptyList()) + r.items }
+                pr.items.removeAt(k); pr.items.addAll(k, flat); row = pr; idx = k + flat.size
+            }
+        }
+        changed()
+    }
+    fun load(linear: String) { clear(); text(linear) }
+}
+
 @Composable
 fun CalcScreen(onBack: () -> Unit) {
-    var mode by rememberSaveable { mutableIntStateOf(0) }
-    ScreenScaffold("Калькулятор", onBack) {
-        Segmented(listOf("Обычный", "Инженерный", "Уравнения", "График"), mode, { mode = it }, Modifier.padding(horizontal = 16.dp), track = Pal.Butter)
-        when (mode) {
-            0, 1 -> Calculator(scientific = mode == 1)
-            2 -> Equations()
-            else -> Graph()
-        }
-    }
+    ScreenScaffold("Калькулятор", onBack) { MathCalculator() }
 }
 
-/** Поле ввода с курсором: тап по тексту ставит курсор в это место. */
-@Composable
-private fun CursorText(text: String, cursor: Int, onCursor: (Int) -> Unit, modifier: Modifier, big: Boolean = true) {
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val blink by rememberInfiniteTransition(label = "c").animateFloat(1f, 0f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "b")
-    Text(
-        text.ifEmpty { " " },
-        style = (if (big) MaterialTheme.typography.displayMedium.copy(fontSize = if (text.length > 12) 36.sp else 52.sp) else MaterialTheme.typography.headlineMedium),
-        textAlign = TextAlign.End, onTextLayout = { layout = it },
-        modifier = modifier
-            .pointerInput(text) { detectTapGestures { pos -> layout?.let { onCursor(it.getOffsetForPosition(pos).coerceIn(0, text.length)) } } }
-            .drawWithContent {
-                drawContent()
-                val l = layout ?: return@drawWithContent
-                val r = l.getCursorRect(cursor.coerceIn(0, text.length))
-                drawLine(Pal.ButterInk.copy(alpha = blink), Offset(r.left, r.top + 4), Offset(r.left, r.bottom - 4), 5f)
-            }
-    )
-}
+private val FUN_KEYS = setOf("sin", "cos", "tan", "ln", "log")
 
 @Composable
-private fun Calculator(scientific: Boolean) {
+private fun MathCalculator() {
     val ctx = LocalContext.current
-    var input by rememberSaveable { mutableStateOf("") }
-    var cursor by rememberSaveable { mutableIntStateOf(0) }
-    var justEvaluated by rememberSaveable { mutableStateOf(false) }
+    val ed = remember { MathEditor() }
     var history by remember { mutableStateOf(History.load(ctx)) }
     var deg by remember { mutableStateOf(Expr.degrees) }
-
-    val preview = remember(input, deg) {
-        if (input.isEmpty() || input.none { it in OPS || it == '%' || it.isLetter() || it == '√' || it == '!' }) ""
-        else runCatching { Expr.format(Expr.eval(input.trimEnd { it in OPS })) }.getOrDefault("")
+    var showSteps by remember { mutableStateOf(false) }
+    val v = ed.ver
+    val lin = remember(v) { ed.root.lin() }
+    val hasX = 'x' in lin
+    val isEq = '=' in lin
+    val result: Result<String> = remember(lin, deg) {
+        runCatching {
+            when {
+                lin.isBlank() -> ""
+                isEq -> Solver.solve(lin).let { r -> if (r.roots.isEmpty()) r.steps.last() else r.roots.joinToString("   ") { "x = ${Expr.format(it)}" } }
+                hasX -> ""
+                else -> "= " + Expr.format(Expr.eval(lin))
+            }
+        }
     }
+    val steps = remember(lin) { if (isEq) runCatching { Solver.solve(lin).steps }.getOrNull() else null }
 
-    fun insert(t: String) {
-        if (justEvaluated && (t[0].isDigit() || t[0] == ',' || t[0].isLetter() || t == "√" || t == "π")) { input = ""; cursor = 0 }
-        justEvaluated = false
-        val c = cursor.coerceIn(0, input.length)
-        // не даём два оператора подряд — заменяем
-        if (t.length == 1 && t[0] in OPS && c > 0 && input[c - 1] in OPS) { input = input.substring(0, c - 1) + t + input.substring(c); return }
-        input = input.substring(0, c) + t + input.substring(c); cursor = c + t.length
+    fun save() {
+        val r = result.getOrNull()?.takeIf { it.isNotBlank() } ?: return
+        history = listOf("${lin.replace("((", "(").replace("))", ")")}  $r") + history; History.save(ctx, history)
+        if (r.startsWith("= ")) ed.load(r.removePrefix("= ").replace(" ", ""))
     }
 
     fun press(k: String) {
         when (k) {
-            "C" -> { input = ""; cursor = 0; justEvaluated = false }
-            "⌫" -> { val c = cursor.coerceIn(0, input.length); if (c > 0) { input = input.removeRange(c - 1, c); cursor = c - 1 }; justEvaluated = false }
-            "=" -> {
-                if (input.isEmpty()) return
-                runCatching { Expr.format(Expr.eval(input.trimEnd { it in OPS })) }
-                    .onSuccess { r -> history = listOf("$input = $r") + history; History.save(ctx, history); input = r.replace(" ", ""); cursor = input.length; justEvaluated = true }
-                    .onFailure { history = listOf("$input → ${it.message ?: "ошибка"}") + history }
-            }
-            "()" -> {
-                val c = cursor.coerceIn(0, input.length)
-                val before = input.substring(0, c)
-                val open = before.count { it == '(' } - before.count { it == ')' }
-                val last = before.lastOrNull()
-                insert(if (open > 0 && last != null && (last.isDigit() || last == ')' || last == '%' || last == '!' || last == 'π')) ")" else "(")
-            }
-            "±" -> insert("−")
-            "sin", "cos", "tan", "ln", "log" -> insert("$k(")
-            "√" -> insert("√(")
-            "x²" -> insert("^2")
-            "xʸ" -> insert("^")
-            "1/x" -> { input = "1÷(" + input + ")"; cursor = input.length }
-            else -> {
-                if (k == ",") {
-                    val c = cursor.coerceIn(0, input.length)
-                    val tail = input.substring(0, c).takeLastWhile { it.isDigit() || it == ',' }
-                    if (tail.contains(',')) return
-                    if (tail.isEmpty()) { insert("0,"); return }
-                }
-                insert(k)
-            }
+            "C" -> ed.clear(); "⌫" -> ed.backspace(); "←" -> ed.left(); "→" -> ed.right(); "↑" -> ed.up(); "↓" -> ed.down()
+            "a/b" -> ed.fraction(); "xⁿ" -> ed.power(); "x²" -> ed.square(); "√" -> ed.sqrt(); "ⁿ√" -> ed.nroot(); "|a|" -> ed.abs()
+            "✓" -> save()
+            in FUN_KEYS -> ed.func(k)
+            else -> ed.text(k)
         }
     }
 
     Column(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp), reverseLayout = true, horizontalAlignment = Alignment.End) {
+        // история сверху
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp), reverseLayout = true, horizontalAlignment = Alignment.End) {
             items(history.take(60)) { h ->
                 Text(h, style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, textAlign = TextAlign.End,
-                    modifier = Modifier.fillMaxWidth().clickable { val v = h.substringAfter("= ", "").replace(" ", ""); if (v.isNotBlank()) { input = v; cursor = v.length } }.padding(vertical = 5.dp))
+                    modifier = Modifier.fillMaxWidth().clickable { h.substringAfterLast("= ", "").replace(" ", "").takeIf { it.isNotBlank() }?.let { ed.text(it) } }.padding(vertical = 5.dp))
             }
             if (history.isNotEmpty()) item { TextButton({ history = emptyList(); History.save(ctx, history) }) { Text("Очистить историю") } }
         }
-        CursorText(input, cursor, { cursor = it; justEvaluated = false }, Modifier.fillMaxWidth().padding(horizontal = 24.dp))
-        Text(preview, style = MaterialTheme.typography.headlineMedium, color = Pal.Muted, maxLines = 1, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
-        Spacer(Modifier.height(8.dp))
-        val sci = listOf(
-            listOf(if (deg) "DEG" else "RAD", "sin", "cos", "tan", "π"),
-            listOf("x²", "xʸ", "√", "ln", "log"),
-            listOf("!", "e", "1/x", "(", ")"),
+        // формула
+        Box(Modifier.fillMaxWidth().heightIn(min = 96.dp).horizontalScroll(rememberScrollState(), reverseScrolling = true).padding(horizontal = 20.dp, vertical = 8.dp),
+            contentAlignment = Alignment.CenterEnd) {
+            key(v) { RowView(ed.root, ed, 30f) }
+        }
+        // ответ
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (deg) "DEG" else "RAD", style = MaterialTheme.typography.labelLarge, color = Pal.ButterInk,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Pal.Butter).clickable { Expr.degrees = !Expr.degrees; deg = Expr.degrees }.padding(8.dp, 4.dp))
+            if (steps != null) Text(if (showSteps) "Скрыть шаги" else "Шаги", style = MaterialTheme.typography.labelLarge, color = Pal.LilacInk,
+                modifier = Modifier.padding(start = 8.dp).clip(RoundedCornerShape(8.dp)).background(Pal.Lilac).clickable { showSteps = !showSteps }.padding(8.dp, 4.dp))
+            Spacer(Modifier.weight(1f))
+            Text(result.getOrNull() ?: if (lin.isBlank()) "" else "…", style = MaterialTheme.typography.headlineMedium, color = Pal.Ink, maxLines = 2, textAlign = TextAlign.End,
+                modifier = Modifier.clickable { save() })
+        }
+        if (showSteps && steps != null) AppCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).heightIn(max = 200.dp), color = Pal.Butter, padding = 12.dp) {
+            Column(Modifier.verticalScroll(rememberScrollState())) { steps.forEachIndexed { i, st -> Text("${i + 1}. $st", style = MaterialTheme.typography.bodyMedium) } }
+        }
+        if (hasX && !isEq) AppCard(Modifier.fillMaxWidth().height(180.dp).padding(horizontal = 16.dp, vertical = 6.dp), padding = 6.dp) {
+            Text("y = … · график", style = MaterialTheme.typography.labelSmall)
+            GraphCanvas(lin, 10f, Modifier.fillMaxSize())
+        }
+        // клавиатура
+        val keys = listOf(
+            listOf("x", "=", "(", ")", "a/b", "xⁿ"),
+            listOf("√", "ⁿ√", "π", "e", "|a|", "!"),
+            listOf("sin", "cos", "tan", "ln", "log", "x²"),
+            listOf("7", "8", "9", "÷", "⌫", "C"),
+            listOf("4", "5", "6", "×", "←", "→"),
+            listOf("1", "2", "3", "−", "↑", "↓"),
+            listOf("0", ",", "%", "+", "✓"),
         )
-        val rows = listOf(
-            listOf("C", "()", "%", "÷"),
-            listOf("7", "8", "9", "×"),
-            listOf("4", "5", "6", "−"),
-            listOf("1", "2", "3", "+"),
-            listOf("⌫", "0", ",", "="),
-        )
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (scientific) sci.forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { k ->
-                        Key(k, Pal.Lilac, Pal.LilacInk, 44.dp, Modifier.weight(1f)) {
-                            if (k == "DEG" || k == "RAD") { Expr.degrees = !Expr.degrees; deg = Expr.degrees } else press(k)
-                        }
-                    }
-                }
-            }
-            rows.forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            keys.forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { k ->
                         val (bg, fg) = when {
-                            k == "=" -> Pal.Ink to Color.White
-                            k[0] in OPS -> Pal.Butter to Pal.ButterInk
-                            k in setOf("C", "()", "%", "⌫") -> Pal.Lilac to Pal.LilacInk
-                            else -> Pal.Card to Pal.Ink
+                            k == "✓" -> Pal.Ink to Color.White
+                            k.length == 1 && k[0] in OPS -> Pal.Butter to Pal.ButterInk
+                            k in setOf("C", "⌫", "←", "→", "↑", "↓") -> Pal.Lilac to Pal.LilacInk
+                            k[0].isDigit() || k == "," -> Pal.Card to Pal.Ink
+                            else -> Pal.Sky to Pal.SkyInk
                         }
-                        Key(k, bg, fg, if (scientific) 58.dp else 68.dp, Modifier.weight(1f)) { press(k) }
+                        Key(k, bg, fg, 50.dp, Modifier.weight(if (k == "✓") 2.1f else 1f)) { press(k) }
                     }
                 }
             }
+        }
+    }
+}
+
+/** Мигающий курсор. */
+@Composable
+private fun Caret(h: Float) {
+    val blink by rememberInfiniteTransition(label = "c").animateFloat(1f, 0f, infiniteRepeatable(tween(550), RepeatMode.Reverse), label = "b")
+    Box(Modifier.width(2.5.dp).height((h * 1.25f).dp).background(Pal.ButterInk.copy(alpha = blink)))
+}
+
+/** Строка формулы: элементы в ряд, курсор, пустое место — пунктирный квадратик. */
+@Composable
+private fun RowView(r: MRow, ed: MathEditor, size: Float) {
+    val here = ed.row === r
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // тап в начало строки
+        Box(Modifier.width(6.dp).height((size * 1.2f).dp).clickable { ed.place(r, 0) })
+        if (r.isEmpty()) {
+            Box(Modifier.size((size * 0.75f).dp, (size * 1.0f).dp).clip(RoundedCornerShape(4.dp))
+                .background(if (here) Pal.Butter else Pal.Line).clickable { ed.place(r, 0) })
+            if (here) Caret(size)
+        } else {
+            if (here && ed.idx == 0) Caret(size)
+            r.items.forEachIndexed { i, n ->
+                NodeView(n, ed, size) { ed.place(r, i + 1) }
+                if (here && ed.idx == i + 1) Caret(size)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NodeView(n: MNode, ed: MathEditor, size: Float, onTap: () -> Unit) {
+    val ink = Pal.Ink
+    when (n) {
+        is MChar -> Text(
+            when (n.c) { '×' -> "×"; '÷' -> "÷"; else -> n.c.toString() },
+            fontSize = size.sp, color = if (n.c.isLetter() && n.c != 'x' && n.c != 'e') Pal.SkyInk else ink,
+            modifier = Modifier.clickable(onClick = onTap).padding(horizontal = if (n.c in "+−×÷=") 3.dp else 0.5.dp)
+        )
+        is MFrac -> Column(Modifier.width(IntrinsicSize.Max).padding(horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            RowView(n.num, ed, size * 0.85f)
+            Box(Modifier.fillMaxWidth().height(2.dp).background(ink).clickable(onClick = onTap))
+            RowView(n.den, ed, size * 0.85f)
+        }
+        is MSup -> Box(Modifier.padding(bottom = (size * 0.9f).dp)) { RowView(n.exp, ed, size * 0.62f) }
+        is MRoot -> Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.Bottom) {
+            if (n.index != null) Box(Modifier.align(Alignment.Top)) { RowView(n.index, ed, size * 0.5f) }
+            Canvas(Modifier.width((size * 0.55f).dp).fillMaxHeight().clickable(onClick = onTap)) {
+                val w = this.size.width; val h = this.size.height
+                drawPath(Path().apply { moveTo(0f, h * 0.6f); lineTo(w * 0.3f, h * 0.5f); lineTo(w * 0.6f, h); lineTo(w, 2f) }, ink, style = Stroke(4f))
+            }
+            Column(Modifier.width(IntrinsicSize.Max)) {
+                Box(Modifier.fillMaxWidth().height(2.dp).background(ink))
+                Box(Modifier.padding(top = 3.dp, end = 3.dp)) { RowView(n.body, ed, size * 0.92f) }
+            }
+        }
+        is MFunc -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(n.name, fontSize = (size * 0.9f).sp, color = Pal.SkyInk, modifier = Modifier.clickable(onClick = onTap))
+            Text("(", fontSize = size.sp, color = Pal.Muted)
+            RowView(n.arg, ed, size)
+            Text(")", fontSize = size.sp, color = Pal.Muted)
+        }
+        is MAbs -> Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.padding(horizontal = 3.dp).width(2.dp).fillMaxHeight().background(ink).clickable(onClick = onTap))
+            RowView(n.body, ed, size)
+            Box(Modifier.padding(horizontal = 3.dp).width(2.dp).fillMaxHeight().background(ink))
         }
     }
 }
 
 @Composable
 private fun Key(k: String, bg: Color, fg: Color, h: androidx.compose.ui.unit.Dp, modifier: Modifier, onClick: () -> Unit) {
-    Box(modifier.height(h).clip(RoundedCornerShape(14.dp)).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(k, style = if (k.length > 2) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineMedium, color = fg)
+    Box(modifier.height(h).clip(RoundedCornerShape(10.dp)).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(k, style = if (k.length > 2) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge, color = fg)
     }
 }
 
+/** График y = f(x); масштаб по Y — автоматически. */
 @Composable
-private fun Equations() {
-    var eq by rememberSaveable { mutableStateOf("x^2−5x+6=0") }
-    val res = remember(eq) { runCatching { Solver.solve(eq.replace('-', '−')) } }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        AppTextField(eq, { eq = it }, "Уравнение с x, например 2x+3=11")
-        Text("Можно: x^2, √(x), sin(x), скобки. Умножение на x можно не писать: 3x.", style = MaterialTheme.typography.bodySmall)
-        AppCard(Modifier.fillMaxWidth(), color = Pal.Butter) {
-            res.onSuccess { r -> r.steps.forEachIndexed { i, s -> Text("${i + 1}. $s", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 3.dp)) } }
-                .onFailure { Text(it.message ?: "Не получилось разобрать", style = MaterialTheme.typography.bodyLarge, color = Pal.RoseInk) }
+private fun GraphCanvas(fx: String, range: Float, modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        val pts = (0..400).mapNotNull { i ->
+            val x = -range + 2 * range * i / 400f
+            runCatching { x to Expr.eval(fx, x.toDouble()).toFloat() }.getOrNull()?.takeIf { it.second.isFinite() }
         }
-        res.getOrNull()?.roots?.takeIf { it.isNotEmpty() }?.let { roots ->
-            AppCard(Modifier.fillMaxWidth()) {
-                SectionLabel("Ответ")
-                Text(roots.joinToString("   ") { "x = ${Expr.format(it)}" }, style = MaterialTheme.typography.headlineMedium)
-            }
+        val ys = pts.map { it.second }.filter { abs(it) < 1e6 }
+        val yMax = (ys.maxOfOrNull { abs(it) } ?: 1f).coerceIn(1f, 1e6f) * 1.1f
+        fun sx(x: Float) = (x + range) / (2 * range) * w
+        fun sy(y: Float) = h / 2 - y / yMax * h / 2
+        drawLine(Pal.Line, Offset(0f, h / 2), Offset(w, h / 2), 3f)
+        drawLine(Pal.Line, Offset(w / 2, 0f), Offset(w / 2, h), 3f)
+        val p = Path(); var pen = false; var lastY = 0f
+        pts.forEach { (x, y) ->
+            val yy = sy(y)
+            if (!pen || abs(yy - lastY) > h) { p.moveTo(sx(x), yy); pen = true } else p.lineTo(sx(x), yy)
+            lastY = yy
         }
-    }
-}
-
-@Composable
-private fun Graph() {
-    var f by rememberSaveable { mutableStateOf("sin(x)·2") }
-    var range by rememberSaveable { mutableFloatStateOf(10f) }
-    val fx = f.replace('·', '×')
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        AppTextField(f, { f = it }, "y = … (функция от x)")
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(2f, 5f, 10f, 50f).forEach { r -> Chip("±${r.toInt()}", range == r, { range = r }) }
-            Chip(if (Expr.degrees) "градусы" else "радианы", false, { Expr.degrees = !Expr.degrees; f = "$f " ; f = f.trimEnd() })
-        }
-        AppCard(Modifier.fillMaxWidth().weight(1f), padding = 8.dp) {
-            Canvas(Modifier.fillMaxSize()) {
-                val w = size.width; val h = size.height
-                val pts = (0..400).mapNotNull { i ->
-                    val x = -range + 2 * range * i / 400f
-                    runCatching { x to Expr.eval(fx, x.toDouble()).toFloat() }.getOrNull()?.takeIf { it.second.isFinite() }
-                }
-                val ys = pts.map { it.second }.filter { abs(it) < 1e6 }
-                val yMax = (ys.maxOfOrNull { abs(it) } ?: 1f).coerceIn(1f, 1e6f) * 1.1f
-                fun sx(x: Float) = (x + range) / (2 * range) * w
-                fun sy(y: Float) = h / 2 - y / yMax * h / 2
-                drawLine(Pal.Line, Offset(0f, h / 2), Offset(w, h / 2), 3f)
-                drawLine(Pal.Line, Offset(w / 2, 0f), Offset(w / 2, h), 3f)
-                val p = Path(); var pen = false; var lastY = 0f
-                pts.forEach { (x, y) ->
-                    val yy = sy(y)
-                    if (!pen || abs(yy - lastY) > h) { p.moveTo(sx(x), yy); pen = true } else p.lineTo(sx(x), yy)
-                    lastY = yy
-                }
-                drawPath(p, Pal.ButterInk, style = Stroke(5f))
-            }
-        }
-        Text("Масштаб по Y подбирается сам. Ось X: от −${range.toInt()} до ${range.toInt()}.", style = MaterialTheme.typography.labelSmall)
+        drawPath(p, Pal.ButterInk, style = Stroke(5f))
     }
 }

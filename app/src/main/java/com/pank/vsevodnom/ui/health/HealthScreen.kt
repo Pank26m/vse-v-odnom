@@ -120,7 +120,7 @@ object HealthRepo {
 }
 
 @Composable
-fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false) {
+fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false, onOpenMap: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var workout by remember { mutableStateOf(false) }
@@ -151,6 +151,16 @@ fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false) {
                     Text("Вес, ИМТ и цель", style = MaterialTheme.typography.labelLarge, color = Pal.MintInk)
                     Text(w.lastOrNull()?.let { "${com.pank.vsevodnom.ui.weight.fmtKg(it.kg)} кг" } ?: "— кг", style = MaterialTheme.typography.headlineLarge)
                     Text("Графики за неделю, месяц, год · взвешивание по понедельникам в 08:00", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                val tracks by remember { com.pank.vsevodnom.data.AppDb.get(ctx).map().tracks() }.collectAsState(initial = emptyList())
+                val weekAgo = System.currentTimeMillis() - 7 * 86400_000L
+                val week = tracks.filter { it.startedAt > weekAgo }
+                AppCard(Modifier.fillMaxWidth(), color = Pal.Sky, onClick = onOpenMap) {
+                    Text("Треки", style = MaterialTheme.typography.labelLarge, color = Pal.SkyInk)
+                    Text(if (week.isEmpty()) "За неделю треков нет" else "За неделю ${com.pank.vsevodnom.data.fmtKm(week.sumOf { it.distanceM })} · ${week.size} шт.", style = MaterialTheme.typography.titleLarge)
+                    Text("Запись прогулок и поездок — на карте, кнопка «Записать трек». Каждый трек сам попадает в календарь.", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (status != HealthConnectClient.SDK_AVAILABLE) {
