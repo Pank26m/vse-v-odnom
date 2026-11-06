@@ -45,6 +45,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    ksp { arg("room.schemaLocation", "$projectDir/schemas") }
     testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
@@ -68,6 +69,7 @@ dependencies {
 
     // Скриншот-тесты экранов (рендер на JVM, без эмулятора)
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.32.2")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.32.2")

@@ -57,8 +57,8 @@ val TILES = listOf(
     Tile("Рандом", Icons.Rounded.Casino, Tints.Peach, "random"),
     Tile("Копилки", Icons.Rounded.Savings, Tints.Mint, "piggy"),
     Tile("Вес", Icons.Rounded.MonitorWeight, Tints.Mint, "weight"),
+    Tile("Календарь", Icons.Rounded.CalendarMonth, Tints.Lilac, "calendar"),
     // следующие этапы
-    Tile("Календарь", Icons.Rounded.CalendarMonth, Tints.Lilac, null),
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, null),
     Tile("Тревоги", Icons.Rounded.Campaign, Tints.Rose, null),
     Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, null),
@@ -143,6 +143,7 @@ fun HomeScreen(open: (String) -> Unit) {
                 }
             }
         }
+        item(span = { GridItemSpan(4) }) { UniCard(open) }
         val nextAlarm = alarms.filter { it.enabled }.minByOrNull { nextTrigger(it) }
         if (nextAlarm != null) item(span = { GridItemSpan(4) }) {
             AppCard(Modifier.fillMaxWidth(), padding = 14.dp, onClick = { open("clock/1") }) {
@@ -177,4 +178,66 @@ fun HomeScreen(open: (String) -> Unit) {
             }
         }
     }
+}
+
+/** «Сегодня в универе»: оставшиеся пары сегодня, иначе — ближайший учебный день. */
+@Composable
+private fun UniCard(open: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).schedule() }
+    val today = LocalDate.now()
+    val lessons by remember { dao.lessons(today.toEpochDay(), today.plusDays(14).toEpochDay()) }.collectAsState(initial = null)
+    val aliases by dao.aliases().collectAsState(initial = emptyList())
+    val all = lessons ?: return
+    val nowT = LocalTime.now()
+    val rest = all.filter { it.epochDay > today.toEpochDay() || LocalTime.parse(it.end) > nowT }
+    val day = rest.firstOrNull()?.epochDay
+    val shown = rest.filter { it.epochDay == day }
+    val map = aliases.associateBy { it.abbr }
+    AppCard(Modifier.fillMaxWidth(), onClick = { open("calendar") }) {
+        if (all.isEmpty() || day == null) {
+            Text("Пары", style = MaterialTheme.typography.labelLarge, color = Pal.LilacInk)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (all.isEmpty()) "Загрузи файл расписания из портала — пары появятся здесь и в виджете"
+                else "На ближайшие две недели пар нет",
+                style = MaterialTheme.typography.bodyMedium, color = Pal.Muted
+            )
+            return@AppCard
+        }
+        val d = LocalDate.ofEpochDay(day)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when (d) { today -> "Сегодня в универе"; today.plusDays(1) -> "Завтра в универе"
+                    else -> d.dayOfWeek.getDisplayName(TextStyle.FULL, RU).replaceFirstChar { it.uppercase() } + " в универе" },
+                style = MaterialTheme.typography.labelLarge, color = Pal.LilacInk, modifier = Modifier.weight(1f)
+            )
+            Text("${shown.size} ${pairsWord(shown.size)}", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+        }
+        shown.forEach { l ->
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val tint = Tints.all[(map[l.subject]?.tint ?: com.pank.vsevodnom.data.schedule.tintFor(l.subject)) % 6]
+                Box(Modifier.width(4.dp).height(36.dp).clip(RoundedCornerShape(2.dp)).background(tint.ink.copy(alpha = 0.5f)))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        (map[l.subject]?.fullName?.takeIf { it.isNotBlank() } ?: l.subject) + if (l.kind.isNotBlank()) " [${l.kind}]" else "",
+                        style = MaterialTheme.typography.titleMedium, maxLines = 1
+                    )
+                    Text(
+                        listOf(if (l.room.firstOrNull()?.isDigit() == true) "ауд. ${l.room}" else l.room, l.teacher).filter { it.isNotBlank() }.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, maxLines = 1
+                    )
+                }
+                Text(l.start, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+private fun pairsWord(n: Int) = when {
+    n % 10 == 1 && n % 100 != 11 -> "пара"
+    n % 10 in 2..4 && n % 100 !in 12..14 -> "пары"
+    else -> "пар"
 }

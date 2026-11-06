@@ -18,6 +18,8 @@ import androidx.navigation.navArgument
 import com.pank.vsevodnom.alarm.AlarmScheduler
 import com.pank.vsevodnom.alarm.Channels
 import com.pank.vsevodnom.ui.calc.CalcScreen
+import com.pank.vsevodnom.ui.calendar.CalendarScreen
+import com.pank.vsevodnom.ui.calendar.PendingImport
 import com.pank.vsevodnom.ui.clock.ClockScreen
 import com.pank.vsevodnom.ui.home.HomeScreen
 import com.pank.vsevodnom.ui.piggy.PiggyScreen
@@ -59,6 +61,7 @@ class MainActivity : ComponentActivity() {
                     composable("random") { RandomScreen(back) }
                     composable("weight") { WeightScreen(back) }
                     composable("piggy") { PiggyScreen(back) }
+                    composable("calendar") { CalendarScreen(back) }
                 }
             }
         }
@@ -69,9 +72,17 @@ class MainActivity : ComponentActivity() {
         pendingRoute.value = routeFrom(intent)
     }
 
-    private fun routeFrom(i: Intent?): String? = when (i?.getStringExtra("route")) {
-        "clock" -> "clock/1"
-        "weight" -> "weight"
-        else -> null
+    private fun routeFrom(i: Intent?): String? {
+        // файл расписания, открытый через «Открыть с помощью»
+        if (i?.action == Intent.ACTION_VIEW && i.data != null) {
+            PendingImport.uri = i.data
+            return "calendar"
+        }
+        return when (i?.getStringExtra("route")) {
+            "clock" -> "clock/1"
+            "weight" -> "weight"
+            "calendar" -> "calendar"
+            else -> null
+        }
     }
 }

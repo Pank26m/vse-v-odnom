@@ -82,6 +82,40 @@ data class WeatherCity(
     val cachedAt: Long = 0,
 )
 
+/** Пара из расписания. Текст хранится как в исходном файле. */
+@Entity(tableName = "lesson", indices = [Index("epochDay")])
+data class Lesson(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val epochDay: Long,
+    val pair: Int,
+    val start: String,
+    val end: String,
+    val subject: String,
+    val kind: String,
+    val room: String,
+    val teacher: String,
+)
+
+/** Расшифровка сокращения предмета и его цвет. */
+@Entity(tableName = "subject_alias")
+data class SubjectAlias(
+    @PrimaryKey val abbr: String,
+    val fullName: String = "",
+    val tint: Int = 0,
+)
+
+/** Своё событие в календаре. */
+@Entity(tableName = "cal_event", indices = [Index("startMillis")])
+data class CalEvent(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val title: String,
+    val startMillis: Long,
+    val endMillis: Long,
+    val allDay: Boolean = false,
+    val note: String = "",
+    val tint: Int = 3,
+)
+
 // ---------- DAO ----------
 
 @Dao
@@ -175,23 +209,94 @@ interface CityDao {
     suspend fun cacheWeather(id: Long, json: String, at: Long)
 }
 
+@Dao
+interface ScheduleDao {
+    @Query("SELECT * FROM lesson WHERE epochDay BETWEEN :from AND :to ORDER BY epochDay, pair")
+    fun lessons(from: Long, to: Long): Flow<List<Lesson>>
+
+    @Query("SELECT * FROM lesson WHERE epochDay BETWEEN :from AND :to ORDER BY epochDay, pair")
+    fun lessonsSync(from: Long, to: Long): List<Lesson>
+
+    @Query("SELECT DISTINCT subject FROM lesson ORDER BY subject")
+    fun subjects(): Flow<List<String>>
+
+    @Query("SELECT COUNT(*) FROM lesson")
+    fun count(): Flow<Int>
+
+    @Query("SELECT MIN(epochDay) FROM lesson")
+    suspend fun firstDay(): Long?
+
+    @Query("SELECT MAX(epochDay) FROM lesson")
+    suspend fun lastDay(): Long?
+
+    @Query("DELETE FROM lesson WHERE epochDay BETWEEN :from AND :to")
+    suspend fun deleteRange(from: Long, to: Long)
+
+    @Query("DELETE FROM lesson")
+    suspend fun deleteAll()
+
+    @Insert
+    suspend fun insert(l: List<Lesson>)
+
+    /** Импорт: заменяем пары за период файла, ничего не дублируя. */
+    @Transaction
+    suspend fun replaceRange(from: Long, to: Long, l: List<Lesson>) { deleteRange(from, to); insert(l) }
+
+    @Query("SELECT * FROM subject_alias")
+    fun aliases(): Flow<List<SubjectAlias>>
+
+    @Query("SELECT * FROM subject_alias")
+    fun aliasesSync(): List<SubjectAlias>
+
+    @Upsert
+    suspend fun upsertAlias(a: SubjectAlias)
+
+    @Query("SELECT * FROM cal_event WHERE startMillis < :to AND endMillis >= :from ORDER BY startMillis")
+    fun events(from: Long, to: Long): Flow<List<CalEvent>>
+
+    @Query("SELECT * FROM cal_event WHERE startMillis < :to AND endMillis >= :from ORDER BY startMillis")
+    fun eventsSync(from: Long, to: Long): List<CalEvent>
+
+    @Upsert
+    suspend fun upsertEvent(e: CalEvent)
+
+    @Delete
+    suspend fun deleteEvent(e: CalEvent)
+}
+
 // ---------- База ----------
 
 @Database(
-    entities = [WeightEntry::class, PiggyGoal::class, PiggyTx::class, AlarmEntity::class, WorldCity::class, WeatherCity::class],
-    version = 1,
-    exportSchema = false
+    entities = [
+        WeightEntry::class, PiggyGoal::class, PiggyTx::class, AlarmEntity::class, WorldCity::class, WeatherCity::class,
+        Lesson::class, SubjectAlias::class, CalEvent::class,
+    ],
+    version = 2,
+    exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
     abstract fun weight(): WeightDao
     abstract fun piggy(): PiggyDao
     abstract fun alarms(): AlarmDao
     abstract fun cities(): CityDao
+    abstract fun schedule(): ScheduleDao
 
     companion object {
         @Volatile private var inst: AppDb? = null
+
+        /** v1 → v2: расписание, сокращения предметов, свои события. Данные v1 не трогаем. */
+        val M1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `lesson` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `epochDay` INTEGER NOT NULL, `pair` INTEGER NOT NULL, `start` TEXT NOT NULL, `end` TEXT NOT NULL, `subject` TEXT NOT NULL, `kind` TEXT NOT NULL, `room` TEXT NOT NULL, `teacher` TEXT NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_lesson_epochDay` ON `lesson` (`epochDay`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `subject_alias` (`abbr` TEXT NOT NULL, `fullName` TEXT NOT NULL, `tint` INTEGER NOT NULL, PRIMARY KEY(`abbr`))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `cal_event` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `startMillis` INTEGER NOT NULL, `endMillis` INTEGER NOT NULL, `allDay` INTEGER NOT NULL, `note` TEXT NOT NULL, `tint` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cal_event_startMillis` ON `cal_event` (`startMillis`)")
+            }
+        }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
+                .addMigrations(M1_2)
                 .build().also { inst = it }
         }
     }

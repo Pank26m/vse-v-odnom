@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Всё в одном</string>
+    <string name="widget_desc">Пары и события на неделю</string>
 </resources>
