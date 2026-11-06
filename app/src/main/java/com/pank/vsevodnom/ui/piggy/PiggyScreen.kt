@@ -195,6 +195,7 @@ private fun GoalChart(txs: List<PiggyTx>, color: Color) {
 
 private fun compact(v: Double) = if (kotlin.math.abs(v) >= 1000) "%.1fк".format(v / 1000).replace('.', ',').replace(",0к", "к") else v.roundToLong().toString()
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
     val ctx = LocalContext.current
@@ -271,6 +272,14 @@ private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
     adding?.let { plus ->
         var amount by remember { mutableStateOf("") }
         var note by remember { mutableStateOf("") }
+        var day by remember { mutableStateOf(LocalDate.now()) }
+        var pickDay by remember { mutableStateOf(false) }
+        if (pickDay) {
+            val dps = rememberDatePickerState(initialSelectedDateMillis = day.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli())
+            DatePickerDialog(onDismissRequest = { pickDay = false }, confirmButton = {
+                TextButton({ dps.selectedDateMillis?.let { day = Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate() }; pickDay = false }) { Text("Ок") }
+            }) { DatePicker(dps) }
+        }
         AlertDialog(
             onDismissRequest = { adding = null },
             title = { Text(if (plus) (if (payback) "Доход с аренды" else "Пополнить") else (if (payback) "Расход" else "Снять")) },
@@ -283,13 +292,22 @@ private fun GoalDetail(g: GoalWithSum, onBack: () -> Unit, onEdit: () -> Unit) {
                         recent.forEach { v -> Chip(money(v), false, { amount = v.roundToLong().toString() }) }
                     }
                     AppTextField(note, { note = it }, "Комментарий (необязательно)")
+                    // за какую дату запись
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val today = LocalDate.now()
+                        Chip("Сегодня", day == today, { day = today })
+                        Chip("Вчера", day == today.minusDays(1), { day = today.minusDays(1) })
+                        Chip(if (day != today && day != today.minusDays(1)) day.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) else "Выбрать дату", day != today && day != today.minusDays(1), { pickDay = true })
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     val v = amount.replace(',', '.').replace(" ", "").toDoubleOrNull()
                     if (v != null && v > 0) {
-                        scope.launch { dao.addTx(PiggyTx(goalId = g.goal.id, amount = if (plus) v else -v, note = note.trim())) }
+                        // сегодня — текущее время, иначе полдень выбранного дня
+                        val at = if (day == LocalDate.now()) System.currentTimeMillis() else day.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        com.pank.vsevodnom.data.AppScope.io.launch { dao.addTx(PiggyTx(goalId = g.goal.id, amount = if (plus) v else -v, note = note.trim(), at = at)) }
                         adding = null
                     }
                 }) { Text("Готово") }

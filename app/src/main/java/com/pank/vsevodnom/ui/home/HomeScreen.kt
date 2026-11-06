@@ -69,7 +69,6 @@ val TILES = listOf(
     Tile("Корзина", Icons.Rounded.ShoppingCart, Tints.Peach, "cart"),
     Tile("Настроение", Icons.Rounded.Mood, Tints.Butter, "mood"),
     Tile("Калькулятор", Icons.Rounded.Calculate, Tints.Butter, "calc"),
-    Tile("Рандом", Icons.Rounded.Casino, Tints.Peach, "random"),
     Tile("Копилки", Icons.Rounded.Savings, Tints.Mint, "piggy"),
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, "markets"),
     Tile("Игры", Icons.Rounded.SportsEsports, Tints.Peach, "games"),

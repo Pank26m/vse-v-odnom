@@ -47,8 +47,21 @@ private val rnd = SecureRandom()
 fun RandomScreen(onBack: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     ScreenScaffold("Рандом", onBack) {
-        androidx.compose.material3.ScrollableTabRow(selectedTabIndex = tab, edgePadding = 16.dp, containerColor = Pal.Bg, divider = {}) {
-            listOf("Монетка", "Колесо", "Шар", "Бутылочка", "Число", "Кубики").forEachIndexed { i, t -> androidx.compose.material3.Tab(tab == i, { tab = i }, text = { Text(t) }) }
+        // все шесть видны сразу — без прокрутки вбок
+        val tools = listOf("🪙" to "Монетка", "🎡" to "Колесо", "🎱" to "Шар", "🍾" to "Бутылочка", "🔢" to "Число", "🎲" to "Кубики")
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            tools.chunked(3).forEachIndexed { r, row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEachIndexed { c, (e, t) ->
+                        val i = r * 3 + c
+                        Row(Modifier.weight(1f).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                            .background(if (tab == i) Pal.Ink else Pal.Card).clickable { tab = i }.padding(vertical = 10.dp),
+                            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Text(e, fontSize = 18.sp); Text(" $t", style = MaterialTheme.typography.labelLarge, color = if (tab == i) androidx.compose.ui.graphics.Color.White else Pal.Ink, maxLines = 1)
+                        }
+                    }
+                }
+            }
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             when (tab) {

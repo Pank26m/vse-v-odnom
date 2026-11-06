@@ -145,6 +145,7 @@ fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false, onOpenMap: ()
 
     ScreenScaffold("Здоровье", onBack) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { LifeScoreCard(summary, version) }
             item {
                 val w by remember { com.pank.vsevodnom.data.AppDb.get(ctx).weight().all() }.collectAsState(initial = emptyList())
                 AppCard(Modifier.fillMaxWidth(), color = Pal.Mint, onClick = { weightOpen = true }) {
