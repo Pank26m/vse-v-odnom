@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -64,13 +65,25 @@ fun ClockScreen(onBack: () -> Unit, startTab: Int = 0) {
                 0 -> WorldTab()
                 1 -> AlarmsTab()
                 2 -> StopwatchTab()
-                else -> TimerTab()
+                3 -> TimerTab()
+                else -> FocusTab()
             }
         }
-        Segmented(
-            listOf("Мир", "Будильник", "Секундомер", "Таймер"), tab, { tab = it },
-            Modifier.padding(16.dp, 8.dp, 16.dp, 12.dp)
-        )
+        Row(Modifier.fillMaxWidth().padding(8.dp, 6.dp, 8.dp, 10.dp)) {
+            listOf(
+                "Мир" to androidx.compose.material.icons.Icons.Rounded.Public, "Будильник" to androidx.compose.material.icons.Icons.Rounded.Alarm,
+                "Секундомер" to androidx.compose.material.icons.Icons.Rounded.Timer, "Таймер" to androidx.compose.material.icons.Icons.Rounded.HourglassBottom,
+                "Фокус" to androidx.compose.material.icons.Icons.Rounded.Park,
+            ).forEachIndexed { i, (t, ic) ->
+                Column(Modifier.weight(1f).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).clickable { tab = i }.padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(50)).background(if (tab == i) Pal.Lilac else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 14.dp, vertical = 4.dp)) {
+                        Icon(ic, t, tint = if (tab == i) Pal.LilacInk else Pal.Muted)
+                    }
+                    Text(t, style = MaterialTheme.typography.labelSmall, color = if (tab == i) Pal.LilacInk else Pal.Muted, maxLines = 1)
+                }
+            }
+        }
     }
 }
 

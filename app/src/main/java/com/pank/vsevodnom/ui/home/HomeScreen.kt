@@ -258,7 +258,7 @@ private fun Summary(open: (String) -> Unit) {
 
     val dow = today.dayOfWeek.value - 1
     val todayTasks = tasks.filter { !it.done && it.dueDay != null && it.dueDay <= today.toEpochDay() }
-    val todayHabits = habits.filter { it.daysMask and (1 shl dow) != 0 }
+    val todayHabits = habits.filter { com.pank.vsevodnom.data.Todo.isDue(it, LocalDate.now(), logs) }
     val nowMin = LocalTime.now().let { it.hour * 60 + it.minute }
     val agendaLeft = agenda.filter { a -> if (a is Agenda.Pair) LocalTime.parse(a.l.end).let { it.hour * 60 + it.minute } > nowMin else true }
     val bdays = birthdays.filter { it.day == today.dayOfMonth && it.month == today.monthValue }

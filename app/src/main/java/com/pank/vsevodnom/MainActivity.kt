@@ -2,6 +2,7 @@ package com.pank.vsevodnom
 
 import android.content.Intent
 import android.os.Bundle
+import kotlinx.coroutines.launch
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -74,6 +75,7 @@ class MainActivity : FragmentActivity() {
         com.pank.vsevodnom.data.Net.init(this)
         AlarmScheduler.rescheduleAll(this)
         AlertWorker.schedule(this)
+        com.pank.vsevodnom.data.AppScope.io.launch { com.pank.vsevodnom.data.HabitReminders.rescheduleAll(this@MainActivity) }
         pendingRoute.value = routeFrom(intent)
 
         setContent {

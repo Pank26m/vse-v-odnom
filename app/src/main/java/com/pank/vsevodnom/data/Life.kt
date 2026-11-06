@@ -120,6 +120,6 @@ object EventReminder {
 
 class EventReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        EventReminder.notify(ctx, "Скоро: ${intent.getStringExtra("title") ?: "событие"}", "Напоминание от Капри", (intent.getLongExtra("id", 0) % 100_000).toInt() + 2000)
+        EventReminder.notify(ctx, "Скоро: ${intent.getStringExtra("title") ?: "событие"}", intent.getStringExtra("text") ?: "Напоминание", (intent.getLongExtra("id", 0) % 100_000).toInt() + 2000)
     }
 }

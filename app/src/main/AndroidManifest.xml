@@ -178,6 +178,7 @@
             </intent-filter>
         </service>
         <receiver android:name=".data.EventReminderReceiver" android:exported="false" />
+        <receiver android:name=".data.HabitReminderReceiver" android:exported="false" />
         <receiver android:name=".data.PowerReminderReceiver" android:exported="false" />
         <receiver android:name=".ui.contacts.BlockNumberReceiver" android:exported="false" />
         <service

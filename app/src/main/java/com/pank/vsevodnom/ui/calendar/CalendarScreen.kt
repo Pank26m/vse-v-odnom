@@ -186,8 +186,10 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
                             }
                         }
                     }
+                    // прошедшие дни недели не показываем (кроме случая, когда листаешь прошлые недели)
                     for (d in 0 until 7) {
                         val date = mon.plusDays(d.toLong())
+                        if (date.isBefore(LocalDate.now()) && !mon.plusDays(6).isBefore(LocalDate.now())) continue
                         val list = byDay[date].orEmpty()
                         item {
                             Text(dayTitle(date), style = MaterialTheme.typography.titleMedium,
