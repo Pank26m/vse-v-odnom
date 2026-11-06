@@ -28,6 +28,9 @@ import com.pank.vsevodnom.ui.vault.PasswordsScreen
 import com.pank.vsevodnom.ui.sms.SmsScreen
 import com.pank.vsevodnom.ui.contacts.ContactsScreen
 import com.pank.vsevodnom.ui.health.HealthScreen
+import com.pank.vsevodnom.ui.downloads.DownloadsScreen
+import com.pank.vsevodnom.ui.downloads.SharedLink
+import com.pank.vsevodnom.ui.downloads.extractUrl
 import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
@@ -84,6 +87,7 @@ class MainActivity : FragmentActivity() {
                     composable("sms") { SmsScreen(back) }
                     composable("contacts") { ContactsScreen(back) }
                     composable("health") { HealthScreen(back) }
+                    composable("downloads") { DownloadsScreen(back) }
                 }
             }
         }
@@ -100,7 +104,11 @@ class MainActivity : FragmentActivity() {
             PendingImport.uri = i.data
             return "calendar"
         }
+        if (i?.action == Intent.ACTION_SEND) {
+            i.getStringExtra(Intent.EXTRA_TEXT)?.let(::extractUrl)?.let { SharedLink.url = it; return "downloads" }
+        }
         return when (i?.getStringExtra("route")) {
+            "downloads" -> "downloads"
             "clock" -> "clock/1"
             "weight" -> "weight"
             "calendar" -> "calendar"

@@ -48,6 +48,7 @@
         </intent>
     </queries>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="true"
@@ -65,6 +66,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- «Поделиться» ссылкой из YouTube / TikTok / Instagram → загрузки -->
+            <intent-filter android:label="Скачать видео">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
             <!-- Health Connect (Android 13 и ниже): объяснение, зачем доступ -->
             <intent-filter>
@@ -129,6 +136,10 @@
             android:exported="false"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
+        <service
+            android:name=".ui.downloads.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <service
             android:name=".ui.recorder.RecorderService"
             android:exported="false"

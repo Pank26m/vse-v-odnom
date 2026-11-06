@@ -16,7 +16,11 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "0.1-dev"
+        // телефон владельца — arm64; так APK с yt-dlp и ffmpeg в разы меньше
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
+    // yt-dlp запускает Python из папки нативных библиотек — их нужно распаковывать при установке
+    packaging { jniLibs { useLegacyPackaging = true } }
 
     // Подпись релизов: ключ передаётся через переменные окружения (секреты GitHub).
     val ksPath = System.getenv("SIGNING_KEYSTORE")
@@ -35,7 +39,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (ksPath != null) signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -70,6 +74,8 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.17.4")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.4")
 
     // Скриншот-тесты экранов (рендер на JVM, без эмулятора)
     testImplementation("junit:junit:4.13.2")
