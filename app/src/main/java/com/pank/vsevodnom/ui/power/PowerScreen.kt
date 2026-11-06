@@ -32,7 +32,7 @@ fun PowerScreen(onBack: () -> Unit) {
     var notify by remember { mutableStateOf(Power.notify(ctx)) }
     var loading by remember { mutableStateOf(false) }
     var manualEdit by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { loading = true; runCatching { Power.refresh(ctx, true) }; loading = false }
+    LaunchedEffect(com.pank.vsevodnom.data.Net.online) { loading = true; runCatching { Power.refresh(ctx, true) }; loading = false }
     val st = Power.state
 
     ScreenScaffold("Свет", onBack, actions = {

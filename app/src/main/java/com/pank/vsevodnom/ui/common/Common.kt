@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -181,4 +182,27 @@ fun AppTextField(
 @Composable
 fun EmptyHint(text: String, modifier: Modifier = Modifier) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, modifier = modifier.padding(16.dp))
+}
+
+/** Красная плашка сверху: интернета нет, свежие данные не придут. */
+@Composable
+fun OfflineBanner() {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFFD94A5A)).statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(Icons.Rounded.CloudOff, null, tint = Color.White, modifier = Modifier.size(20.dp))
+        Text("Нет интернета — данные не обновятся, пока связь не вернётся", style = MaterialTheme.typography.labelLarge, color = Color.White)
+    }
+}
+
+/** Вместо ошибки сети — бесконечная крутилка, пока интернета нет. */
+@Composable
+fun NetWait(error: String?, modifier: Modifier = Modifier) {
+    if (!com.pank.vsevodnom.data.Net.online || error == null) {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            Text(if (com.pank.vsevodnom.data.Net.online) "Загрузка…" else "Жду интернет…", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+        }
+    } else Text(error, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = modifier)
 }

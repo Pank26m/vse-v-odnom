@@ -68,7 +68,7 @@ fun MarketsScreen(onBack: () -> Unit) {
     var detail by remember { mutableStateOf<String?>(null) }
     var removing by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(list, tick) {
+    LaunchedEffect(list, tick, com.pank.vsevodnom.data.Net.online) {
         while (true) {
             loading = true
             coroutineScope {
@@ -106,7 +106,7 @@ fun MarketsScreen(onBack: () -> Unit) {
                             if (q != null && q.closes.size > 1) Sparkline(q.closes, Modifier.width(80.dp).height(32.dp), (q.changePct ?: 0.0) >= 0)
                             Spacer(Modifier.width(12.dp))
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(q?.let { fmtPrice(it.price) } ?: (errors[s] ?: "…"), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold))
+                                if (q == null && (!com.pank.vsevodnom.data.Net.online || errors[s] == null)) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(q?.let { fmtPrice(it.price) } ?: (errors[s] ?: "…"), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold))
                                 q?.changePct?.let { Text(fmtPct(it), style = MaterialTheme.typography.labelLarge, color = if (it >= 0) Up else Down) }
                             }
                         }
@@ -177,7 +177,7 @@ private fun QuoteDetail(symbol: String, onBack: () -> Unit) {
                 }
                 if (cur.delayedNote.isNotBlank()) Text(cur.delayedNote, style = MaterialTheme.typography.labelSmall)
             }
-            err?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (q == null) NetWait(err)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 ranges.forEach { (r, t) -> Chip(t, r == range, { range = r }, Modifier.weight(1f)) }
             }

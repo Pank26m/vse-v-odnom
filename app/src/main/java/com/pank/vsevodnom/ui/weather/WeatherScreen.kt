@@ -112,7 +112,7 @@ fun WeatherScreen(onBack: () -> Unit) {
             loading = false
         }
     }
-    LaunchedEffect(city?.id) {
+    LaunchedEffect(city?.id, com.pank.vsevodnom.data.Net.online) {
         val c = city ?: return@LaunchedEffect
         if (System.currentTimeMillis() - c.cachedAt > WEATHER_TTL_MS) reload(c)
     }
@@ -168,8 +168,8 @@ fun WeatherScreen(onBack: () -> Unit) {
                             Text(wmo(day.code).first, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
                         }
                         day?.let { Text("↑ ${fmtT(it.tMax)}  ↓ ${fmtT(it.tMin)}", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF3B4A63)) }
-                    } else if (!loading) {
-                        Text(error ?: "Загрузка…", style = MaterialTheme.typography.titleMedium)
+                    } else {
+                        NetWait(if (loading) null else error)
                     }
                 }
             }
@@ -199,7 +199,7 @@ fun WeatherScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            if (error != null && data != null) Text("$error — показаны сохранённые данные", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp, 8.dp))
+            if (error != null && data != null && com.pank.vsevodnom.data.Net.online) Text("$error — показаны сохранённые данные", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp, 8.dp))
         }
         if (data != null) {
             val date = data.days.getOrNull(dayIdx)?.date ?: LocalDate.now()
@@ -389,7 +389,7 @@ private fun AddCityDialog(onDismiss: () -> Unit, onLocation: () -> Unit, onPick:
                 }
                 Spacer(Modifier.height(12.dp))
                 AppTextField(q, { q = it }, "Название города")
-                if (err) Text("Нет связи", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                if (err) NetWait(if (com.pank.vsevodnom.data.Net.online) "Нет связи" else null, Modifier.padding(top = 8.dp))
                 LazyColumn(Modifier.heightIn(max = 320.dp)) {
                     items(results) { p ->
                         Column(Modifier.fillMaxWidth().clickable { onPick(p) }.padding(vertical = 10.dp)) {

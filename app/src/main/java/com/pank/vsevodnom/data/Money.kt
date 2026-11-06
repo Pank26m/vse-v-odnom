@@ -116,54 +116,6 @@ object MoneyRepo {
         ImportResult(out.size, skipped, newAcc, newCat)
     }
 
-    // ---------- monobank ----------
-
-    private fun prefs(ctx: Context) = ctx.getSharedPreferences("money", Context.MODE_PRIVATE)
-    fun monoToken(ctx: Context) = prefs(ctx).getString("mono", "")!!
-    fun setMonoToken(ctx: Context, t: String) = prefs(ctx).edit().putString("mono", t.trim()).apply()
-
-    private fun monoGet(token: String, path: String): String {
-        val c = URL("https://api.monobank.ua$path").openConnection() as HttpURLConnection
-        c.setRequestProperty("X-Token", token); c.connectTimeout = 15_000; c.readTimeout = 20_000
-        try {
-            if (c.responseCode == 429) throw RuntimeException("monobank просит подождать минуту между запросами")
-            if (c.responseCode !in 200..299) throw RuntimeException("monobank: HTTP ${c.responseCode}")
-            return c.inputStream.bufferedReader().use { it.readText() }
-        } finally { c.disconnect() }
-    }
-
-    private val ISO = mapOf(980 to "UAH", 840 to "USD", 978 to "EUR", 985 to "PLN", 826 to "GBP")
-
-    /** Загружает выписки всех карт mono за последние 30 дней. Повторы отсекаются по id операции. */
-    suspend fun syncMono(ctx: Context): Int = withContext(Dispatchers.IO) {
-        val token = monoToken(ctx).ifBlank { throw IllegalStateException("Сначала вставь токен monobank") }
-        val dao = AppDb.get(ctx).money()
-        val info = JSONObject(monoGet(token, "/personal/client-info"))
-        val accs = info.optJSONArray("accounts") ?: JSONArray()
-        val known = dao.allExtIds().toHashSet()
-        var added = 0
-        val to = System.currentTimeMillis() / 1000; val from = to - 30L * 86400
-        for (i in 0 until accs.length()) {
-            val a = accs.getJSONObject(i)
-            val cur = ISO[a.optInt("currencyCode")] ?: "UAH"
-            val pan = a.optJSONArray("maskedPan")?.optString(0)?.takeLast(4) ?: a.optString("type")
-            val name = "mono ${a.optString("type")} $pan".trim()
-            val acc = dao.accountsOnce().firstOrNull { it.name == name } ?: Account(name = name, currency = cur, tint = 2).let { it.copy(id = dao.upsertAccount(it)) }
-            if (i > 0) Thread.sleep(61_000) // ограничение API: 1 запрос в минуту
-            val st = JSONArray(monoGet(token, "/personal/statement/${a.getString("id")}/$from/$to"))
-            for (k in 0 until st.length()) {
-                val o = st.getJSONObject(k)
-                val ext = "mono:" + o.getString("id")
-                if (ext in known) continue
-                val amount = o.getLong("amount") / 100.0
-                dao.upsertTxn(Txn(at = o.getLong("time") * 1000, type = if (amount < 0) EXPENSE else INCOME, amount = kotlin.math.abs(amount), accountId = acc.id,
-                    comment = o.optString("description"), source = "mono", extId = ext))
-                known += ext; added++
-            }
-        }
-        added
-    }
-
     /** Курс НБУ для USD/EUR (для обзора). */
     suspend fun nbu(cc: String): Double? = withContext(Dispatchers.IO) {
         runCatching {

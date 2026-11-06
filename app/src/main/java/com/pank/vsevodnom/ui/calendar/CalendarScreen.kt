@@ -532,7 +532,7 @@ private fun DayTimeline(items: List<Agenda>, day: LocalDate, onClick: (Agenda) -
 /** Фамилия из «доц. Петренко О.В.» / «Петренко Олена Василівна». */
 internal fun teacherSurname(t: String): String? {
     val skip = setOf("доц", "проф", "ст", "викл", "асист", "ас", "зав", "каф", "к", "т", "н", "д", "арх")
-    return Regex("(?U)[А-ЯІЇЄҐA-Z][а-яіїєґ'’a-z]{2,}(?:-[А-ЯІЇЄҐ][а-яіїєґ'’]+)?").findAll(t).map { it.value }
+    return Regex("[А-ЯІЇЄҐA-Z][а-яіїєґ'’a-z]{2,}(?:-[А-ЯІЇЄҐ][а-яіїєґ'’]+)?").findAll(t).map { it.value }
         .firstOrNull { it.lowercase().trimEnd('.') !in skip }
 }
 

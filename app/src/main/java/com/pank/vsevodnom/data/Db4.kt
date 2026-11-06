@@ -20,6 +20,9 @@ data class TaskItem(
     val done: Boolean = false,
     val doneAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "") val tags: String = "",          // через запятую
+    @ColumnInfo(defaultValue = "") val image: String = "",         // путь к фото внутри приложения
+    val durationMin: Int? = null,                                  // длительность (для «17:00–18:00»)
 )
 
 @Entity(tableName = "habit")
@@ -32,6 +35,15 @@ data class Habit(
     val remindMinute: Int? = null,
     val archived: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "") val icon: String = "",          // эмодзи
+    @ColumnInfo(defaultValue = "") val goal: String = "",          // своя формулировка цели
+    @ColumnInfo(defaultValue = "") val section: String = "",       // Утро / После обеда / Ночь / Другие
+    @ColumnInfo(defaultValue = "0") val freqType: Int = 0,         // 0 по дням недели, 1 N раз в неделю, 2 каждые N дней
+    @ColumnInfo(defaultValue = "1") val freqN: Int = 1,
+    val startDay: Long? = null,
+    val goalDays: Int? = null,                                     // null — вечно
+    @ColumnInfo(defaultValue = "") val reminders: String = "",     // минуты от полуночи через запятую
+    @ColumnInfo(defaultValue = "0") val autoLog: Boolean = false,  // после отметки спросить заметку
 )
 
 @Entity(tableName = "habit_log", indices = [Index(value = ["habitId", "epochDay"], unique = true)])
@@ -64,6 +76,12 @@ data class MediaItem(
     val note: String = "",
     val link: String = "",
     val addedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0") val pageId: Long = 0,
+    @ColumnInfo(defaultValue = "") val kind: String = "",          // film | series
+    @ColumnInfo(defaultValue = "") val poster: String = "",
+    @ColumnInfo(defaultValue = "") val year: String = "",
+    @ColumnInfo(defaultValue = "") val details: String = "",       // JSON: режиссёр, актёры, жанр, рейтинг…
+    @ColumnInfo(defaultValue = "") val extId: String = "",         // Wikidata Q…
 )
 
 @Entity(tableName = "note")
@@ -75,6 +93,28 @@ data class Note(
     val pinned: Boolean = false,
     val tags: String = "",
     val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0") val pageId: Long = 0,
+)
+
+/** Страница в «Списках»: фильмы, покупки, заметки или своя. */
+@Entity(tableName = "list_page")
+data class ListPage(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val type: String,               // MOVIES | SHOP | NOTES
+    val tint: Int = 0,
+    val sort: Int = 0,
+)
+
+/** Пункт списка покупок. */
+@Entity(tableName = "list_entry", indices = [Index("pageId")])
+data class ListEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val pageId: Long,
+    val text: String,
+    val done: Boolean = false,
+    val sort: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "birthday")
@@ -85,6 +125,9 @@ data class Birthday(
     val month: Int,
     val year: Int? = null,
     val note: String = "",
+    @ColumnInfo(defaultValue = "0") val priority: Int = 0,
+    @ColumnInfo(defaultValue = "0") val tint: Int = 0,
+    @ColumnInfo(defaultValue = "birthday") val kind: String = "birthday",   // birthday | holiday | anniversary | other
 )
 
 // ================= Деньги =================
@@ -109,6 +152,7 @@ data class Category(
     val parentId: Long? = null,
     val tint: Int = 0,
     val archived: Boolean = false,
+    @ColumnInfo(defaultValue = "") val icon: String = "",          // имя значка из набора CAT_ICONS
 )
 
 /** Операция. type: EXPENSE, INCOME, TRANSFER (со счёта на счёт), ADJUST (корректировка). */
@@ -183,6 +227,17 @@ interface TodoDao {
     @Query("SELECT * FROM note ORDER BY pinned DESC, updatedAt DESC") fun notes(): Flow<List<Note>>
     @Upsert suspend fun upsertNote(n: Note): Long
     @Delete suspend fun deleteNote(n: Note)
+
+    @Query("SELECT * FROM list_page ORDER BY sort, id") fun pages(): Flow<List<ListPage>>
+    @Query("SELECT * FROM list_page") suspend fun pagesOnce(): List<ListPage>
+    @Upsert suspend fun upsertPage(p: ListPage): Long
+    @Delete suspend fun deletePage(p: ListPage)
+    @Query("SELECT * FROM list_entry WHERE pageId = :page ORDER BY done, sort, createdAt") fun entries(page: Long): Flow<List<ListEntry>>
+    @Upsert suspend fun upsertEntry(e: ListEntry): Long
+    @Delete suspend fun deleteEntry(e: ListEntry)
+    @Query("DELETE FROM list_entry WHERE pageId = :page AND done = 1") suspend fun clearDone(page: Long)
+    @Query("UPDATE media_item SET pageId = :page WHERE pageId = 0") suspend fun adoptMedia(page: Long)
+    @Query("UPDATE note SET pageId = :page WHERE pageId = 0") suspend fun adoptNotes(page: Long)
 
     @Query("SELECT * FROM birthday ORDER BY month, day") fun birthdays(): Flow<List<Birthday>>
     @Query("SELECT * FROM birthday") fun birthdaysSync(): List<Birthday>

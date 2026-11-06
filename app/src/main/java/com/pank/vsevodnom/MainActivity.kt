@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Checklist
@@ -70,6 +71,7 @@ class MainActivity : FragmentActivity() {
             navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
         )
         Channels.ensure(this)
+        com.pank.vsevodnom.data.Net.init(this)
         AlarmScheduler.rescheduleAll(this)
         AlertWorker.schedule(this)
         pendingRoute.value = routeFrom(intent)
@@ -86,13 +88,18 @@ class MainActivity : FragmentActivity() {
                 val tabs = listOf(
                     Triple("home", "Главная", androidx.compose.material.icons.Icons.Rounded.Home),
                     Triple("todo", "Дела", androidx.compose.material.icons.Icons.Rounded.Checklist),
-                    Triple("money", "Деньги", androidx.compose.material.icons.Icons.Rounded.AccountBalanceWallet),
+                    Triple("money", "Финансы", androidx.compose.material.icons.Icons.Rounded.AccountBalanceWallet),
                     Triple("calendar?new={new}", "Календарь", androidx.compose.material.icons.Icons.Rounded.CalendarMonth),
                     Triple("apps", "Все", androidx.compose.material.icons.Icons.Rounded.Apps),
                 )
                 androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize().background(com.pank.vsevodnom.ui.theme.Pal.Bg)) {
-                val barVisible = tabs.any { it.first == route }
+                val barVisible = tabs.any { it.first == route } && route != "money"  // у «Финансов» свой нижний бар
+                val offline = !com.pank.vsevodnom.data.Net.online
+                if (offline) com.pank.vsevodnom.ui.common.OfflineBanner()
                 androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f).then(
+                    // плашка уже заняла место под строкой состояния
+                    if (offline) androidx.compose.ui.Modifier.consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.statusBars) else androidx.compose.ui.Modifier
+                ).then(
                     // нижний бар сам учитывает системную панель — внутри экранов её отступ не нужен
                     if (barVisible) androidx.compose.ui.Modifier.consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.navigationBars) else androidx.compose.ui.Modifier
                 )) {
@@ -102,7 +109,7 @@ class MainActivity : FragmentActivity() {
                 ) {
                     composable("home") { HomeScreen(open = { nav.navigate(it) }) }
                     composable("todo") { TodoScreen() }
-                    composable("money") { MoneyScreen() }
+                    composable("money") { MoneyScreen(back) }
                     composable("power") { PowerScreen(back) }
                     composable("apps") { AppsScreen(open = { nav.navigate(it) }) }
                     composable("mood") { MoodScreen(back) }

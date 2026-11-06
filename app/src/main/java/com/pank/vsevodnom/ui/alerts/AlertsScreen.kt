@@ -82,7 +82,7 @@ fun AlertsScreen(onBack: () -> Unit) {
     var settings by remember { mutableStateOf(false) }
     var tick by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(tick, com.pank.vsevodnom.data.Net.online) {
         while (true) {
             loading = true
             runCatching { AlertsApi.fetch(ctx, force = tick > 0) }
@@ -126,7 +126,7 @@ fun AlertsScreen(onBack: () -> Unit) {
                     Text("Чтобы видеть районы и «жёлтые» тревоги, нужен бесплатный токен alerts.in.ua. Нажми — расскажу, как получить.", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            error?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = Pal.Muted) } }
+            if (error != null || state == null) item { NetWait(error) }
             if (s != null) {
                 val on = AlertsApi.OBLASTS.filter { s.of(it) != AlertLevel.NONE }
                 item { SectionLabel(if (on.isEmpty()) "Тревог нет нигде" else "Сейчас тревога: ${on.size}") }

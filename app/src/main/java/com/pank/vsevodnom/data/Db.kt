@@ -318,9 +318,9 @@ interface LifeDao {
         WeightEntry::class, PiggyGoal::class, PiggyTx::class, AlarmEntity::class, WorldCity::class, WeatherCity::class,
         Lesson::class, SubjectAlias::class, CalEvent::class, MoodEntry::class, CartItem::class,
         TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
-        Account::class, Category::class, Txn::class, Place::class, Track::class,
+        Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -341,6 +341,38 @@ abstract class AppDb : RoomDatabase() {
         fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
 
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        /** v4 → v5: теги/фото/длительность задач, настройки привычек, страницы списков, фильмы, даты с приоритетом, значки категорий. */
+        val M4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `task` ADD COLUMN `tags` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `task` ADD COLUMN `image` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `task` ADD COLUMN `durationMin` INTEGER")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `goal` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `section` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `freqType` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `freqN` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `startDay` INTEGER")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `goalDays` INTEGER")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `reminders` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `habit` ADD COLUMN `autoLog` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `media_item` ADD COLUMN `pageId` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `media_item` ADD COLUMN `kind` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `media_item` ADD COLUMN `poster` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `media_item` ADD COLUMN `year` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `media_item` ADD COLUMN `details` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `media_item` ADD COLUMN `extId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `note` ADD COLUMN `pageId` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `birthday` ADD COLUMN `priority` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `birthday` ADD COLUMN `tint` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `birthday` ADD COLUMN `kind` TEXT NOT NULL DEFAULT 'birthday'")
+                db.execSQL("ALTER TABLE `category` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `list_page` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `type` TEXT NOT NULL, `tint` INTEGER NOT NULL, `sort` INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `list_entry` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `pageId` INTEGER NOT NULL, `text` TEXT NOT NULL, `done` INTEGER NOT NULL, `sort` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entry_pageId` ON `list_entry` (`pageId`)")
+            }
+        }
+
         val M3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `mood` ADD COLUMN `photo` TEXT NOT NULL DEFAULT ''")
@@ -395,7 +427,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3, M3_4)
+                .addMigrations(M1_2, M2_3, M3_4, M4_5)
                 .build().also { inst = it }
         }
     }

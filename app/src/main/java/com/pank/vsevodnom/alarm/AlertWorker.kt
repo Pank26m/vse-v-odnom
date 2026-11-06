@@ -11,7 +11,7 @@ import com.pank.vsevodnom.R
 import com.pank.vsevodnom.data.AlertsApi
 import java.util.concurrent.TimeUnit
 
-/** Фоновая проверка тревоги по Киеву и области (Android не даёт чаще, чем раз в 15 минут). */
+/** Фоновая проверка тревоги только по Киеву (Android не даёт чаще, чем раз в 15 минут). */
 class AlertWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
     companion object {
         private const val NAME = "alerts-check"
@@ -29,7 +29,7 @@ class AlertWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
         if (!AlertsApi.notifyEnabled(applicationContext)) return Result.success()
         val st = runCatching { AlertsApi.fetch(applicationContext) }.getOrElse { return Result.retry() }
         val prefs = applicationContext.getSharedPreferences("alerts", Context.MODE_PRIVATE)
-        listOf(AlertsApi.KYIV_CITY to "Киев", AlertsApi.KYIV_OBL to "Киевская область").forEachIndexed { i, (key, title) ->
+        listOf(AlertsApi.KYIV_CITY to "Киев").forEachIndexed { i, (key, title) ->
             if (!st.known(key)) return@forEachIndexed
             val now = st.of(key)
             val was = prefs.getString("lvl_$key", "NONE")

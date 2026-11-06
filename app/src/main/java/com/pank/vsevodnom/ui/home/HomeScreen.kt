@@ -55,7 +55,7 @@ data class Tile(val title: String, val icon: ImageVector, val tint: Tint, val ro
 
 val TILES = listOf(
     Tile("Дела", Icons.Rounded.Checklist, Tints.Lilac, "todo"),
-    Tile("Деньги", Icons.Rounded.AccountBalanceWallet, Tints.Mint, "money"),
+    Tile("Финансы", Icons.Rounded.AccountBalanceWallet, Tints.Mint, "money"),
     Tile("Календарь", Icons.Rounded.CalendarMonth, Tints.Lilac, "calendar"),
     Tile("Погода", Icons.Rounded.Cloud, Tints.Sky, "weather"),
     Tile("Карта", Icons.Rounded.Map, Tints.Sky, "map"),
@@ -199,17 +199,16 @@ private fun StatusPill(onClick: () -> Unit, content: @Composable RowScope.() -> 
         verticalAlignment = Alignment.CenterVertically, content = content)
 }
 
-/** Тревога: зелёный щит — спокойно, жёлтый дрон — частично, красная ракета — в Киеве. */
+/** Тревога только по Киеву: зелёный щит — спокойно, жёлтый дрон — в части районов, красная ракета — по всему городу. */
 @Composable
 private fun AlertIcon() {
     val st = AlertCache.state
-    val c = st?.of(AlertsApi.KYIV_CITY); val o = st?.of(AlertsApi.KYIV_OBL)
-    val worst = listOfNotNull(c, o).maxByOrNull { it.ordinal }
+    val c = st?.of(AlertsApi.KYIV_CITY)
     when {
         st == null -> Icon(Icons.Rounded.Shield, "Тревоги", tint = Pal.Muted, modifier = Modifier.size(22.dp))
         c == AlertLevel.FULL -> { Icon(Icons.Rounded.RocketLaunch, "Тревога в Киеве", tint = Color(0xFFD94A6A), modifier = Modifier.size(22.dp)); Text(" Киев", style = MaterialTheme.typography.labelLarge, color = Color(0xFFD94A6A)) }
-        worst != null && worst != AlertLevel.NONE -> { DroneIcon(Color(0xFFD9A321)); Text(" область", style = MaterialTheme.typography.labelLarge, color = Color(0xFF9C7414)) }
-        else -> Icon(Icons.Rounded.Shield, "Тревоги нет", tint = Color(0xFF3FA36B), modifier = Modifier.size(22.dp))
+        c == AlertLevel.PARTIAL -> { DroneIcon(Color(0xFFD9A321)); Text(" Киев", style = MaterialTheme.typography.labelLarge, color = Color(0xFF9C7414)) }
+        else -> Icon(Icons.Rounded.Shield, "Тревоги в Киеве нет", tint = Color(0xFF3FA36B), modifier = Modifier.size(22.dp))
     }
 }
 
