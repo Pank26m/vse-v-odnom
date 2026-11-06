@@ -69,6 +69,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
 
     // Скриншот-тесты экранов (рендер на JVM, без эмулятора)
     testImplementation("junit:junit:4.13.2")

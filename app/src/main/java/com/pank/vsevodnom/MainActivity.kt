@@ -27,6 +27,7 @@ import com.pank.vsevodnom.ui.games.GamesScreen
 import com.pank.vsevodnom.ui.vault.PasswordsScreen
 import com.pank.vsevodnom.ui.sms.SmsScreen
 import com.pank.vsevodnom.ui.contacts.ContactsScreen
+import com.pank.vsevodnom.ui.health.HealthScreen
 import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.ui.calendar.CalendarScreen
 import com.pank.vsevodnom.ui.calendar.PendingImport
@@ -82,6 +83,7 @@ class MainActivity : FragmentActivity() {
                     composable("passwords") { PasswordsScreen(back) }
                     composable("sms") { SmsScreen(back) }
                     composable("contacts") { ContactsScreen(back) }
+                    composable("health") { HealthScreen(back) }
                 }
             }
         }
@@ -106,7 +108,7 @@ class MainActivity : FragmentActivity() {
             "recorder" -> "recorder"
             "sms" -> "sms"
             "contacts" -> "contacts"
-            else -> null
+            else -> if (i?.action == "androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" || i?.action == "android.intent.action.VIEW_PERMISSION_USAGE") "health" else null
         }
     }
 }
