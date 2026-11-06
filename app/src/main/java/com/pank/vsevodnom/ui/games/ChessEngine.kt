@@ -262,6 +262,27 @@ class Chess {
     }
 
     val moveCount get() = undo.size
+    /** Сыгранные ходы по порядку (для анализа партии). */
+    fun moves(): List<Int> = undo.map { it.move }
+
+    /** Оценка позиции для анализа: (лучший ход, оценка в сантипешках для стороны, которая ходит). */
+    fun analyse(timeMs: Long, maxDepth: Int = 5): Pair<Int?, Int> {
+        val moves = legal()
+        if (moves.isEmpty()) return null to (if (inCheck()) -100_000 else 0)
+        deadline = System.currentTimeMillis() + timeMs; stop = false
+        var best = moves.first(); var bestScore = 0
+        for (d in 1..maxDepth) {
+            var alpha = -1_000_000; var bm = 0
+            for (m in order(moves.toIntArray(), 0, best)) {
+                make(m); val v = -search(d - 1, -1_000_000, -alpha, 1); unmake()
+                if (stop) break
+                if (v > alpha) { alpha = v; bm = m }
+            }
+            if (stop) break
+            if (bm != 0) { best = bm; bestScore = alpha }
+        }
+        return best to bestScore
+    }
     fun lastMove(): Int? = undo.lastOrNull()?.move
 
     // ----------- Конец партии -----------
