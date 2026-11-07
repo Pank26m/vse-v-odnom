@@ -140,12 +140,45 @@ fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false, onOpenMap: ()
         }.onFailure { err = it.message }
     }
 
+    var page by remember { mutableStateOf<String?>(null) }   // null — плитки, activity, mood
     if (workout) { BackHandler { workout = false }; CyclingWorkout { workout = false; version++ }; return }
     if (weightOpen) { BackHandler { weightOpen = false }; com.pank.vsevodnom.ui.weight.WeightScreen({ weightOpen = false }); return }
+    if (page == "mood") { BackHandler { page = null }; com.pank.vsevodnom.ui.life.MoodScreen { page = null }; return }
 
-    ScreenScaffold("Здоровье", onBack) {
+    if (page == null) {
+        val w by remember { com.pank.vsevodnom.data.AppDb.get(ctx).weight().all() }.collectAsState(initial = emptyList())
+        val moods by remember { com.pank.vsevodnom.data.AppDb.get(ctx).life().moods() }.collectAsState(initial = emptyList())
+        val tracks by remember { com.pank.vsevodnom.data.AppDb.get(ctx).map().tracks() }.collectAsState(initial = emptyList())
+        val week = tracks.filter { it.startedAt > System.currentTimeMillis() - 7 * 86400_000L }
+        ScreenScaffold("Здоровье", onBack) {
+            LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { LifeScoreCard(summary, version) }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HealthTile("Активность", summary?.let { "%,d".format(it.steps).replace(',', ' ') + " шагов" } ?: "Health Connect", "шаги, пульс, сон", Pal.Mint, Pal.MintInk, Modifier.weight(1f)) { page = "activity" }
+                        HealthTile("Настроение", moods.firstOrNull()?.let { com.pank.vsevodnom.ui.life.MOOD_NAMES[it.level - 1] } ?: "нет записей", "дневник и статистика", Pal.Butter, Pal.ButterInk, Modifier.weight(1f)) { page = "mood" }
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HealthTile("Вес", w.lastOrNull()?.let { "${com.pank.vsevodnom.ui.weight.fmtKg(it.kg)} кг" } ?: "— кг", "ИМТ, цель, графики", Pal.Sky, Pal.SkyInk, Modifier.weight(1f)) { weightOpen = true }
+                        HealthTile("Треки", if (week.isEmpty()) "нет за неделю" else com.pank.vsevodnom.data.fmtKm(week.sumOf { it.distanceM }), "прогулки и поездки", Pal.Lilac, Pal.LilacInk, Modifier.weight(1f), onOpenMap)
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HealthTile("Велотренировка", "с пульсом", "Mi Band, зоны", Pal.Peach, Pal.PeachInk, Modifier.weight(1f)) { workout = true }
+                        HealthTile("Сон", summary?.sleep?.let { "${it.toHours()} ч ${it.toMinutes() % 60} м" } ?: "—", "прошлой ночью", Pal.Rose, Pal.RoseInk, Modifier.weight(1f)) { page = "activity" }
+                    }
+                }
+            }
+        }
+        return
+    }
+    BackHandler { page = null }
+
+    ScreenScaffold("Активность", { page = null }) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { LifeScoreCard(summary, version) }
             item {
                 val w by remember { com.pank.vsevodnom.data.AppDb.get(ctx).weight().all() }.collectAsState(initial = emptyList())
                 AppCard(Modifier.fillMaxWidth(), color = Pal.Mint, onClick = { weightOpen = true }) {
@@ -260,6 +293,16 @@ private fun Stat(title: String, value: String, sub: String, modifier: Modifier, 
         Text(title, style = MaterialTheme.typography.labelLarge, color = ink)
         Text(value, style = MaterialTheme.typography.headlineLarge)
         Text(sub, style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+    }
+}
+
+@Composable
+private fun HealthTile(title: String, value: String, sub: String, bg: androidx.compose.ui.graphics.Color, ink: androidx.compose.ui.graphics.Color, modifier: Modifier, onClick: () -> Unit) {
+    AppCard(modifier.height(118.dp), color = bg, onClick = onClick) {
+        Text(title, style = MaterialTheme.typography.labelLarge, color = ink)
+        Spacer(Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+        Text(sub, style = MaterialTheme.typography.labelMedium, color = Pal.Muted, maxLines = 1)
     }
 }
 

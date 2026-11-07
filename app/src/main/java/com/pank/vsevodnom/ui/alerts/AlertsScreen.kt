@@ -133,7 +133,7 @@ fun AlertsScreen(onBack: () -> Unit) {
                 val on = AlertsApi.OBLASTS.filter { s.of(it) != AlertLevel.NONE }
                     .sortedWith(compareByDescending<String> { s.of(it).ordinal }.thenBy { it })
                 item { SectionLabel(if (on.isEmpty()) "Тревог нет нигде" else "Сейчас тревога: ${on.size}") }
-                items(on) { n -> OblastCard(s, n) { selected = n } }
+                items(on, key = { it }) { n -> OblastCard(s, n) }
                 item {
                     Text(
                         "Источник: ${s.source} · ${Instant.ofEpochMilli(s.fetchedAt).atZone(ZoneId.systemDefault()).toLocalTime().withNano(0)}\n" +

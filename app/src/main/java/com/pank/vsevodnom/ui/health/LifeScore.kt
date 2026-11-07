@@ -1,5 +1,7 @@
 package com.pank.vsevodnom.ui.health
 
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material3.Icon
 import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -214,5 +216,42 @@ fun LifeScoreCard(hs: HealthSummary?, version: Int) {
                 Text(part.note, style = MaterialTheme.typography.bodySmall)
             }
         } else Text("Нажми — разбор по каждой стороне (${p.size})", style = MaterialTheme.typography.labelMedium, color = Pal.LilacInk)
+    }
+}
+
+/** Короткая карточка для главной: оценка, одна фраза и тонкая полоска шагов. Нажатие — в «Здоровье». */
+@Composable
+fun LifeScoreMini(onOpen: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var hs by remember { mutableStateOf<HealthSummary?>(null) }
+    var parts by remember { mutableStateOf<List<LifePart>?>(null) }
+    LaunchedEffect(Unit) {
+        hs = runCatching { if (HealthRepo.status(ctx) == androidx.health.connect.client.HealthConnectClient.SDK_AVAILABLE && HealthRepo.granted(ctx).isNotEmpty()) HealthRepo.summary(ctx) else null }.getOrNull()
+        parts = runCatching { LifeScore.compute(ctx, hs) }.getOrDefault(emptyList())
+    }
+    val total = parts?.let { LifeScore.total(it) } ?: return
+    val col = when { total >= 7 -> Color(0xFF2DB37A); total >= 5 -> Color(0xFFF2A33A); else -> Color(0xFFE5485D) }
+    Row(Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onOpen).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawArc(Pal.Line, 135f, 270f, false, style = Stroke(8f, cap = StrokeCap.Round))
+                drawArc(col, 135f, (270 * total / 10).toFloat(), false, style = Stroke(8f, cap = StrokeCap.Round))
+            }
+            Text("%.1f".format(total).replace('.', ','), style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(LifeScore.verdict(total), style = MaterialTheme.typography.titleSmall, maxLines = 1)
+            hs?.let { h ->
+                val goal = 8000L
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    Box(Modifier.weight(1f).height(5.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp)).background(Pal.Line)) {
+                        Box(Modifier.fillMaxWidth((h.steps.toFloat() / goal).coerceIn(0f, 1f)).fillMaxHeight().background(Pal.MintInk))
+                    }
+                    Text("  " + "%,d".format(h.steps).replace(',', ' ') + " шагов", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                }
+            } ?: Text("как я проживаю жизнь", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+        }
+        Icon(androidx.compose.material.icons.Icons.Rounded.ChevronRight, null, tint = Pal.Muted)
     }
 }

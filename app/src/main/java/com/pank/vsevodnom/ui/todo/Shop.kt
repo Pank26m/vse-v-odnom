@@ -2,6 +2,7 @@ package com.pank.vsevodnom.ui.todo
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.runtime.key
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -105,7 +106,7 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
     LaunchedEffect(dbItems) { if (dragIdx < 0) { order.clear(); order.addAll(dbItems) } }
     var text by remember { mutableStateOf("") }
     var edit by remember { mutableStateOf<ListEntry?>(null) }
-    val rowH = 58.dp
+    val rowH = 64.dp
     val rowPx = with(LocalDensity.current) { rowH.toPx() }
     val t = Tints.all[p.tint % 6]
     fun add() { val s = text.trim(); if (s.isNotEmpty()) AppScope.io.launch { dao.upsertEntry(ListEntry(pageId = p.id, text = s, sort = (order.maxOfOrNull { it.sort } ?: 0) + 1)) }; text = "" }
@@ -123,6 +124,8 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState(), enabled = dragIdx < 0).padding(horizontal = 16.dp).padding(bottom = 32.dp)) {
             if (order.isEmpty()) EmptyHint("Пусто. Пиши пункт и жми Enter.", Modifier.padding(top = 12.dp))
             order.forEachIndexed { i, e ->
+              // key: строка «едет» вместе со своим пунктом, иначе после обмена жест обрывается и пункт застревает
+              key(e.id) {
                 val dragging = i == dragIdx
                 Row(Modifier.fillMaxWidth().height(rowH).zIndex(if (dragging) 1f else 0f)
                     .graphicsLayer { translationY = if (dragging) dragY else 0f }
@@ -130,9 +133,14 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                     .clip(RoundedCornerShape(14.dp)).background(if (e.done) t.bg.copy(alpha = 0.6f) else Pal.Card).clickable { edit = e }.padding(start = 12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     CheckCircle(e.done, t.ink, 24.dp) { AppScope.io.launch { dao.upsertEntry(e.copy(done = !e.done)) } }
-                    // разделитель между галочкой и названием
-                    Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(28.dp).background(Pal.Ink.copy(alpha = 0.12f)))
-                    Text(e.text, style = MaterialTheme.typography.bodyLarge.copy(textDecoration = if (e.done) TextDecoration.LineThrough else null), color = if (e.done) Pal.Muted else Pal.Ink, modifier = Modifier.weight(1f), maxLines = 1)
+                    CheckDivider(height = 30.dp)
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (e.priority > 0) Box(Modifier.padding(end = 6.dp).size(9.dp).clip(CircleShape).background(prioColor(e.priority)))
+                            Text(e.text, style = MaterialTheme.typography.bodyLarge.copy(textDecoration = if (e.done) TextDecoration.LineThrough else null), color = if (e.done) Pal.Muted else Pal.Ink, maxLines = 1)
+                        }
+                        if (e.note.isNotBlank()) Text(e.note, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+                    }
                     Box(Modifier.fillMaxHeight().width(48.dp).pointerInput(e.id) {
                         detectDragGestures(
                             onDragStart = { dragIdx = order.indexOfFirst { it.id == e.id }; dragY = 0f },
@@ -152,13 +160,23 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                         }
                     }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.DragIndicator, "Перетащить", tint = Pal.Muted) }
                 }
+              }
             }
         }
     }
     edit?.let { e ->
         var s by remember { mutableStateOf(e.text) }
-        AlertDialog(onDismissRequest = { edit = null }, text = { AppTextField(s, { s = it }, "Пункт") },
-            confirmButton = { TextButton({ if (s.isNotBlank()) AppScope.io.launch { dao.upsertEntry(e.copy(text = s.trim())) }; edit = null }) { Text("Сохранить") } },
+        var n by remember { mutableStateOf(e.note) }
+        var pr by remember { mutableIntStateOf(e.priority) }
+        AlertDialog(onDismissRequest = { edit = null }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppTextField(s, { s = it }, "Пункт")
+                AppTextField(n, { n = it }, "Описание (необязательно)", singleLine = false)
+                Text("Приоритет", style = MaterialTheme.typography.labelLarge, color = Pal.Muted)
+                PriorityDots(pr) { pr = it }
+            }
+        },
+            confirmButton = { TextButton({ if (s.isNotBlank()) AppScope.io.launch { dao.upsertEntry(e.copy(text = s.trim(), note = n.trim(), priority = pr)) }; edit = null }) { Text("Сохранить") } },
             dismissButton = { TextButton({ AppScope.io.launch { dao.deleteEntry(e) }; edit = null }) { Text("Удалить", color = Pal.RoseInk) } })
     }
 }

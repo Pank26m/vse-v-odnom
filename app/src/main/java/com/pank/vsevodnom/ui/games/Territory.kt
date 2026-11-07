@@ -1,5 +1,6 @@
 package com.pank.vsevodnom.ui.games
 
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -37,7 +38,7 @@ class Hex(val q: Int, val r: Int) { var owner = -1; var v = 0 }
  *    Поражение: исходная остаётся с 1, защитник теряет половину силы атаки.
  * 2) Рост: получаешь столько очков, сколько у тебя клеток, и раздаёшь по +1 (максимум MAX на клетку).
  */
-class TerritoryGame(val players: Int = 4, seed: Long = System.nanoTime(), val radius: Int = 6) {
+class TerritoryGame(val players: Int = 4, seed: Long = System.nanoTime(), val radius: Int = 6, val botLevel: Int = 1) {
     companion object { const val MAX = 8 }
     val rnd = Random(seed)
     val cells = ArrayList<Hex>()
@@ -89,7 +90,7 @@ class TerritoryGame(val players: Int = 4, seed: Long = System.nanoTime(), val ra
         return win
     }
 
-    fun endAttack() { phase = 1; points = owned(turn).size }
+    fun endAttack() { phase = 1; points = owned(turn).size + if (turn != 0 && botLevel == 2) owned(turn).size / 4 else 0 }
     fun grow(h: Hex): Boolean { if (phase != 1 || h.owner != turn || points <= 0 || h.v >= MAX) return false; h.v++; points--; return true }
     /** Раздать оставшиеся очки по границе, начиная со слабых. */
     fun autoGrow() {
@@ -110,8 +111,13 @@ class TerritoryGame(val players: Int = 4, seed: Long = System.nanoTime(), val ra
     /** Ход бота: одна атака за вызов (чтобы было видно), null — атаковать больше нечего. */
     fun botAttackOnce(): Boolean {
         val opts = owned(turn).filter { it.v >= 2 }.flatMap { s -> nbrs(s).filter { it.owner != turn }.map { s to it } }
-        val good = opts.filter { (s, t) -> t.v == 0 || s.v > t.v || (s.v == t.v && s.v >= 6) }
-        val pick = good.maxByOrNull { (s, t) -> (if (t.v == 0) 3 else 0) + s.v - t.v + (if (t.owner == 0) 1 else 0) } ?: return false
+        // уровень ботов: 0 лёгкий — осторожничает и часто пропускает атаки; 2 сложный — давит, бьёт и при равенстве, охотится на тебя
+        val good = when (botLevel) {
+            0 -> opts.filter { (s, t) -> t.v == 0 || s.v >= t.v + 2 }.filter { rnd.nextFloat() < 0.6f }
+            2 -> opts.filter { (s, t) -> t.v == 0 || s.v > t.v || (s.v == t.v && s.v >= 4) || (t.owner == 0 && s.v >= t.v) }
+            else -> opts.filter { (s, t) -> t.v == 0 || s.v > t.v || (s.v == t.v && s.v >= 6) }
+        }
+        val pick = good.maxByOrNull { (s, t) -> (if (t.v == 0) 3 else 0) + s.v - t.v + (if (t.owner == 0) (if (botLevel == 2) 3 else 1) else 0) } ?: return false
         attack(pick.first, pick.second); return true
     }
 }
@@ -121,7 +127,14 @@ private val P_NAMES = listOf("Ты", "Мята", "Персик", "Роза")
 
 @Composable
 fun TerritoryScreen(onBack: () -> Unit) {
-    var g by remember { mutableStateOf(TerritoryGame()) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val tp = remember { ctx.getSharedPreferences("territory", android.content.Context.MODE_PRIVATE) }
+    var dark by remember { mutableStateOf(tp.getBoolean("dark", false)) }
+    var mapSize by remember { mutableIntStateOf(tp.getInt("size", 1)) }      // 0 S, 1 L, 2 XL, 3 XXL
+    var level by remember { mutableIntStateOf(tp.getInt("level", 1)) }       // 0 лёгкие, 1 обычные, 2 сложные
+    var opts by remember { mutableStateOf(false) }
+    fun newGame() = TerritoryGame(radius = listOf(4, 6, 8, 10)[mapSize], botLevel = level)
+    var g by remember { mutableStateOf(newGame()) }
     var ver by remember { mutableIntStateOf(0) }
     var sel by remember { mutableStateOf<Hex?>(null) }
     var layout by remember { mutableStateOf(Triple(0f, Offset.Zero, 1f)) }   // размер гекса, центр, —
@@ -134,7 +147,7 @@ fun TerritoryScreen(onBack: () -> Unit) {
         if (g.winner == null) { g.endAttack(); g.autoGrow(); ver++; delay(350); g.endTurn(); ver++; turnSeq++ }
     }
     val myTurn = g.turn == 0 && g.winner == null
-    ScreenScaffold("Территории", onBack) {
+    ScreenScaffold("Территории", onBack, actions = { RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Settings, "Режимы", { opts = true }) }) {
         key(ver) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 (0 until g.players).forEach { p ->
@@ -178,6 +191,7 @@ fun TerritoryScreen(onBack: () -> Unit) {
                 layout = Triple(sz, c, 1f)
                 val paint = android.graphics.Paint().apply { isAntiAlias = true; textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true; textSize = sz * 0.62f }
                 val s = sel
+                val visible: (Hex) -> Boolean = if (!dark) { _ -> true } else { hx -> hx.owner == 0 || g.nbrs(hx).any { it.owner == 0 } }
                 g.cells.forEach { hx ->
                     val cx = c.x + sqrt(3f) * (hx.q + hx.r / 2f) * sz; val cy = c.y + 1.5f * hx.r * sz
                     val path = Path()
@@ -185,6 +199,7 @@ fun TerritoryScreen(onBack: () -> Unit) {
                     path.close()
                     val (fill, ink) = if (hx.owner >= 0) P_COLORS[hx.owner] else Color(0xFFE9E7EF) to Color(0xFF9A98A6)
                     val tint = if (hx.owner >= 0) fill.copy(alpha = 0.35f + 0.65f * hx.v / TerritoryGame.MAX) else fill
+                    if (!visible(hx)) { drawPath(path, Color(0xFF2E3350)); drawPath(path, Color(0xFF3A3F5E), style = Stroke(sz * 0.06f)); return@forEach }
                     drawPath(path, tint)
                     val target = s != null && g.canAttack(s, hx)
                     when {
@@ -196,8 +211,24 @@ fun TerritoryScreen(onBack: () -> Unit) {
                     if (hx.owner >= 0 || hx.v > 0) { paint.color = if (hx.v >= 5 && hx.owner >= 0) android.graphics.Color.WHITE else ink.let { android.graphics.Color.argb(255, (it.red * 255).toInt(), (it.green * 255).toInt(), (it.blue * 255).toInt()) }; drawContext.canvas.nativeCanvas.drawText("${hx.v}", cx, cy + sz * 0.22f, paint) }
                 }
             }
-            g.winner?.let { w -> GameOverlay(if (w == 0) "Победа!" else "${P_NAMES[w]} захватила карту", if (w == 0) "Вся карта твоя" else "Попробуй начать с соседних пустых клеток", "Новая карта") { g = TerritoryGame(); sel = null; ver++; turnSeq++ } }
-            if (!g.alive(0) && g.winner == null) GameOverlay("Тебя вытеснили", "Боты ещё доигрывают", "Новая карта") { g = TerritoryGame(); sel = null; ver++; turnSeq++ }
+            if (opts) androidx.compose.material3.AlertDialog(onDismissRequest = { opts = false }, title = { Text("Режимы") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { Text("Тьма", style = MaterialTheme.typography.titleSmall); Text("Видно только свои клетки и соседние", style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
+                            androidx.compose.material3.Switch(dark, { dark = it })
+                        }
+                        Text("Размер карты", style = MaterialTheme.typography.titleSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("S", "L", "XL", "XXL").forEachIndexed { i, t -> Chip(t, mapSize == i, { mapSize = i }) } }
+                        Text("Уровень ботов", style = MaterialTheme.typography.titleSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("Лёгкие", "Обычные", "Сложные").forEachIndexed { i, t -> Chip(t, level == i, { level = i }) } }
+                        Text("Размер и уровень применятся к новой карте, тьма — сразу.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                    }
+                },
+                confirmButton = { androidx.compose.material3.TextButton({ tp.edit().putBoolean("dark", dark).putInt("size", mapSize).putInt("level", level).apply(); opts = false; g = newGame(); sel = null; ver++; turnSeq++ }) { Text("Новая карта") } },
+                dismissButton = { androidx.compose.material3.TextButton({ tp.edit().putBoolean("dark", dark).putInt("size", mapSize).putInt("level", level).apply(); opts = false; ver++ }) { Text("Готово") } })
+            g.winner?.let { w -> GameOverlay(if (w == 0) "Победа!" else "${P_NAMES[w]} захватила карту", if (w == 0) "Вся карта твоя" else "Попробуй начать с соседних пустых клеток", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ } }
+            if (!g.alive(0) && g.winner == null) GameOverlay("Тебя вытеснили", "Боты ещё доигрывают", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ }
         }
         key(ver) {
             Column(Modifier.fillMaxWidth().padding(16.dp, 4.dp, 16.dp, 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -213,7 +244,7 @@ fun TerritoryScreen(onBack: () -> Unit) {
                         PillButton("Раздать сам", { g.autoGrow(); ver++ }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink, enabled = g.points > 0)
                         PillButton("Конец хода", { g.endTurn(); ver++; turnSeq++ }, Modifier.weight(1f))
                     }
-                    PillButton("Заново", { g = TerritoryGame(); sel = null; ver++; turnSeq++ }, Modifier.weight(0.7f), bg = Pal.Card, fg = Pal.Ink)
+                    PillButton("Заново", { g = newGame(); sel = null; ver++; turnSeq++ }, Modifier.weight(0.7f), bg = Pal.Card, fg = Pal.Ink)
                 }
             }
         }

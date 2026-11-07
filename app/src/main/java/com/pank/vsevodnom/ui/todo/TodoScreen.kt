@@ -53,6 +53,7 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
         "habits" -> { BackHandler(onBack = close); HabitsPage(close); return }
         "dates" -> { BackHandler(onBack = close); DatesPage(close); return }
         "stats" -> { BackHandler(onBack = close); TodoStatsPage(close); return }
+        "cart" -> { BackHandler(onBack = close); com.pank.vsevodnom.ui.life.CartScreen(close); return }
     }
     val tasks by dao.tasks().collectAsState(initial = emptyList())
     val habits by dao.habits().collectAsState(initial = emptyList())
@@ -63,6 +64,7 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
     val media by dao.media().collectAsState(initial = emptyList())
     val entries by dao.allEntries().collectAsState(initial = emptyList())
     val pages by dao.pages().collectAsState(initial = emptyList())
+    val cart by remember { AppDb.get(ctx).life().cart() }.collectAsState(initial = emptyList())
     LaunchedEffect(Unit) { ensureListPages(ctx) }
     val t0 = today.toEpochDay()
     val open = tasks.filter { !it.done }
@@ -121,12 +123,18 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
                         HubTile("Покупки", Icons.Rounded.ShoppingCart, Tints.Peach, if (shopLeft > 0) "купить $shopLeft" else "всё куплено", "${shopIds.size} списков", false, Modifier.weight(1f)) { page = "shop" }
                         HubTile("Даты", Icons.Rounded.Cake, Tints.Rose, soonDates.firstOrNull()?.name ?: "${dates.size}", soonDates.firstOrNull()?.let { "через ${Duration.between(today.atStartOfDay(), nextOccurrence(it).atStartOfDay()).toDays()} дн." } ?: "дни рождения", false, Modifier.weight(1f)) { page = "dates" }
                     }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        val want = cart.filter { !it.bought }
+                        HubTile("Корзина", Icons.Rounded.ShoppingBag, Tints.Peach, if (want.isEmpty()) "пусто" else "хочу ${want.size}", want.mapNotNull { it.planDay }.minOrNull()?.let { "купить ${dateLabel(it)}" } ?: "вишлист", false, Modifier.weight(1f)) { page = "cart" }
+                        Spacer(Modifier.weight(2f).padding(5.dp))
+                    }
                     Text("Календарь", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
                 }
             }
         },
         dots = { d ->
             (if (tasksOn(d).isNotEmpty() && !d.isBefore(today)) listOf(Tints.Sky.ink) else emptyList()) +
+                (if (cart.any { !it.bought && it.planDay == d.toEpochDay() }) listOf(Pal.PeachInk) else emptyList()) +
                 (if (bdaysOn(d).isNotEmpty()) listOf(Pal.RoseInk) else emptyList())
         },
         dayExtras = { d ->
@@ -139,8 +147,19 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
                     Labeled("Привычка", Tints.Mint) { HabitRowFeed(h, logs, onDone = leave) { detail = h } }
                 }
             }
-            items(bdaysOn(d).filter { tick >= 0 && (d != today || !BdayDone.isDone(ctx, it.id)) }, key = { "d$k-${it.id}" }) { b ->
+            items(bdaysOn(d).filter { tick >= 0 && !BdayDone.isDone(ctx, it.id, d) }, key = { "d$k-${it.id}" }) { b ->
                 Labeled("Дата", Tints.Rose) { BirthdayRow(b, d, onOpen = { bday = b }) { doneTick++ } }
+            }
+            items(cart.filter { !it.bought && (it.planDay == k || (d == today && (it.planDay ?: Long.MAX_VALUE) < k)) }, key = { "c$k-${it.id}" }) { c ->
+                Labeled("Корзина", Tints.Peach) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "cart" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CheckCircle(false, Pal.PeachInk, 24.dp) { AppScope.io.launch { AppDb.get(ctx).life().upsertCart(c.copy(bought = true, boughtAt = System.currentTimeMillis())) } }
+                        CheckDivider()
+                        if (c.priority > 0) Box(Modifier.padding(end = 6.dp).size(9.dp).clip(androidx.compose.foundation.shape.CircleShape).background(prioColor(c.priority)))
+                        Text("Купить: ${c.title}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1)
+                        c.price?.let { Text("%.0f ₴".format(it), style = MaterialTheme.typography.labelLarge) }
+                    }
+                }
             }
             if (d == today && shopLeft > 0) item(key = "shop$k") {
                 Labeled("Покупки", Tints.Peach) {
@@ -176,7 +195,8 @@ fun BirthdayRow(b: Birthday, day: LocalDate, onOpen: () -> Unit, onDone: () -> U
                 Text(b.name, style = MaterialTheme.typography.titleSmall)
                 Text((if (b.kind == "birthday") "День рождения" else "Дата") + (b.year?.let { " · ${day.year - it}" } ?: "") + if (day == today) " · сегодня" else "", style = MaterialTheme.typography.bodySmall)
             }
-            if (day == today) CheckCircle(done, col, 26.dp) { leave() }
+            CheckDivider()
+            CheckCircle(done, col, 26.dp) { leave() }
         }
     }
 }
@@ -193,6 +213,7 @@ private fun HabitRowFeed(h: Habit, logs: List<HabitLog>, onDone: () -> Unit, onC
             Text(h.title, style = MaterialTheme.typography.bodyLarge)
             StreakFlame(Todo.streak(h, logs, LocalDate.now()), false, 14.dp)
         }
+        CheckDivider()
         CheckCircle(checked, t.ink, 26.dp) {
             checked = true
             // запись — после анимации, чтобы строка успела уехать

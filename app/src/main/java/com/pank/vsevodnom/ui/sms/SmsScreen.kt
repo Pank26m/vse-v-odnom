@@ -176,19 +176,9 @@ fun SmsScreen(onBack: () -> Unit) {
         }
     }
 
-    if (settings) {
-        var words by remember { mutableStateOf(SmsRepo.spamWords(ctx).joinToString("\n")) }
-        AlertDialog(onDismissRequest = { settings = false }, title = { Text("Фильтр спама") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("СМС с этими словами уходят в «Спам» (кроме контактов и сообщений с кодами). По одному слову или фразе в строке.", style = MaterialTheme.typography.bodySmall)
-                    AppTextField(words, { words = it }, "Слова", singleLine = false, modifier = Modifier.heightIn(min = 160.dp))
-                    Text("Отправителя можно отметить вручную: открой переписку → «Это спам» / «Не спам».", style = MaterialTheme.typography.bodySmall)
-                }
-            },
-            confirmButton = { TextButton({ SmsRepo.setSpamWords(ctx, words.lines().map { it.trim() }); settings = false; version++ }) { Text("Сохранить") } },
-            dismissButton = { TextButton({ settings = false }) { Text("Отмена") } })
-    }
+    if (settings) AlertDialog(onDismissRequest = { settings = false }, title = { Text("Спам") },
+        text = { Text("Фильтра по словам больше нет. Когда приходит СМС от незнакомого номера, сверху появляется «Это спам?»: «Да» — отправитель уходит в «Спам» (сообщения не удаляются), «Нет» — больше не спрошу. Коды из 4 или 6 цифр сами попадают в «Коды». Передумал — открой переписку и нажми кнопку вверху.", style = MaterialTheme.typography.bodyMedium) },
+        confirmButton = { TextButton({ settings = false }) { Text("Понятно") } })
 }
 
 @Composable

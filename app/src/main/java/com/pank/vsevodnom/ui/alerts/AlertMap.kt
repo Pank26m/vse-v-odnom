@@ -2,6 +2,9 @@ package com.pank.vsevodnom.ui.alerts
 
 import android.content.Context
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.ui.draw.rotate
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -303,9 +306,11 @@ fun SplitDot(red: Boolean, yellow: Boolean, size: androidx.compose.ui.unit.Dp = 
 @OptIn(ExperimentalLayoutApi::class)
 /** Карточка области в списке: вся область или перечень районов/громад с угрозами. */
 @Composable
-fun OblastCard(s: AlertState, n: String, onClick: () -> Unit) {
+fun OblastCard(s: AlertState, n: String) {
     val items = s.itemsOf(n)
-    AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = onClick) {
+    var open by remember(n) { mutableStateOf(false) }
+    val rot by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "arrow")
+    AppCard(Modifier.fillMaxWidth().animateContentSize(), padding = 12.dp, onClick = { open = !open }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SplitDot(items.any { it.red } || (!s.districtLevel && s.of(n) == AlertLevel.FULL), items.any { !it.red })
             Spacer(Modifier.width(10.dp))
@@ -313,16 +318,23 @@ fun OblastCard(s: AlertState, n: String, onClick: () -> Unit) {
                 Text(n, style = MaterialTheme.typography.bodyLarge)
                 val whole = items.firstOrNull { it.kind == "oblast" }
                 val parts = items.filter { it.kind != "oblast" }
-                when {
+                if (!open) when {
                     whole != null -> Text("Вся область" + if (!whole.red) " · угроза" else "", style = MaterialTheme.typography.bodySmall)
-                    parts.isNotEmpty() -> Text(parts.map { it.title }.distinct().let { l -> l.take(4).joinToString(", ") + if (l.size > 4) " и ещё ${l.size - 4}" else "" }, style = MaterialTheme.typography.bodySmall)
+                    parts.isNotEmpty() -> Text(parts.map { it.title }.distinct().let { l -> l.take(3).joinToString(", ") + if (l.size > 3) " и ещё ${l.size - 3}" else "" }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                 }
             }
             Text(sinceText(s.since[n]).substringBefore(" ·"), style = MaterialTheme.typography.bodySmall)
+            Icon(Icons.Rounded.KeyboardArrowDown, if (open) "Свернуть" else "Подробнее", Modifier.rotate(rot), tint = Pal.Muted)
         }
-        val threats = items.flatMap { it.threats }.map { it.type }.distinct()
-        if (threats.isNotEmpty()) FlowRow(Modifier.padding(start = 20.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            threats.forEach { t -> Row(verticalAlignment = Alignment.CenterVertically) { ThreatIcon(t); Spacer(Modifier.width(4.dp)); Text(threatName(t), style = MaterialTheme.typography.labelSmall) } }
+        if (open) {
+            Spacer(Modifier.height(6.dp))
+            if (items.isEmpty()) Text("Тревога по всей области (источник без районов)", style = MaterialTheme.typography.bodyMedium)
+            items.forEach { ItemRow(it) }
+        } else {
+            val threats = items.flatMap { it.threats }.map { it.type }.distinct()
+            if (threats.isNotEmpty()) FlowRow(Modifier.padding(start = 20.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                threats.forEach { t -> Row(verticalAlignment = Alignment.CenterVertically) { ThreatIcon(t); Spacer(Modifier.width(4.dp)); Text(threatName(t), style = MaterialTheme.typography.labelSmall) } }
+            }
         }
     }
 }

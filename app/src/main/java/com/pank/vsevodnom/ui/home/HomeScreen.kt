@@ -67,7 +67,6 @@ val TILES = listOf(
     Tile("СМС", Icons.Rounded.Sms, Tints.Sky, "sms"),
     Tile("Контакты", Icons.Rounded.Person, Tints.Sky, "contacts"),
     Tile("Корзина", Icons.Rounded.ShoppingCart, Tints.Peach, "cart"),
-    Tile("Настроение", Icons.Rounded.Mood, Tints.Butter, "mood"),
     Tile("Калькулятор", Icons.Rounded.Calculate, Tints.Butter, "calc"),
     Tile("Копилки", Icons.Rounded.Savings, Tints.Mint, "piggy"),
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, "markets"),
@@ -245,6 +244,7 @@ private fun Summary(open: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().offset(y = (-16).dp).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Pal.Bg).padding(16.dp, 18.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Сводка", style = MaterialTheme.typography.titleLarge)
         MoodCheckIn()
+        com.pank.vsevodnom.ui.health.LifeScoreMini { open("health") }
         hol?.let { SummaryRow(Icons.Rounded.Celebration, it, "праздник", Pal.Peach, Pal.PeachInk) { com.pank.vsevodnom.ui.todo.TodoNav.target = "page:dates"; open("todo") } }
         var bdTick by remember { mutableIntStateOf(0) }
         bdays.filter { bdTick >= 0 && !com.pank.vsevodnom.ui.todo.BdayDone.isDone(ctx, it.id) }.forEach { b ->
@@ -273,6 +273,7 @@ private fun Summary(open: (String) -> Unit) {
                             Text(h.title, style = MaterialTheme.typography.titleSmall)
                             Text("привычка" + if (h.perDay > 1) " · ${logs.firstOrNull { it.habitId == h.id }?.count ?: 0}/${h.perDay}" else "", style = MaterialTheme.typography.bodySmall)
                         }
+                        com.pank.vsevodnom.ui.todo.CheckDivider()
                         com.pank.vsevodnom.ui.todo.CheckCircle(done, t.ink, 26.dp) {
                             val c = logs.firstOrNull { it.habitId == h.id }?.count ?: 0
                             if (c + 1 >= h.perDay) leave() else AppScope.io.launch { Todo.tickHabit(ctx, h, today) }

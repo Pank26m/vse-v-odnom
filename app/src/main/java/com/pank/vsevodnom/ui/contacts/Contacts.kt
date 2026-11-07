@@ -137,8 +137,8 @@ object ContactsRepo {
     }
 
     fun call(ctx: Context, number: String) {
-        val direct = has(ctx, Manifest.permission.CALL_PHONE)
-        ctx.startActivity(Intent(if (direct) Intent.ACTION_CALL else Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        if (!has(ctx, Manifest.permission.CALL_PHONE)) { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return }
+        com.pank.vsevodnom.call.CallState.place(ctx, number)
     }
 
     // ---- чёрный список и определитель ----
@@ -211,6 +211,7 @@ fun ContactsScreen(onBack: () -> Unit) {
     var group by remember { mutableStateOf<Long?>(null) }
     var open by remember { mutableStateOf<Contact?>(null) }
     var settings by remember { mutableStateOf(false) }
+    var dial by remember { mutableStateOf(false) }
 
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { version++ }
     LaunchedEffect(Unit) {
@@ -223,6 +224,7 @@ fun ContactsScreen(onBack: () -> Unit) {
     val editLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { version++ }
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { version++ }
 
+    if (dial) { BackHandler { dial = false }; Box(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding()) { com.pank.vsevodnom.call.DialPad { dial = false } }; return }
     open?.let { c ->
         BackHandler { open = null }
         ContactDetail(contacts?.firstOrNull { it.id == c.id } ?: c, groups, onBack = { open = null }, onChanged = { version++ },
@@ -230,6 +232,7 @@ fun ContactsScreen(onBack: () -> Unit) {
         return
     }
 
+    Box(Modifier.fillMaxSize()) {
     ScreenScaffold("Контакты", onBack, actions = {
         RoundIconButton(Icons.Rounded.PersonAdd, "Новый контакт", { editLauncher.launch(Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI).putExtra("finishActivityOnSaveCompleted", true)) })
         RoundIconButton(Icons.Rounded.Shield, "Определитель", { settings = true })
@@ -248,18 +251,26 @@ fun ContactsScreen(onBack: () -> Unit) {
         val all = contacts.orEmpty()
         val fav = all.filter { it.starred && it.phones.isNotEmpty() }
         val list = all.filter { (q.isBlank() || it.name.contains(q, true) || it.phones.any { p -> p.second.filter(Char::isDigit).contains(q.filter(Char::isDigit).ifBlank { "\u0000" }) }) && (group == null || group in it.groups) }
-        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { AppTextField(q, { q = it }, "Имя или номер") }
+        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 100.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { AppTextField(q, { q = it }, "Поиск: имя или номер") }
+            // избранные — плитками: нажатие на плитку — детали, кнопка снизу — сразу звонок
             if (fav.isNotEmpty() && q.isBlank() && group == null) item {
                 Column {
-                    SectionLabel("Быстрый звонок")
+                    SectionLabel("Избранные")
                     Spacer(Modifier.height(6.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(fav, key = { it.id }) { c ->
-                            Column(Modifier.width(72.dp).clip(RoundedCornerShape(14.dp)).clickable { ContactsRepo.call(ctx, c.phones.first().second) }.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Avatar(c.name, 56)
-                                Text(c.name.substringBefore(' '), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    fav.chunked(3).forEach { row ->
+                        Row(Modifier.padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { c ->
+                                Column(Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(Pal.Card).clickable { open = c }.padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Avatar(c.name, 54)
+                                    Text(c.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(6.dp, 6.dp, 6.dp, 8.dp))
+                                    Row(Modifier.fillMaxWidth().height(40.dp).background(Pal.Mint).clickable { ContactsRepo.call(ctx, c.phones.first().second) },
+                                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Rounded.Call, "Позвонить", tint = Pal.MintInk, modifier = Modifier.size(20.dp))
+                                    }
+                                }
                             }
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
@@ -286,6 +297,11 @@ fun ContactsScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (ContactsRepo.has(ctx, Manifest.permission.READ_CONTACTS)) Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(62.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFF34C77B)).clickable { dial = true }, contentAlignment = Alignment.Center) {
+        Icon(Icons.Rounded.Dialpad, "Набрать номер", tint = Color.White)
+    }
     }
 
     if (settings) {

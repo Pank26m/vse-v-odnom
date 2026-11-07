@@ -320,7 +320,7 @@ interface LifeDao {
         TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
         Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class, Deck::class, Card::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -342,6 +342,19 @@ abstract class AppDb : RoomDatabase() {
         fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
 
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        /** v8 → v9: избранные фильмы, описание и приоритет покупок, цвет/бюджет/порядок категорий, фото операции. */
+        val M8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `media_item` ADD COLUMN `favorite` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_entry` ADD COLUMN `note` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_entry` ADD COLUMN `priority` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `category` ADD COLUMN `color` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `category` ADD COLUMN `budget` REAL")
+                db.execSQL("ALTER TABLE `category` ADD COLUMN `sort` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `txn` ADD COLUMN `photo` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** v7 → v8: вложения у задач. */
         val M7_8 = object : androidx.room.migration.Migration(7, 8) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -456,7 +469,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7, M7_8)
+                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7, M7_8, M8_9)
                 .build().also { inst = it }
         }
     }

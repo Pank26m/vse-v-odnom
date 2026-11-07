@@ -40,52 +40,37 @@ import com.pank.vsevodnom.ui.calendar.EventEditor
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
 import kotlinx.coroutines.launch
-import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.ITileSource
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.tileprovider.tilesource.XYTileSource
-import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.util.MapTileIndex
-import org.osmdroid.views.CustomZoomButtonsController
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.MapEventsOverlay
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
-import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
-import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-
-private class Layer(val name: String, val src: ITileSource)
-
-private val LAYERS by lazy {
-    listOf(
-        Layer("Обычная", TileSourceFactory.MAPNIK),
-        Layer("Рельеф", TileSourceFactory.OpenTopo),
-        Layer("Велосипедная", XYTileSource("CyclOSM", 0, 20, 256, ".png",
-            arrayOf("https://a.tile-cyclosm.openstreetmap.fr/cyclosm/", "https://b.tile-cyclosm.openstreetmap.fr/cyclosm/", "https://c.tile-cyclosm.openstreetmap.fr/cyclosm/"), "© OpenStreetMap, CyclOSM")),
-        Layer("Транспорт", XYTileSource("OPNVKarte", 0, 18, 256, ".png", arrayOf("https://tileserver.memomaps.de/tilegen/"), "© OpenStreetMap, memomaps")),
-        Layer("Спутник", object : OnlineTileSourceBase("EsriSat", 0, 19, 256, "",
-            arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"), "© Esri") {
-            override fun getTileURLString(i: Long) = baseUrl + MapTileIndex.getZoom(i) + "/" + MapTileIndex.getY(i) + "/" + MapTileIndex.getX(i)
-        }),
-    )
-}
-
-private class MapHolder {
-    val markers = mutableListOf<Marker>()
-    var pin: Marker? = null
-    var trackLine: Polyline? = null
-    var recLine: Polyline? = null
-    var me: MyLocationNewOverlay? = null
-}
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 
 private fun hasLoc(ctx: Context) = TrackService.canStart(ctx)
+
+/** Слои поверх любой карты: места, выбранная точка, показанный трек, записываемый трек. */
+private fun setupOverlays(style: Style) {
+    fun src(id: String) { if (style.getSource(id) == null) style.addSource(GeoJsonSource(id, FeatureCollection.fromFeatures(emptyList()))) }
+    listOf("track", "rec", "places", "pin").forEach(::src)
+    if (style.getLayer("track-l") == null) style.addLayer(LineLayer("track-l", "track").withProperties(PropertyFactory.lineColor("#6A55A8"), PropertyFactory.lineWidth(5f), PropertyFactory.lineCap("round"), PropertyFactory.lineJoin("round")))
+    if (style.getLayer("rec-l") == null) style.addLayer(LineLayer("rec-l", "rec").withProperties(PropertyFactory.lineColor("#D8456A"), PropertyFactory.lineWidth(5f), PropertyFactory.lineCap("round")))
+    if (style.getLayer("places-l") == null) style.addLayer(CircleLayer("places-l", "places").withProperties(PropertyFactory.circleRadius(8f), PropertyFactory.circleColor("#E0607E"), PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(2.5f)))
+    if (style.getLayer("pin-l") == null) style.addLayer(CircleLayer("pin-l", "pin").withProperties(PropertyFactory.circleRadius(10f), PropertyFactory.circleColor("#4F86C6"), PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(3f)))
+}
+
+private fun Style.set(id: String, f: List<Feature>) { getSourceAs<GeoJsonSource>(id)?.setGeoJson(FeatureCollection.fromFeatures(f)) }
 
 @Composable
 fun MapScreen(onBack: () -> Unit) {
@@ -95,12 +80,12 @@ fun MapScreen(onBack: () -> Unit) {
     val prefs = remember { ctx.getSharedPreferences("map", Context.MODE_PRIVATE) }
     val places by dao.places().collectAsState(initial = emptyList())
     val tracks by dao.tracks().collectAsState(initial = emptyList())
-    var layer by remember { mutableIntStateOf(prefs.getInt("layer", 0).coerceIn(0, LAYERS.size - 1)) }
+    var styleKey by remember { mutableStateOf(prefs.getString("style", "liberty") ?: "liberty") }
     var picked by remember { mutableStateOf<GeoHit?>(null) }
     var pickedLoading by remember { mutableStateOf(false) }
     var pickedPlace by remember { mutableStateOf<Place?>(null) }
     var shownTrack by remember { mutableStateOf<Track?>(null) }
-    var sheet by remember { mutableIntStateOf(0) }   // 1 места, 2 треки, 3 слои
+    var sheet by remember { mutableIntStateOf(0) }   // 1 места, 2 треки, 3 слои, 4 офлайн
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<GeoHit>>(emptyList()) }
     var editPlace by remember { mutableStateOf<Place?>(null) }
@@ -108,102 +93,84 @@ fun MapScreen(onBack: () -> Unit) {
     val rec by TrackService.recording.collectAsState()
     val recPts by TrackService.points.collectAsState()
     val recDist by TrackService.distance.collectAsState()
-    val h = remember { MapHolder() }
 
-    val map = remember {
-        Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
-        Configuration.getInstance().userAgentValue = ctx.packageName
-        MapView(ctx).apply {
-            setMultiTouchControls(true)
-            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-            isTilesScaledToDpi = true
-            controller.setZoom(prefs.getFloat("zoom", 12f).toDouble())
-            controller.setCenter(GeoPoint(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble()))
-        }
-    }
-
-    fun showPin(p: GeoPoint) {
-        h.pin?.let { map.overlays.remove(it) }
-        h.pin = Marker(map).apply { position = p; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM); setInfoWindow(null) }
-        map.overlays.add(h.pin); map.invalidate()
-    }
-    fun clearPin() { h.pin?.let { map.overlays.remove(it) }; h.pin = null; map.invalidate() }
-    fun whatsHere(p: GeoPoint) {
-        pickedPlace = null; results = emptyList()
-        showPin(p)
-        picked = GeoHit("Точка на карте", "%.5f, %.5f".format(p.latitude, p.longitude), p.latitude, p.longitude)
-        pickedLoading = true
-        scope.launch { Osm.reverse(p.latitude, p.longitude)?.let { if (picked?.lat == p.latitude) picked = it }; pickedLoading = false }
-    }
+    val view = rememberMapView()
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var style by remember { mutableStateOf<Style?>(null) }
+    var speed by remember { mutableStateOf<Float?>(null) }
+    var alt by remember { mutableStateOf<Double?>(null) }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (hasLoc(ctx)) h.me?.apply { enableMyLocation(); enableFollowLocation() }
+        val m = map; val st = style
+        if (hasLoc(ctx) && m != null && st != null) MapKit.enableLocation(ctx, m, st, true)
     }
 
-    // разовая настройка слоёв карты
+    fun showPin(lat: Double, lon: Double) { style?.set("pin", listOf(Feature.fromGeometry(Point.fromLngLat(lon, lat)))) }
+    fun clearPin() { style?.set("pin", emptyList()) }
+    fun whatsHere(lat: Double, lon: Double) {
+        pickedPlace = null; results = emptyList()
+        showPin(lat, lon)
+        picked = GeoHit("Точка на карте", "%.5f, %.5f".format(lat, lon), lat, lon)
+        pickedLoading = true
+        scope.launch { Osm.reverse(lat, lon)?.let { if (picked?.lat == lat) picked = it }; pickedLoading = false }
+    }
+    fun center(): LatLng = map?.cameraPosition?.target ?: LatLng(50.4501, 30.5234)
+    fun fly(lat: Double, lon: Double, z: Double = 16.5) { map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), z), 600) }
+
+    // карта и стиль
     LaunchedEffect(Unit) {
-        map.overlays.add(0, MapEventsOverlay(object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
-                if (picked != null || pickedPlace != null || results.isNotEmpty()) { picked = null; pickedPlace = null; results = emptyList(); clearPin() } else whatsHere(p)
-                return true
+        view.getMapAsync { m ->
+            map = m
+            m.cameraPosition = camera(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), prefs.getFloat("zoom", 12f).toDouble())
+            m.uiSettings.isCompassEnabled = true
+            m.uiSettings.setCompassMargins(0, 260, 40, 0)
+            m.addOnMapClickListener { ll ->
+                val f = m.queryRenderedFeatures(m.projection.toScreenLocation(ll), "places-l").firstOrNull()
+                val id = f?.getNumberProperty("id")?.toLong()
+                if (id != null) { picked = null; clearPin(); pickedPlace = places.firstOrNull { it.id == id } ?: pickedPlace }
+                else if (picked != null || pickedPlace != null || results.isNotEmpty()) { picked = null; pickedPlace = null; results = emptyList(); clearPin() }
+                else whatsHere(ll.latitude, ll.longitude)
+                true
             }
-            override fun longPressHelper(p: GeoPoint): Boolean { whatsHere(p); return true }
-        }))
-        h.me = MyLocationNewOverlay(GpsMyLocationProvider(ctx), map).also { map.overlays.add(it) }
-        if (hasLoc(ctx)) h.me?.enableMyLocation()
-        else locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-    }
-    LaunchedEffect(layer) { map.setTileSource(LAYERS[layer].src); prefs.edit().putInt("layer", layer).apply() }
-    LaunchedEffect(places) {
-        h.markers.forEach { map.overlays.remove(it) }; h.markers.clear()
-        places.forEach { pl ->
-            h.markers += Marker(map).apply {
-                position = GeoPoint(pl.lat, pl.lon); title = pl.name
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM); setInfoWindow(null)
-                setOnMarkerClickListener { _, _ -> picked = null; clearPin(); pickedPlace = pl; true }
+            m.addOnMapLongClickListener { ll -> whatsHere(ll.latitude, ll.longitude); true }
+            m.addOnCameraIdleListener {
+                val c = m.cameraPosition
+                c.target?.let { t -> prefs.edit().putFloat("zoom", c.zoom.toFloat()).putFloat("lat", t.latitude.toFloat()).putFloat("lon", t.longitude.toFloat()).apply() }
             }
         }
-        map.overlays.addAll(h.markers); map.invalidate()
     }
-    LaunchedEffect(shownTrack) {
-        h.trackLine?.let { map.overlays.remove(it) }; h.trackLine = null
-        shownTrack?.let { t ->
-            val pts = Osm.decode(t.points).map { GeoPoint(it.lat, it.lon) }
-            if (pts.size >= 2) {
-                h.trackLine = Polyline(map).apply { setPoints(pts); outlinePaint.color = 0xFF6A55A8.toInt(); outlinePaint.strokeWidth = 12f }
-                map.overlays.add(1, h.trackLine)
-                map.post { runCatching { map.zoomToBoundingBox(BoundingBox.fromGeoPoints(pts), true, 120) } }
-            }
+    LaunchedEffect(map, styleKey) {
+        val m = map ?: return@LaunchedEffect
+        prefs.edit().putString("style", styleKey).apply()
+        val s = MapKit.STYLES.firstOrNull { it.key == styleKey } ?: MapKit.STYLES[0]
+        style = null
+        m.setStyle(MapKit.styleBuilder(s)) { st ->
+            setupOverlays(st); style = st
+            if (hasLoc(ctx)) MapKit.enableLocation(ctx, m, st, false)
+            else locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
-        map.invalidate()
     }
-    LaunchedEffect(recPts) {
-        h.recLine?.let { map.overlays.remove(it) }; h.recLine = null
-        if (recPts.size >= 2) {
-            h.recLine = Polyline(map).apply { setPoints(recPts.map { GeoPoint(it.lat, it.lon) }); outlinePaint.color = 0xFFA8456A.toInt(); outlinePaint.strokeWidth = 12f }
-            map.overlays.add(1, h.recLine)
+    // скорость и высота — как в Guru: плашка слева сверху
+    LaunchedEffect(style) {
+        while (true) {
+            runCatching { map?.locationComponent?.lastKnownLocation }.getOrNull()?.let { l -> speed = if (l.hasSpeed()) l.speed * 3.6f else null; alt = if (l.hasAltitude()) l.altitude else null }
+            kotlinx.coroutines.delay(1500)
         }
-        map.invalidate()
     }
-
-    val owner = LocalLifecycleOwner.current
-    DisposableEffect(owner) {
-        val obs = LifecycleEventObserver { _, e ->
-            when (e) {
-                Lifecycle.Event.ON_RESUME -> map.onResume()
-                Lifecycle.Event.ON_PAUSE -> {
-                    map.onPause()
-                    prefs.edit().putFloat("zoom", map.zoomLevelDouble.toFloat()).putFloat("lat", map.mapCenter.latitude.toFloat()).putFloat("lon", map.mapCenter.longitude.toFloat()).apply()
-                }
-                else -> {}
-            }
+    LaunchedEffect(style, places) {
+        style?.set("places", places.map { pl -> Feature.fromGeometry(Point.fromLngLat(pl.lon, pl.lat)).also { it.addNumberProperty("id", pl.id); it.addStringProperty("name", pl.name) } })
+    }
+    LaunchedEffect(style, shownTrack) {
+        val st = style ?: return@LaunchedEffect
+        val pts = shownTrack?.let { Osm.decode(it.points) }.orEmpty()
+        st.set("track", if (pts.size >= 2) listOf(Feature.fromGeometry(LineString.fromLngLats(pts.map { Point.fromLngLat(it.lon, it.lat) }))) else emptyList())
+        if (pts.size >= 2) runCatching {
+            val b = LatLngBounds.Builder().apply { pts.forEach { include(LatLng(it.lat, it.lon)) } }.build()
+            map?.animateCamera(CameraUpdateFactory.newLatLngBounds(b, 120), 700)
         }
-        owner.lifecycle.addObserver(obs)
-        onDispose {
-            owner.lifecycle.removeObserver(obs)
-            prefs.edit().putFloat("zoom", map.zoomLevelDouble.toFloat()).putFloat("lat", map.mapCenter.latitude.toFloat()).putFloat("lon", map.mapCenter.longitude.toFloat()).apply()
-            map.onDetach()
-        }
+    }
+    LaunchedEffect(style, recPts) {
+        style?.set("rec", if (recPts.size >= 2) listOf(Feature.fromGeometry(LineString.fromLngLats(recPts.map { Point.fromLngLat(it.lon, it.lat) }))) else emptyList())
     }
 
     fun eventAt(title: String, note: String) {
@@ -214,15 +181,19 @@ fun MapScreen(onBack: () -> Unit) {
         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lon?q=$lat,$lon(${Uri.encode(name)})"))) }
             .onFailure { Toast.makeText(ctx, "Нет приложения для маршрута", Toast.LENGTH_SHORT).show() }
     }
+    @Composable fun MapBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, d: String, f: () -> Unit) =
+        Box(Modifier.size(52.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = f), contentAlignment = Alignment.Center) {
+            Icon(icon, d, tint = Pal.Ink)
+        }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-        AndroidView({ map }, Modifier.fillMaxSize())
+        AndroidView({ view }, Modifier.fillMaxSize())
 
         // верх: назад + поиск
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.shadow(4.dp, RoundedCornerShape(50))) { RoundIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onBack) }
-                Row(Modifier.weight(1f).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(start = 12.dp),
+                MapBtn(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onBack)
+                Row(Modifier.weight(1f).height(52.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(start = 12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Search, null, tint = Pal.Muted)
                     TextField(query, { query = it }, placeholder = { Text("Поиск места или адреса") }, singleLine = true,
@@ -231,7 +202,8 @@ fun MapScreen(onBack: () -> Unit) {
                         keyboardActions = KeyboardActions(onSearch = {
                             val q = query.trim(); if (q.isEmpty()) return@KeyboardActions
                             scope.launch {
-                                results = runCatching { Osm.search(q, map.mapCenter.latitude, map.mapCenter.longitude) }.getOrElse { emptyList() }
+                                val c = center()
+                                results = runCatching { Osm.search(q, c.latitude, c.longitude) }.getOrElse { emptyList() }
                                 if (results.isEmpty()) Toast.makeText(ctx, "Ничего не нашлось", Toast.LENGTH_SHORT).show()
                             }
                         }),
@@ -244,27 +216,39 @@ fun MapScreen(onBack: () -> Unit) {
                     items(results) { r ->
                         Column(Modifier.fillMaxWidth().clickable {
                             results = emptyList(); pickedPlace = null; picked = r
-                            val p = GeoPoint(r.lat, r.lon); showPin(p); map.controller.animateTo(p, 17.0, 600L)
+                            showPin(r.lat, r.lon); fly(r.lat, r.lon, 17.0)
                         }.padding(12.dp)) {
                             Text(r.name, style = MaterialTheme.typography.titleSmall)
                             Text(r.address, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                         }
                     }
                 }
+            } else if (speed != null || alt != null) Row(Modifier.shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(14.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(speed?.let { "%.0f".format(it) } ?: "-.--", style = MaterialTheme.typography.titleLarge); Text(" км/ч", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(24.dp).background(Pal.Line))
+                Text("↑ " + (alt?.let { "%.0f".format(it) } ?: "—"), style = MaterialTheme.typography.titleLarge); Text(" м", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
             }
         }
 
-        // справа: кнопки
-        Column(Modifier.align(Alignment.CenterEnd).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf(
-                Triple(Icons.Rounded.Layers, "Слои") { sheet = 3 },
-                Triple(Icons.Rounded.Bookmarks, "Мои места") { sheet = 1 },
-                Triple(Icons.Rounded.Route, "Треки") { sheet = 2 },
-                Triple(Icons.Rounded.MyLocation, "Где я") {
-                    if (!hasLoc(ctx)) locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                    else { h.me?.enableMyLocation(); h.me?.myLocation?.let { map.controller.animateTo(it, 16.0, 600L) } ?: Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show() }
-                },
-            ).forEach { (ic, d, f) -> Box(Modifier.shadow(4.dp, RoundedCornerShape(50))) { RoundIconButton(ic, d, f) } }
+        // справа: слои, места, треки, офлайн
+        Column(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 140.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            MapBtn(Icons.Rounded.Layers, "Слои") { sheet = 3 }
+            MapBtn(Icons.Rounded.Bookmarks, "Мои места") { sheet = 1 }
+            MapBtn(Icons.Rounded.Route, "Треки") { sheet = 2 }
+            MapBtn(Icons.Rounded.CloudDownload, "Офлайн-карты") { sheet = 4 }
+        }
+        // слева: масштаб и «где я»
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            MapBtn(Icons.Rounded.Add, "Приблизить") { map?.animateCamera(CameraUpdateFactory.zoomIn(), 250) }
+            MapBtn(Icons.Rounded.Remove, "Отдалить") { map?.animateCamera(CameraUpdateFactory.zoomOut(), 250) }
+            MapBtn(Icons.Rounded.MyLocation, "Где я") {
+                val m = map; val st = style
+                if (!hasLoc(ctx)) locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                else if (m != null && st != null) {
+                    MapKit.enableLocation(ctx, m, st, true)
+                    runCatching { m.locationComponent.lastKnownLocation }.getOrNull()?.let { fly(it.latitude, it.longitude, 16.0) } ?: Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
 
         // низ: карточка точки/места, запись трека
@@ -311,39 +295,39 @@ fun MapScreen(onBack: () -> Unit) {
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (rec) {
-                    Row(Modifier.shadow(6.dp, RoundedCornerShape(50)).clip(RoundedCornerShape(50)).background(Pal.Rose).clickable { TrackService.stop(ctx) }.padding(16.dp, 12.dp),
+                    Row(Modifier.shadow(6.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Rose).clickable { TrackService.stop(ctx) }.padding(16.dp, 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Stop, null, tint = Pal.RoseInk)
                         Spacer(Modifier.width(8.dp))
                         Text("Стоп · ${fmtKm(recDist)} · ${fmtDur(System.currentTimeMillis() - TrackService.startedAt)}", style = MaterialTheme.typography.labelLarge, color = Pal.RoseInk)
                     }
                 } else {
-                    Row(Modifier.shadow(6.dp, RoundedCornerShape(50)).clip(RoundedCornerShape(50)).background(Pal.Card).clickable {
+                    Column(Modifier.size(56.dp).shadow(6.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable {
                         if (!hasLoc(ctx)) locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                        else { TrackService.start(ctx); h.me?.enableFollowLocation() }
-                    }.padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.FiberManualRecord, null, tint = Pal.RoseInk)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Записать трек", style = MaterialTheme.typography.labelLarge)
+                        else { TrackService.start(ctx); val m = map; val st = style; if (m != null && st != null) MapKit.enableLocation(ctx, m, st, true) }
+                    }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Icon(Icons.Rounded.FiberManualRecord, null, tint = Pal.RoseInk, modifier = Modifier.size(16.dp))
+                        Text("REC", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
         }
     }
 
-    if (sheet == 3) AlertDialog(onDismissRequest = { sheet = 0 }, confirmButton = { TextButton({ sheet = 0 }) { Text("Готово") } }, title = { Text("Слой карты") },
+    if (sheet == 3) AlertDialog(onDismissRequest = { sheet = 0 }, confirmButton = { TextButton({ sheet = 0 }) { Text("Готово") } }, title = { Text("Вид карты") },
         text = {
             Column {
-                LAYERS.forEachIndexed { i, l ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { layer = i; sheet = 0 }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(layer == i, { layer = i; sheet = 0 }); Text(l.name, style = MaterialTheme.typography.bodyLarge)
+                MapKit.STYLES.forEach { l ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { styleKey = l.key; sheet = 0 }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(styleKey == l.key, { styleKey = l.key; sheet = 0 }); Text(l.name, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
-                Text("Карты: OpenStreetMap и партнёры. Сохранённые места и треки рисуются поверх любого слоя.", style = MaterialTheme.typography.bodySmall)
+                Text("Векторные карты OpenFreeMap на данных © OpenStreetMap. Офлайн работают первые три вида.", style = MaterialTheme.typography.bodySmall)
             }
         })
+    if (sheet == 4) OfflineSheet(MapKit.STYLES.firstOrNull { it.key == styleKey && it.url != null } ?: MapKit.STYLES[0], { map?.projection?.visibleRegion?.latLngBounds }, { map?.cameraPosition?.zoom ?: 12.0 }) { sheet = 0 }
     if (sheet == 1) PlacesSheet(places, onDismiss = { sheet = 0 }, onPick = { pl ->
-        sheet = 0; picked = null; clearPin(); pickedPlace = pl; map.controller.animateTo(GeoPoint(pl.lat, pl.lon), 17.0, 600L)
+        sheet = 0; picked = null; clearPin(); pickedPlace = pl; fly(pl.lat, pl.lon, 17.0)
     }, onEdit = { editPlace = it })
     if (sheet == 2) TracksSheet(tracks, onDismiss = { sheet = 0 }, onPick = { sheet = 0; shownTrack = it })
     editPlace?.let { pl -> PlaceEditor(pl, places.map { it.folder }.filter { it.isNotBlank() }.distinct(), onDismiss = { editPlace = null }) { saved ->
@@ -352,10 +336,70 @@ fun MapScreen(onBack: () -> Unit) {
     eventFor?.let { e -> EventEditor(e, onDismiss = { eventFor = null }) }
 }
 
+/** Офлайн-карты: скачать видимую область, список скачанного с размером, удаление. */
+@Composable
+private fun OfflineSheet(style: MapKit.MapStyle, bounds: () -> LatLngBounds?, zoom: () -> Double, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    var regions by remember { mutableStateOf<List<MapKit.Region>>(emptyList()) }
+    var tick by remember { mutableIntStateOf(0) }
+    var progress by remember { mutableStateOf<String?>(null) }
+    var name by remember { mutableStateOf("Киев") }
+    var maxZ by remember { mutableFloatStateOf(15f) }
+    val sizes = remember { mutableStateMapOf<Long, String>() }
+    LaunchedEffect(tick) {
+        MapKit.list(ctx) { l -> regions = l; l.forEach { r -> MapKit.status(r.r) { st -> sizes[r.r.id] = (if (st.isComplete) "" else "${st.completedResourceCount}/${st.requiredResourceCount} · ") + MapKit.human(st.completedResourceSize) } } }
+    }
+    val b = remember { bounds() }
+    val tiles = b?.let { MapKit.tileCount(it, 0, maxZ.toInt()) } ?: 0
+    FullDialog("Офлайн-карты", onDismiss) {
+        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                AppCard(Modifier.fillMaxWidth()) {
+                    Text("Скачать то, что сейчас видно на экране", style = MaterialTheme.typography.titleSmall)
+                    Text("Вид: ${style.name}. Приблизь или отдали карту до нужной области перед открытием этого окна.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                    Spacer(Modifier.height(8.dp))
+                    AppTextField(name, { name = it }, "Название области")
+                    Text("Детализация до уровня ${maxZ.toInt()} (${if (maxZ >= 16) "все дома и заведения" else if (maxZ >= 14) "улицы и здания" else "города и дороги"})", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                    Slider(maxZ, { maxZ = it }, valueRange = 10f..16f, steps = 5)
+                    Text("≈ ${tiles} тайлов, примерно ${MapKit.human(tiles * 25_000L)}", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    PillButton(if (progress == null) "Скачать" else "Качаю…", {
+                        val bb = b ?: return@PillButton
+                        if (progress != null) return@PillButton
+                        progress = "0%"
+                        MapKit.download(ctx, style.url!!, bb, maxZ.toDouble(), name.ifBlank { "Область" }, { st ->
+                            val pct = if (st.requiredResourceCount > 0) st.completedResourceCount * 100 / st.requiredResourceCount else 0
+                            progress = if (st.isComplete) null else "$pct% · ${MapKit.human(st.completedResourceSize)}"
+                            if (st.isComplete) tick++
+                        }) { e -> progress = null; Toast.makeText(ctx, "Ошибка: $e", Toast.LENGTH_LONG).show() }
+                        tick++
+                    }, Modifier.fillMaxWidth())
+                    progress?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp)) }
+                }
+            }
+            item { SectionLabel(if (regions.isEmpty()) "Скачанных областей нет" else "Скачано") }
+            items(regions, key = { it.r.id }) { r ->
+                AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Map, null, tint = Pal.SkyInk)
+                        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                            Text(r.name, style = MaterialTheme.typography.titleSmall)
+                            Text(sizes[r.r.id] ?: "…", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                        }
+                        IconButton({ MapKit.start(r.r, { tick++ }) { } }) { Icon(Icons.Rounded.Refresh, "Докачать / обновить") }
+                        IconButton({ MapKit.delete(r.r) { tick++ } }) { Icon(Icons.Rounded.DeleteOutline, "Удалить", tint = Pal.RoseInk) }
+                    }
+                }
+            }
+            item { Text("Скачанные области работают без интернета: карта, поиск по сохранённым местам и треки. Поиск адресов (Nominatim) — только онлайн.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
+        }
+    }
+}
+
 @Composable
 private fun FullDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onDismiss)
                 Text(title, style = MaterialTheme.typography.headlineMedium)

@@ -194,3 +194,9 @@ fun RichToolbar(value: TextFieldValue, onChange: (TextFieldValue) -> Unit) {
         B(Icons.Rounded.FormatQuote, "Цитата") { Rich.linePrefix(value, "> ") }
     }
 }
+
+/** Тонкая вертикальная черта между галочкой и текстом — во всех строках с отметкой. */
+@Composable
+fun CheckDivider(height: Dp = 26.dp) {
+    Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(height).background(Pal.Ink.copy(alpha = 0.12f)))
+}

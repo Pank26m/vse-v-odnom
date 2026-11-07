@@ -171,7 +171,7 @@ fun MazeScreen(onBack: () -> Unit) {
         if (g.cleared) g = MazeGame(g.level + 1, g.lives, g.score).apply { started = true }
         if (g.over && Hi.submit(ctx, "maze", g.score)) best = g.score
     }
-    ScreenScaffold("Лабиринт", onBack) {
+    ScreenScaffold("Pac-Man", onBack) {
         ScoreBar(g.score, best, "уровень ${g.level} · " + "♥".repeat(g.lives.coerceAtLeast(0)))
         Box(Modifier.fillMaxSize().padding(8.dp)) {
             Canvas(Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).background(Color(0xFF2E3350)).pointerInput(g) {
@@ -189,31 +189,41 @@ fun MazeScreen(onBack: () -> Unit) {
                     if (ch == '#') drawRoundRect(Color(0xFF6C74B8), Offset(ox + x * cs + 1, oy + y * cs + 1), Size(cs - 2, cs - 2), CornerRadius(cs * 0.3f))
                     if (ch == 'D') drawRect(Color(0xFFE7E1F7), Offset(ox + x * cs, oy + (y + 0.45f) * cs), Size(cs, cs * 0.1f))
                 } }
-                g.dots.forEach { (x, y) -> drawCircle(Color(0xFFF8DDE6), cs * 0.1f, c(x.toFloat(), y.toFloat())) }
+                g.dots.forEach { (x, y) -> drawCircle(Color(0xFFFFE8B0), cs * 0.1f, c(x.toFloat(), y.toFloat())) }
                 val blink = (g.mode * 4).toInt() % 2 == 0
                 g.stars.forEach { (x, y) -> drawCircle(Color(0xFFF2C94C), cs * (if (blink) 0.3f else 0.24f), c(x.toFloat(), y.toFloat())) }
-                // тучки
+                // привидения
                 g.clouds.forEach { cl ->
-                    val p = c(cl.m.px, cl.m.py); val r = cs * 0.42f
-                    val col = when { cl.eaten -> Color.Transparent; g.fright > 0 -> if (g.fright < 2 && blink) Color.White else Color(0xFFB8C7E8); else -> cl.color }
-                    if (!cl.eaten) {
-                        drawCircle(col, r * 0.62f, Offset(p.x - r * 0.4f, p.y + r * 0.1f)); drawCircle(col, r * 0.62f, Offset(p.x + r * 0.4f, p.y + r * 0.1f)); drawCircle(col, r * 0.72f, Offset(p.x, p.y - r * 0.2f))
-                        drawRoundRect(col, Offset(p.x - r * 0.95f, p.y), Size(r * 1.9f, r * 0.55f), CornerRadius(r * 0.3f))
+                    if (cl.eaten) return@forEach
+                    val p = c(cl.m.px, cl.m.py); val r = cs * 0.44f
+                    val col = when { g.fright > 0 -> if (g.fright < 2 && blink) Color.White else Color(0xFF3D5AFE); else -> cl.color }
+                    val body = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(p.x - r, p.y + r)
+                        lineTo(p.x - r, p.y)
+                        arcTo(androidx.compose.ui.geometry.Rect(p.x - r, p.y - r, p.x + r, p.y + r), 180f, 180f, false)
+                        lineTo(p.x + r, p.y + r)
+                        // волнистый низ
+                        val wv = if (blink) 0f else r * 0.33f
+                        for (k in 0 until 3) { val x0 = p.x + r - k * r * 2 / 3; lineTo(x0 - r / 3 - wv * 0, p.y + r * 0.7f); lineTo(x0 - r * 2 / 3, p.y + r) }
+                        close()
                     }
-                    val ex = cl.m.dx * r * 0.12f; val ey = cl.m.dy * r * 0.12f
-                    listOf(-1f, 1f).forEach { k -> drawCircle(Color.White, r * 0.2f, Offset(p.x + k * r * 0.3f, p.y - r * 0.1f)); drawCircle(Color(0xFF1C1B22), r * 0.1f, Offset(p.x + k * r * 0.3f + ex, p.y - r * 0.1f + ey)) }
+                    drawPath(body, col)
+                    val ex = cl.m.dx * r * 0.14f; val ey = cl.m.dy * r * 0.14f
+                    listOf(-1f, 1f).forEach { k ->
+                        drawCircle(Color.White, r * 0.26f, Offset(p.x + k * r * 0.36f, p.y - r * 0.15f))
+                        drawCircle(if (g.fright > 0) Color(0xFFFFD1DC) else Color(0xFF1C3FAA), r * 0.13f, Offset(p.x + k * r * 0.36f + ex, p.y - r * 0.15f + ey))
+                    }
                 }
-                // ёжик-игрок
-                val p = c(g.me.px, g.me.py); val r = cs * 0.42f
+                // Pac-Man: жёлтый круг, рот открывается и закрывается, смотрит в сторону движения
+                val p = c(g.me.px, g.me.py); val r = cs * 0.45f
                 val alive = g.deathPause <= 0
-                val col = if (alive) Color(0xFF8BD3A4) else Color(0xFF8BD3A4).copy(alpha = g.deathPause.coerceIn(0f, 1f))
-                for (k in 0 until 8) { val a = Math.toRadians(k * 45.0 + 22); drawLine(Color(0xFF3E8C5E).copy(alpha = col.alpha), p, Offset(p.x + (kotlin.math.cos(a) * r * 1.15).toFloat(), p.y + (kotlin.math.sin(a) * r * 1.15).toFloat()), cs * 0.12f) }
-                drawCircle(col, r, p)
-                drawCircle(Color.White, r * 0.28f, Offset(p.x + g.me.dx * r * 0.35f, p.y + g.me.dy * r * 0.35f - r * 0.15f))
-                drawCircle(Color(0xFF1C1B22), r * 0.14f, Offset(p.x + g.me.dx * r * 0.42f, p.y + g.me.dy * r * 0.42f - r * 0.15f))
+                val mouth = if (alive) (kotlin.math.abs(kotlin.math.sin((g.me.px + g.me.py) * Math.PI)).toFloat() * 46f + 4f) else (1f - g.deathPause.coerceIn(0f, 1f)) * 180f
+                val dirDeg = when { g.me.dx > 0 -> 0f; g.me.dx < 0 -> 180f; g.me.dy > 0 -> 90f; g.me.dy < 0 -> 270f; else -> 0f }
+                drawArc(Color(0xFFFFD43B), dirDeg + mouth / 2, 360f - mouth, true, Offset(p.x - r, p.y - r), Size(2 * r, 2 * r))
+                if (alive) { val ea = Math.toRadians((dirDeg - 60).toDouble()); drawCircle(Color(0xFF1C1B22), r * 0.12f, Offset(p.x + (kotlin.math.cos(ea) * r * 0.5).toFloat(), p.y + (kotlin.math.sin(ea) * r * 0.5).toFloat())) }
             }
-            if (!g.started) GameOverlay("Лабиринт", "Смахивай, чтобы вести ёжика. Собери все ягоды. Звёздочка — на время тучки становятся съедобными.", "Старт") { g.started = true }
-            if (g.over) GameOverlay("Тучки победили", "Счёт ${g.score} · уровень ${g.level}", "Ещё раз") { g = MazeGame().apply { started = true } }
+            if (!g.started) GameOverlay("Pac-Man", "Смахивай, чтобы вести Pac-Man. Съешь все точки. Большая точка — на время привидения становятся съедобными.", "Старт") { g.started = true }
+            if (g.over) GameOverlay("Поймали!", "Счёт ${g.score} · уровень ${g.level}", "Ещё раз") { g = MazeGame().apply { started = true } }
         }
     }
 }

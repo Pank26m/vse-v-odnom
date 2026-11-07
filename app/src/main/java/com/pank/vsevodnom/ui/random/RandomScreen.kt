@@ -148,6 +148,7 @@ private fun Coin() {
         scope.launch {
             val r = rnd.nextBoolean(); heads = r
             rot.snapTo(0f)
+            CoinSound.play()
             launch { lift.animateTo(260f, tween(600, easing = FastOutSlowInEasing)); lift.animateTo(0f, tween(600, easing = FastOutLinearInEasing)) }
             rot.animateTo(360f * 6, tween(1200, easing = LinearOutSlowInEasing))
             rot.snapTo(0f)
@@ -227,16 +228,40 @@ private fun EightBall() {
     val shake = remember { Animatable(0f) }
     val reveal = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
-    Spacer(Modifier.height(12.dp))
-    Box(Modifier.size(280.dp).graphicsLayer { translationX = shake.value }.clip(CircleShape).clickable {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var busy by remember { mutableStateOf(false) }
+    fun ask() {
+        if (busy) return
+        busy = true
         scope.launch {
             reveal.snapTo(0f)
             repeat(6) { shake.animateTo(if (it % 2 == 0) 22f else -22f, tween(60)) }
             shake.animateTo(0f, tween(60))
             answer = ANSWERS[rnd.nextInt(ANSWERS.size)]
             reveal.animateTo(1f, tween(900))
+            busy = false
         }
-    }, contentAlignment = Alignment.Center) {
+    }
+    // ответ появляется только когда трясёшь телефон (нажатием — больше нет)
+    DisposableEffect(Unit) {
+        val sm = ctx.getSystemService(android.hardware.SensorManager::class.java)
+        val acc = sm?.getDefaultSensor(android.hardware.Sensor.TYPE_LINEAR_ACCELERATION) ?: sm?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+        var last = 0L
+        val l = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(e: android.hardware.SensorEvent) {
+                val (x, y, z) = Triple(e.values[0], e.values[1], e.values[2])
+                var g = kotlin.math.sqrt(x * x + y * y + z * z)
+                if (e.sensor.type == android.hardware.Sensor.TYPE_ACCELEROMETER) g = kotlin.math.abs(g - 9.81f)
+                val t = System.currentTimeMillis()
+                if (g > 13f && t - last > 1500) { last = t; ask() }
+            }
+            override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+        }
+        if (acc != null) sm.registerListener(l, acc, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+        onDispose { sm?.unregisterListener(l) }
+    }
+    Spacer(Modifier.height(12.dp))
+    Box(Modifier.size(280.dp).graphicsLayer { translationX = shake.value }.clip(CircleShape), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val r = size.minDimension / 2
             drawCircle(Brush.radialGradient(listOf(Color(0xFF55545F), Color(0xFF1B1A21), Color.Black), Offset(center.x - r * 0.35f, center.y - r * 0.4f), r * 1.4f), r)
@@ -257,7 +282,7 @@ private fun EightBall() {
         }
     }
     Spacer(Modifier.height(16.dp))
-    Text("Задай вопрос про себя и нажми на шар", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+    Text("Задай вопрос про себя и встряхни телефон", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
 }
 
 // ---------------- Число и кубики ----------------
@@ -336,7 +361,7 @@ private fun Bottle() {
     val scope = rememberCoroutineScope()
     Spacer(Modifier.height(24.dp))
     Box(Modifier.size(300.dp).clip(CircleShape).background(Pal.Card).clickable {
-        if (!angle.isRunning) scope.launch { angle.animateTo(angle.value + 360f * (4 + rnd.nextInt(4)) + rnd.nextFloat() * 360f, tween(3200, easing = CubicBezierEasing(0.1f, 0.7f, 0.1f, 1f))) }
+        if (!angle.isRunning) scope.launch { angle.animateTo(angle.value + 360f * (7 + rnd.nextInt(5)) + rnd.nextFloat() * 360f, tween(7500 + rnd.nextInt(2500), easing = CubicBezierEasing(0.08f, 0.55f, 0.02f, 1f))) }
     }, contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(240.dp).graphicsLayer { rotationZ = angle.value }) {
             val w = size.width; val h = size.height; val cx = w / 2
@@ -352,4 +377,33 @@ private fun Bottle() {
     }
     Spacer(Modifier.height(16.dp))
     Text("Нажми на бутылочку — горлышко покажет, на кого", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, textAlign = TextAlign.Center)
+}
+
+/** Звук монетки: звон при подбрасывании, частые «тики» вращения, которые замедляются, и звонкое приземление. Синтезируется на лету. */
+object CoinSound {
+    private var track: android.media.AudioTrack? = null
+    private fun build(): ShortArray {
+        val sr = 44100; val n = (sr * 1.35).toInt(); val out = FloatArray(n)
+        fun ting(at: Int, freqs: List<Double>, len: Int, amp: Float, decay: Double) {
+            for (i in 0 until len) { val k = at + i; if (k >= n) break
+                val t = i.toDouble() / sr; val e = Math.exp(-t * decay)
+                out[k] += (amp * e * freqs.sumOf { Math.sin(2 * Math.PI * it * t) } / freqs.size).toFloat() }
+        }
+        ting(0, listOf(3150.0, 4720.0, 6800.0), sr / 3, 0.55f, 14.0)                         // щелчок пальцем
+        var t = 0.08; var gap = 0.045
+        while (t < 1.05) { ting((t * sr).toInt(), listOf(5200.0, 7600.0), (0.012 * sr).toInt(), 0.18f, 260.0); t += gap; gap *= 1.07 }  // вращение
+        ting((1.08 * sr).toInt(), listOf(2600.0, 3900.0, 5500.0), (0.27 * sr).toInt(), 0.7f, 11.0)      // приземление
+        val peak = out.maxOf { kotlin.math.abs(it) }.coerceAtLeast(1e-3f)
+        return ShortArray(n) { (out[it] / peak * 0.8f * Short.MAX_VALUE).toInt().toShort() }
+    }
+    fun play() = runCatching {
+        val t = track ?: run {
+            val pcm = build()
+            android.media.AudioTrack.Builder()
+                .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_GAME).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                .setAudioFormat(android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT).setSampleRate(44100).setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(android.media.AudioTrack.MODE_STATIC).setBufferSizeInBytes(pcm.size * 2).build().also { it.write(pcm, 0, pcm.size); track = it }
+        }
+        t.stop(); t.reloadStaticData(); t.play()
+    }
 }

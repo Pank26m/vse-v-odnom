@@ -183,6 +183,34 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".data.CopyCodeReceiver" android:exported="false" />
+        <receiver android:name=".data.SpamAnswerReceiver" android:exported="false" />
+
+        <!-- своя звонилка: экран звонка, набор номера, сервис звонков (нужна роль «звонилка по умолчанию») -->
+        <activity android:name=".call.CallActivity" android:exported="false" android:showWhenLocked="true" android:turnScreenOn="true"
+            android:launchMode="singleTop" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name=".call.DialerActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="tel" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tel" />
+            </intent-filter>
+        </activity>
+        <service android:name=".call.CallService" android:exported="true" android:permission="android.permission.BIND_INCALL_SERVICE">
+            <meta-data android:name="android.telecom.IN_CALL_SERVICE_UI" android:value="true" />
+            <meta-data android:name="android.telecom.IN_CALL_SERVICE_RINGING" android:value="false" />
+            <intent-filter><action android:name="android.telecom.InCallService" /></intent-filter>
+        </service>
+        <receiver android:name=".call.CallActionReceiver" android:exported="false" />
         <service
             android:name=".data.NotifListener"
             android:exported="false"

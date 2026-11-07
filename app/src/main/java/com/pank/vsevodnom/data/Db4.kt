@@ -83,6 +83,7 @@ data class MediaItem(
     @ColumnInfo(defaultValue = "") val year: String = "",
     @ColumnInfo(defaultValue = "") val details: String = "",       // JSON: режиссёр, актёры, жанр, рейтинг…
     @ColumnInfo(defaultValue = "") val extId: String = "",         // Wikidata Q…
+    @ColumnInfo(defaultValue = "0") val favorite: Boolean = false,
 )
 
 @Entity(tableName = "note")
@@ -120,6 +121,8 @@ data class ListEntry(
     val done: Boolean = false,
     val sort: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "") val note: String = "",          // описание пункта
+    @ColumnInfo(defaultValue = "0") val priority: Int = 0,         // 0 нет, 1 зелёный, 2 жёлтый, 3 красный
 )
 
 @Entity(tableName = "birthday")
@@ -159,6 +162,9 @@ data class Category(
     val tint: Int = 0,
     val archived: Boolean = false,
     @ColumnInfo(defaultValue = "") val icon: String = "",          // имя значка из набора CAT_ICONS
+    @ColumnInfo(defaultValue = "0") val color: Int = 0,            // ARGB из палитры; 0 — цвет по tint
+    val budget: Double? = null,                                     // лимит на месяц
+    @ColumnInfo(defaultValue = "0") val sort: Int = 0,
 )
 
 /** Операция. type: EXPENSE, INCOME, TRANSFER (со счёта на счёт), ADJUST (корректировка). */
@@ -176,6 +182,7 @@ data class Txn(
     val tags: String = "",
     val source: String = "",        // manual | import | mono | push
     val extId: String = "",         // id в источнике — чтобы не дублировать
+    @ColumnInfo(defaultValue = "") val photo: String = "",         // чек / фото
 )
 
 // ================= Карта =================

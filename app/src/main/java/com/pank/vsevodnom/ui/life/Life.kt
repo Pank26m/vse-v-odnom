@@ -188,24 +188,37 @@ fun CartScreen(onBack: () -> Unit, startNew: Boolean = false) {
     var tab by remember { mutableIntStateOf(0) }
     var tag by remember { mutableStateOf<String?>(null) }
     val allTags = items.flatMap { it.tagList() }.distinct().sorted()
-    ScreenScaffold("Корзина", onBack, actions = { RoundIconButton(Icons.Rounded.Add, "Добавить", { edit = CartItem(title = "") }, bg = Pal.Ink, tint = Color.White) }) {
+    val groupsPref = remember { ctx.getSharedPreferences("cart", android.content.Context.MODE_PRIVATE) }
+    var extraGroups by remember { mutableStateOf(groupsPref.getStringSet("groups", emptySet())!!.toList()) }
+    val groups = (allTags + extraGroups).distinct().sorted()
+    var newGroup by remember { mutableStateOf<String?>(null) }
+    Box(Modifier.fillMaxSize()) {
+    ScreenScaffold("Корзина", onBack) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Segmented(listOf("Хочу · ${items.count { !it.bought }}", "Куплено · ${items.count { it.bought }}"), tab, { tab = it }, Modifier.fillMaxWidth())
-            if (allTags.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Все", tag == null, { tag = null })
-                allTags.forEach { t -> Chip(t, tag == t, { tag = if (tag == t) null else t }) }
+            // группы плитками: «алик», «важное», …
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                @Composable fun G(name: String, count: Int, sel: Boolean, onClick: () -> Unit) =
+                    Column(Modifier.size(96.dp, 72.dp).clip(RoundedCornerShape(14.dp)).background(if (sel) Pal.PeachInk else Pal.Peach).clickable(onClick = onClick).padding(10.dp)) {
+                        Text(name, style = MaterialTheme.typography.titleSmall, color = if (sel) Color.White else Pal.Ink, maxLines = 1)
+                        Spacer(Modifier.weight(1f))
+                        Text("$count", style = MaterialTheme.typography.labelLarge, color = if (sel) Color.White.copy(alpha = 0.8f) else Pal.PeachInk)
+                    }
+                G("Все", items.count { it.bought == (tab == 1) }, tag == null) { tag = null }
+                groups.forEach { g -> G(g, items.count { it.bought == (tab == 1) && g in it.tagList() }, tag == g) { tag = if (tag == g) null else g } }
+                Box(Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { newGroup = "" }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Новая группа", tint = Pal.PeachInk) }
             }
         }
         Spacer(Modifier.height(8.dp))
         val shown = items.filter { it.bought == (tab == 1) && (tag == null || tag in it.tagList()) }
             .let { l -> if (tab == 1) l.sortedByDescending { it.boughtAt ?: it.addedAt } else l }
-        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 AppCard(Modifier.fillMaxWidth(), color = if (tab == 0) Pal.Peach else Pal.Mint) {
                     val total = shown.filter { it.currency.isBlank() || it.currency == "UAH" }.mapNotNull { it.price }.sum()
                     SectionLabel(if (tab == 0) "Хочу купить: ${shown.size}" else "Куплено: ${shown.size}", if (tab == 0) Pal.PeachInk else Pal.MintInk)
                     if (total > 0) Text("${if (tab == 0) "≈ " else ""}${fmtPrice(total)} ₴", style = MaterialTheme.typography.headlineMedium)
-                    if (tab == 0) Text("Вставь ссылку — название, цена и фото подтянутся сами. Или «Поделиться → Всё в одном» из магазина. Галочка — переносит в «Куплено».", style = MaterialTheme.typography.bodySmall)
+                    if (tab == 0) Text("Галочка — переносит в «Куплено». Дата покупки видна в ToDo и в календаре.", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (shown.isEmpty()) item { EmptyHint(if (tab == 0) "Пусто" else "Пока ничего не куплено") }
@@ -215,7 +228,10 @@ fun CartScreen(onBack: () -> Unit, startNew: Boolean = false) {
                         Checkbox(c.bought, { b -> AppScope.io.launch { dao.upsertCart(c.copy(bought = b, boughtAt = if (b) System.currentTimeMillis() else null)) } })
                         if (c.photo.isNotBlank() || c.image.isNotBlank()) { AppImage(c.photo.ifBlank { c.image }, Modifier.size(56.dp), maxPx = 200); Spacer(Modifier.width(10.dp)) }
                         Column(Modifier.weight(1f)) {
-                            Text(c.title, style = MaterialTheme.typography.titleSmall.copy(textDecoration = if (c.bought) TextDecoration.LineThrough else null), maxLines = 2)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (c.priority > 0) Box(Modifier.padding(end = 6.dp).size(9.dp).clip(CircleShape).background(com.pank.vsevodnom.ui.todo.prioColor(c.priority)))
+                                Text(c.title, style = MaterialTheme.typography.titleSmall.copy(textDecoration = if (c.bought) TextDecoration.LineThrough else null), maxLines = 2)
+                            }
                             val sub = listOfNotNull(
                                 c.store.ifBlank { null },
                                 c.planDay?.let { "купить " + LocalDate.ofEpochDay(it).format(DateTimeFormatter.ofPattern("dd.MM")) }?.takeIf { !c.bought },
@@ -231,7 +247,16 @@ fun CartScreen(onBack: () -> Unit, startNew: Boolean = false) {
             }
         }
     }
-    edit?.let { c -> CartEditor(c, allTags) { edit = null } }
+    Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(58.dp).clip(RoundedCornerShape(18.dp)).background(Pal.Ink)
+        .clickable { edit = CartItem(title = "", tags = tag ?: "", priority = 0) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Добавить", tint = Color.White) }
+    }
+    edit?.let { c -> CartEditor(c, groups) { edit = null } }
+    newGroup?.let { g0 ->
+        var g by remember { mutableStateOf(g0) }
+        AlertDialog(onDismissRequest = { newGroup = null }, title = { Text("Новая группа") }, text = { AppTextField(g, { g = it.replace(",", "") }, "Например: алик, важное") },
+            confirmButton = { TextButton({ val n = g.trim(); if (n.isNotBlank()) { extraGroups = (extraGroups + n).distinct(); groupsPref.edit().putStringSet("groups", extraGroups.toSet()).apply(); tag = n }; newGroup = null }) { Text("Добавить") } },
+            dismissButton = { TextButton({ newGroup = null }) { Text("Отмена") } })
+    }
 }
 
 fun CartItem.tagList() = tags.split(',').map { it.trim() }.filter { it.isNotBlank() }
@@ -253,30 +278,11 @@ private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Un
     val tags = remember { mutableStateListOf<String>().apply { addAll(c.tagList()) } }
     var newTag by remember { mutableStateOf("") }
     var planDay by remember { mutableStateOf(c.planDay) }
-    var toCal by remember { mutableStateOf(c.planDay == null) }
     var busy by remember { mutableStateOf(false) }
+    var prio by remember { mutableIntStateOf(c.priority) }
     var pickDate by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> u?.let { copyIntoApp(ctx, it, "cart")?.let { p -> photo = p } } }
-
-    fun fetch(u: String) {
-        busy = true
-        scope.launch {
-            runCatching { ProductInfo.fetch(u) }.getOrNull()?.let { i ->
-                if (title.isBlank()) title = i.title ?: ""
-                if (price.isBlank()) i.price?.let { price = fmtPrice(it).replace(" ", "").replace("\u00a0", "") }
-                if (currency.isBlank()) currency = i.currency ?: ""
-                if (store.isBlank()) store = i.store
-                if (image.isBlank()) image = i.image ?: ""
-            }
-            if (title.isBlank()) title = u.substringAfter("//").substringBefore('/')
-            busy = false
-        }
-    }
-    LaunchedEffect(url) {
-        val u = Regex("https?://\\S+").find(url)?.value
-        if (u != null && u != c.url && title.isBlank()) { kotlinx.coroutines.delay(500); fetch(u) }
-    }
 
     fun save() {
         val u = Regex("https?://\\S+").find(url)?.value ?: ""
@@ -285,19 +291,13 @@ private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Un
         val item = c.copy(url = u, title = t, price = price.replace(',', '.').replace(" ", "").replace("\u00a0", "").toDoubleOrNull(),
             currency = if (price.isBlank()) currency else currency.ifBlank { "UAH" }, store = store.trim().ifBlank { runCatching { java.net.URL(u).host.removePrefix("www.") }.getOrDefault("") },
             note = note.trim(), image = image, photo = photo, tags = (tags + newTag.trim()).filter { it.isNotBlank() }.distinct().joinToString(","), planDay = planDay)
-        AppScope.io.launch {
-            dao.upsertCart(item)
-            if (toCal && planDay != null && planDay != c.planDay) {
-                val z = ZoneId.systemDefault(); val d = LocalDate.ofEpochDay(planDay!!)
-                AppDb.get(ctx).schedule().upsertEvent(CalEvent(title = "Купить: $t", startMillis = d.atStartOfDay(z).toInstant().toEpochMilli(),
-                    endMillis = d.plusDays(1).atStartOfDay(z).toInstant().toEpochMilli(), allDay = true, note = listOf(item.price?.let { "${fmtPrice(it)} ${cur(item)}" }, u.ifBlank { null }).filterNotNull().joinToString("\n"), tint = 2))
-            }
-        }
+        // дата покупки сама видна в ToDo и в календаре — отдельное событие не создаём
+        AppScope.io.launch { dao.upsertCart(item.copy(priority = prio)) }
         onDismiss()
     }
 
     androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDismiss)
                 Text(if (c.id == 0L) "В корзину" else "Товар", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
@@ -309,7 +309,6 @@ private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Un
                     AppCard(Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.weight(1f)) { AppTextField(url, { url = it }, "Ссылка на товар") }
-                            IconButton({ Regex("https?://\\S+").find(url)?.value?.let { fetch(it) } }) { Icon(Icons.Rounded.Refresh, "Подтянуть с сайта") }
                             if (c.url.isNotBlank()) IconButton({ runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(c.url))) } }) { Icon(Icons.Rounded.OpenInNew, "Открыть") }
                         }
                         Spacer(Modifier.height(8.dp))
@@ -319,6 +318,14 @@ private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Un
                             Box(Modifier.weight(1f)) { AppTextField(price, { price = it }, "Цена") }
                             Box(Modifier.weight(1f)) { AppTextField(store, { store = it }, "Магазин") }
                         }
+                        Text("AliExpress и большинство магазинов не отдают данные без браузера, поэтому название и цену вписываешь сам. Ссылка сохраняется — кнопкой рядом её можно открыть.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted, modifier = Modifier.padding(top = 6.dp))
+                    }
+                }
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
+                        SectionLabel("Приоритет")
+                        Spacer(Modifier.height(6.dp))
+                        com.pank.vsevodnom.ui.todo.PriorityDots(prio) { prio = it }
                     }
                 }
                 item {
@@ -342,9 +349,7 @@ private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Un
                             Chip(planDay?.let { LocalDate.ofEpochDay(it).format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) } ?: "Выбрать дату", planDay != null, { pickDate = true })
                             if (planDay != null) TextButton({ planDay = null }) { Text("Без даты") }
                         }
-                        if (planDay != null && planDay != c.planDay) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Добавить в календарь", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f)); Switch(toCal, { toCal = it })
-                        }
+                        if (planDay != null) Text("Будет в ToDo и в календаре на этот день.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
                     }
                 }
                 item {

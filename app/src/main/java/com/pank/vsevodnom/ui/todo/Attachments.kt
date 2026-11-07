@@ -31,7 +31,7 @@ private fun displayName(ctx: Context, u: Uri): String = runCatching {
 
 /** Выбор любого файла (PDF, аудио, документ…): копия кладётся внутрь приложения. Возвращает «путь\tимя». */
 @Composable
-fun rememberFilePicker(dir: String, onPicked: (String) -> Unit): () -> Unit {
+fun rememberFilePicker(dir: String, types: Array<String> = arrayOf("*/*"), onPicked: (String) -> Unit): () -> Unit {
     val ctx = LocalContext.current
     val l = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
         u ?: return@rememberLauncherForActivityResult
@@ -43,7 +43,7 @@ fun rememberFilePicker(dir: String, onPicked: (String) -> Unit): () -> Unit {
             onPicked(f.absolutePath + "\t" + name)
         }
     }
-    return { l.launch(arrayOf("*/*")) }
+    return { l.launch(types) }
 }
 
 /** Выбор контакта из телефонной книги. Возвращает «имя\tтелефон». */

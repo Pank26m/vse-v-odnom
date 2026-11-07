@@ -89,13 +89,51 @@ fun SnakeScreen(onBack: () -> Unit) {
                 drawCircle(Color(0xFFE5485D), cs * 0.4f, Offset(ox + (g.food.first + 0.5f) * cs, oy + (g.food.second + 0.55f) * cs))
                 drawLine(Color(0xFF3FB27F), Offset(ox + (g.food.first + 0.5f) * cs, oy + (g.food.second + 0.18f) * cs), Offset(ox + (g.food.first + 0.7f) * cs, oy + (g.food.second + 0.05f) * cs), cs * 0.12f)
                 g.bonus?.let { b -> drawCircle(Color(0xFFF2B635), cs * (0.35f + 0.08f * (g.bonusLeft % 4) / 4f), Offset(ox + (b.first + 0.5f) * cs, oy + (b.second + 0.5f) * cs)) }
-                g.body.forEachIndexed { i, (x, y) ->
-                    val t = i.toFloat() / g.body.size
-                    drawRoundRect(Color(0xFF2F7D57).copy(alpha = 1f - t * 0.45f), Offset(ox + x * cs + 1.5f, oy + y * cs + 1.5f), Size(cs - 3f, cs - 3f), CornerRadius(cs * 0.35f))
+                // змея: гладкое тело из перекрывающихся кругов (сужается к хвосту), узор чешуи, голова с глазами и языком
+                val pts = g.body.toList()
+                fun cc(x: Float, y: Float) = Offset(ox + (x + 0.5f) * cs, oy + (y + 0.5f) * cs)
+                val n = pts.size
+                val sub = 4
+                for (i in n - 1 downTo 0) {
+                    val (x, y) = pts[i]
+                    val next = if (i > 0) pts[i - 1] else null
+                    val t = i.toFloat() / maxOf(1, n - 1)
+                    val r0 = cs * (0.46f - 0.26f * t)
+                    for (k in 0 until sub) {
+                        val f = k.toFloat() / sub
+                        val (px, py) = if (next != null && abs(next.first - x) + abs(next.second - y) == 1) (x + (next.first - x) * f) to (y + (next.second - y) * f) else x.toFloat() to y.toFloat()
+                        val shade = if ((i + k / 2) % 3 == 0) Color(0xFF2E7A47) else Color(0xFF3C9A5B)
+                        drawCircle(shade, r0, cc(px, py))
+                    }
                 }
-                val (hx, hy) = g.body.first()
-                val ex = g.dir.second.toFloat() * 0.2f; val ey = -g.dir.first.toFloat() * 0.2f
-                listOf(1f, -1f).forEach { k -> drawCircle(Color.White, cs * 0.13f, Offset(ox + (hx + 0.5f + g.dir.first * 0.18f + ex * k) * cs, oy + (hy + 0.5f + g.dir.second * 0.18f + ey * k) * cs)) }
+                // светлое брюшко и ромбики чешуи
+                pts.forEachIndexed { i, (x, y) ->
+                    val t = i.toFloat() / maxOf(1, n - 1); val r0 = cs * (0.46f - 0.26f * t)
+                    if (i > 0) {
+                        drawCircle(Color(0xFF8FD19E).copy(alpha = 0.55f), r0 * 0.42f, cc(x.toFloat(), y.toFloat()))
+                        if (i % 2 == 0) {
+                            val c0 = cc(x.toFloat(), y.toFloat()); val d = r0 * 0.5f
+                            drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(c0.x, c0.y - d); lineTo(c0.x + d, c0.y); lineTo(c0.x, c0.y + d); lineTo(c0.x - d, c0.y); close() }, Color(0xFF235E37).copy(alpha = 0.55f))
+                        }
+                    }
+                }
+                val (hx, hy) = pts.first()
+                val hc = cc(hx.toFloat(), hy.toFloat())
+                val dx = g.dir.first.toFloat(); val dy = g.dir.second.toFloat()
+                val nx = -dy; val ny = dx
+                // голова чуть вытянута вперёд
+                drawCircle(Color(0xFF3C9A5B), cs * 0.5f, hc)
+                drawCircle(Color(0xFF3C9A5B), cs * 0.36f, Offset(hc.x + dx * cs * 0.22f, hc.y + dy * cs * 0.22f))
+                // язык мелькает
+                if (tick % 12 < 4) {
+                    val tip = Offset(hc.x + dx * cs * 0.85f, hc.y + dy * cs * 0.85f)
+                    drawLine(Color(0xFFE5485D), Offset(hc.x + dx * cs * 0.5f, hc.y + dy * cs * 0.5f), tip, cs * 0.07f)
+                    listOf(1f, -1f).forEach { k -> drawLine(Color(0xFFE5485D), tip, Offset(tip.x + (dx * 0.12f + nx * 0.1f * k) * cs, tip.y + (dy * 0.12f + ny * 0.1f * k) * cs), cs * 0.06f) }
+                }
+                listOf(1f, -1f).forEach { k ->
+                    val e = Offset(hc.x + (dx * 0.15f + nx * 0.24f * k) * cs, hc.y + (dy * 0.15f + ny * 0.24f * k) * cs)
+                    drawCircle(Color(0xFFFFF3B0), cs * 0.14f, e); drawCircle(Color(0xFF1C1B22), cs * 0.07f, Offset(e.x + dx * cs * 0.04f, e.y + dy * cs * 0.04f))
+                }
             }
             if (!started) GameOverlay("Змейка", "Смахивай в сторону поворота. Золотое яблоко — +5, исчезает быстро.", "Старт") { started = true }
             if (g.over) GameOverlay("Конец", "Длина ${g.body.size} · счёт ${g.score}", "Ещё раз") { g = SnakeGame(walls = walls); started = true }

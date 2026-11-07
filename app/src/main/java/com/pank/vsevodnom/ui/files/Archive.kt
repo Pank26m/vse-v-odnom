@@ -1,5 +1,8 @@
 package com.pank.vsevodnom.ui.files
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import me.zhanghai.android.libarchive.Archive as LA
 import me.zhanghai.android.libarchive.ArchiveEntry as LAE
 
@@ -135,6 +138,38 @@ object Archives {
         return n
     }
 
+    /** Достать записи во временную папку — чтобы посмотреть в приложении или отправить. */
+    fun extractToTemp(ctx: Context, f: File, kind: String, only: Set<String>): List<File> {
+        val base = File(ctx.cacheDir, "arc-view/" + f.name).apply { mkdirs() }
+        val out = ArrayList<File>()
+        walk(f, kind) { e, ins ->
+            if (e.dir || ins == null || e.name !in only) return@walk
+            val clean = e.name.split('/').filter { it.isNotBlank() && it != ".." }
+            if (clean.isEmpty()) return@walk
+            val t = File(base, clean.joinToString("/")).apply { parentFile?.mkdirs() }
+            t.outputStream().use { ins.copyTo(it) }
+            out += t
+        }
+        return out
+    }
+
+    /** Собрать архив заново в zip, подменив изменённые файлы (rar/7z записывать нельзя — результат всегда zip). */
+    fun rezip(f: File, kind: String, replaced: Map<String, File>, out: java.io.OutputStream): Int {
+        var n = 0
+        ZipOutputStream(out.buffered()).use { z ->
+            walk(f, kind) { e, ins ->
+                if (e.dir) return@walk
+                z.putNextEntry(ZipEntry(e.name))
+                val r = replaced[e.name]
+                if (r != null) r.inputStream().use { it.copyTo(z) } else ins?.copyTo(z)
+                z.closeEntry(); n++
+            }
+        }
+        return n
+    }
+
+    val TEXT_EXT = setOf("txt", "md", "json", "xml", "csv", "html", "htm", "css", "js", "kt", "java", "py", "log", "ini", "cfg", "conf", "yaml", "yml", "srt", "sql", "sh", "properties")
+
     /** Упаковать выбранные файлы в zip. */
     fun zip(ctx: Context, files: List<Uri>, out: Uri): Int {
         var n = 0
@@ -183,6 +218,38 @@ fun ArchiveScreen(onBack: () -> Unit) {
         if (out != null && toZip.isNotEmpty()) scope.launch { busy = true; msg = runCatching { withContext(Dispatchers.IO) { Archives.zip(ctx, toZip, out) } }.fold({ "В архив упаковано файлов: $it" }, { "Не получилось: ${it.message}" }); toZip = emptyList(); busy = false }
     }
     LaunchedEffect(toZip) { if (toZip.isNotEmpty()) makeZip.launch("архив.zip") }
+    // просмотр и правка прямо из архива
+    var viewing by remember { mutableStateOf<File?>(null) }
+    var editing by remember { mutableStateOf<Pair<String, File>?>(null) }
+    val edited = remember { mutableStateMapOf<String, File>() }
+    val saveEdited = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { out ->
+        val f = file
+        if (out != null && f != null) scope.launch { busy = true; msg = runCatching { withContext(Dispatchers.IO) { ctx.contentResolver.openOutputStream(out)!!.use { Archives.rezip(f, Archives.kind(f.name), edited.toMap(), it) } } }.fold({ "Сохранено: $it файлов, изменённых ${edited.size}" }, { "Не получилось: ${it.message}" }); busy = false }
+    }
+    fun uriOf(t: File) = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", t)
+    fun share(files: List<File>) {
+        if (files.isEmpty()) return
+        val uris = ArrayList(files.map { uriOf(it) })
+        val i = if (uris.size == 1) android.content.Intent(android.content.Intent.ACTION_SEND).putExtra(android.content.Intent.EXTRA_STREAM, uris[0])
+            else android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+        ctx.startActivity(android.content.Intent.createChooser(i.setType("*/*").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Отправить"))
+    }
+    viewing?.let { t ->
+        androidx.activity.compose.BackHandler { viewing = null }
+        FileViewer(uriOf(t), { viewing = null })
+        return
+    }
+    editing?.let { (name, t) ->
+        var text by remember(t) { mutableStateOf(runCatching { t.readText() }.getOrDefault("")) }
+        androidx.activity.compose.BackHandler { editing = null }
+        ScreenScaffold(name.substringAfterLast('/'), { editing = null }, actions = {
+            RoundIconButton(Icons.Rounded.Check, "Сохранить", { t.writeText(text); edited[name] = t; editing = null; msg = "Изменения сохранены. Чтобы получить архив с ними — «Сохранить архив»." }, bg = Pal.Ink, tint = androidx.compose.ui.graphics.Color.White)
+        }) {
+            androidx.compose.foundation.text.BasicTextField(text, { text = it }, Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = Pal.Ink))
+        }
+        return
+    }
     ScreenScaffold("Архивы", onBack) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -204,6 +271,13 @@ fun ArchiveScreen(onBack: () -> Unit) {
                             scope.launch { busy = true; msg = runCatching { withContext(Dispatchers.IO) { Archives.extract(ctx, f, Archives.kind(f.name), selected.toSet()) } }.fold({ "Распаковано: $it" }, { "Ошибка: ${it.message}" }); busy = false }
                         }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
                     }
+                    if (selected.isNotEmpty() || edited.isNotEmpty()) Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (selected.isNotEmpty()) PillButton("Отправить (${selected.size})", {
+                            scope.launch { busy = true; runCatching { withContext(Dispatchers.IO) { Archives.extractToTemp(ctx, f, Archives.kind(f.name), selected.toSet()) } }.onSuccess { l -> share(l.map { t -> edited.entries.firstOrNull { it.value.name == t.name }?.value ?: t }) }.onFailure { msg = "Ошибка: ${it.message}" }; busy = false }
+                        }, Modifier.weight(1f), bg = Pal.Lilac, fg = Pal.LilacInk)
+                        if (edited.isNotEmpty()) PillButton("Сохранить архив", { saveEdited.launch(f.name.substringBeforeLast('.') + " (изменён).zip") }, Modifier.weight(1f), bg = Pal.Mint, fg = Pal.MintInk)
+                    }
+                    Text("Нажми на файл — откроется прямо здесь. Текстовые файлы можно изменить.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted, modifier = Modifier.padding(top = 6.dp))
                 }
             }
         }
@@ -211,14 +285,24 @@ fun ArchiveScreen(onBack: () -> Unit) {
             if (file == null && msg == null) item { EmptyHint("Открой .zip, .rar (в том числе RAR5), .7z, .tar или .gz — покажу, что внутри, и распакую в «Загрузки».") }
             items(entries.filter { !it.dir }) { e ->
                 val sel = e.name in selected
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (sel) Pal.Lilac else Pal.Card).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val ext = e.name.substringAfterLast('.', "").lowercase()
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (sel) Pal.Lilac else Pal.Card).clickable {
+                    val f = file ?: return@clickable
+                    edited[e.name]?.let { viewing = it; return@clickable }
+                    scope.launch { busy = true; runCatching { withContext(Dispatchers.IO) { Archives.extractToTemp(ctx, f, Archives.kind(f.name), setOf(e.name)).firstOrNull() } }.onSuccess { it?.let { t -> viewing = t } }.onFailure { msg = "Не открылся: ${it.message}" }; busy = false }
+                }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(sel, { if (it) selected.add(e.name) else selected.remove(e.name) })
                     Icon(Icons.Rounded.InsertDriveFile, null, tint = Pal.Muted, modifier = Modifier.size(20.dp))
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                         Text(e.name.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                         if (e.name.contains('/')) Text(e.name.substringBeforeLast('/'), style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
-                    Text(human(e.size), style = MaterialTheme.typography.labelSmall)
+                    Text(human(e.size) + if (e.name in edited) " · изменён" else "", style = MaterialTheme.typography.labelSmall)
+                    if (ext in Archives.TEXT_EXT) IconButton({
+                        val f = file ?: return@IconButton
+                        edited[e.name]?.let { editing = e.name to it; return@IconButton }
+                        scope.launch { runCatching { withContext(Dispatchers.IO) { Archives.extractToTemp(ctx, f, Archives.kind(f.name), setOf(e.name)).firstOrNull() } }.onSuccess { it?.let { t -> editing = e.name to t } } }
+                    }) { Icon(Icons.Rounded.Edit, "Изменить", tint = Pal.Muted, modifier = Modifier.size(18.dp)) }
                 }
             }
         }

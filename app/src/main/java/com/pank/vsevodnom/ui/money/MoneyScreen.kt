@@ -1,47 +1,44 @@
 package com.pank.vsevodnom.ui.money
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.focus.focusRequester
 import com.pank.vsevodnom.data.*
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
@@ -53,597 +50,562 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 
 private val RU = Locale("ru")
-private val CUR = mapOf("UAH" to "грн.", "USD" to "$", "EUR" to "€", "PLN" to "zł", "GBP" to "£")
 private val RED = Color(0xFFE5485D)
 private val GREEN = Color(0xFF2DB37A)
+private val zone: ZoneId get() = ZoneId.systemDefault()
 
+/** «22 849,61 грн» — пробел между тысячами, копейки только если есть. */
 fun fmtMoney(v: Double, cur: String = "UAH"): String {
     val r = (v * 100).roundToLong() / 100.0
     val whole = abs(r).toLong()
     val frac = ((abs(r) - whole) * 100).roundToLong()
     val s = whole.toString().reversed().chunked(3).joinToString(" ").reversed() + if (frac > 0) (if (frac % 10 == 0L) ",${frac / 10}" else ",%02d".format(frac)) else ""
-    return (if (r < 0) "−" else "") + s + " " + (CUR[cur] ?: cur)
+    return (if (r < 0) "−" else "") + s + " " + (mapOf("UAH" to "грн", "USD" to "$", "EUR" to "€")[cur] ?: cur)
 }
 
-/** Период: месяц (по умолчанию), неделя, год, всё время. */
-private enum class Period(val title: String) { WEEK("Неделя"), MONTH("Месяц"), YEAR("Год"), ALL("Всё время") }
+private fun dayOf(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
+private fun rootOf(id: Long?, byId: Map<Long, Category>): Category? { var c = id?.let { byId[it] }; var g = 0; while (c?.parentId != null && g++ < 5) c = byId[c.parentId]; return c }
 
-private class PeriodState {
-    var period by mutableStateOf(Period.MONTH)
-    var anchor by mutableStateOf(LocalDate.now())
-    val range: Pair<LocalDate, LocalDate> get() = when (period) {
-        Period.WEEK -> anchor.with(DayOfWeek.MONDAY).let { it to it.plusDays(6) }
-        Period.MONTH -> anchor.withDayOfMonth(1).let { it to it.plusMonths(1).minusDays(1) }
-        Period.YEAR -> anchor.withDayOfYear(1).let { it to it.plusYears(1).minusDays(1) }
-        Period.ALL -> LocalDate.of(2000, 1, 1) to LocalDate.of(2100, 1, 1)
-    }
-    fun shift(n: Long) { anchor = when (period) { Period.WEEK -> anchor.plusWeeks(n); Period.MONTH -> anchor.plusMonths(n); Period.YEAR -> anchor.plusYears(n); Period.ALL -> anchor } }
-    val title: String get() = when (period) {
-        Period.MONTH -> anchor.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.uppercase() }
-        Period.YEAR -> "${anchor.year}"
-        Period.WEEK -> range.let { (a, b) -> "${a.format(DateTimeFormatter.ofPattern("d MMM", RU))} – ${b.format(DateTimeFormatter.ofPattern("d MMM", RU))}" }
-        Period.ALL -> "Всё время"
-    }
-    fun contains(ms: Long): Boolean { val d = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate(); val (a, b) = range; return !d.isBefore(a) && !d.isAfter(b) }
-}
+/** Сумма для общего баланса: один кошелёк, переводы между старыми счетами в итоге не меняют сумму. */
+private fun delta(t: Txn) = when (t.type) { MoneyRepo.INCOME, MoneyRepo.ADJUST -> t.amount; MoneyRepo.EXPENSE -> -t.amount; else -> (t.toAmount ?: t.amount) - t.amount }
 
+/**
+ * Финансы — свой учёт расходов: одна «копилка» (все деньги вместе), сверху — сколько свободно.
+ * Вкладки: Категории (сразу ввод по плитке), Операции (по дням), Статистика (круг, по дням, средние, бюджеты).
+ */
 @Composable
 fun MoneyScreen(onBack: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).money() }
-    LaunchedEffect(Unit) { MoneyRepo.ensureDefaults(ctx) }
+    LaunchedEffect(Unit) { MoneyRepo.ensureDefaults(ctx); TablerIcons.load(ctx) }
     val accounts by dao.accounts().collectAsState(initial = emptyList())
     val cats by dao.categories().collectAsState(initial = emptyList())
-    val txns by dao.allTxns().collectAsState(initial = emptyList())
+    val all by dao.allTxns().collectAsState(initial = emptyList())
     val prefs = remember { ctx.getSharedPreferences("money", android.content.Context.MODE_PRIVATE) }
-    var tab by rememberSaveable { mutableIntStateOf(prefs.getInt("tab", 1)) }
     var hide by remember { mutableStateOf(prefs.getBoolean("hide", false)) }
+    var tab by remember { mutableIntStateOf(0) }
+    var income by remember { mutableStateOf(false) }
+    var month by remember { mutableStateOf(YearMonth.now()) }
     var edit by remember { mutableStateOf<Txn?>(null) }
-    val ps = remember { PeriodState() }
-    var usd by remember { mutableStateOf<Double?>(null) }; var eur by remember { mutableStateOf<Double?>(null) }
-    LaunchedEffect(Net.online) { if (usd == null) usd = MoneyRepo.nbu("USD"); if (eur == null) eur = MoneyRepo.nbu("EUR") }
-    val rate: (String) -> Double? = { c -> when (c) { "UAH" -> 1.0; "USD" -> usd; "EUR" -> eur; else -> null } }
-    val total = accounts.filter { !it.archived }.sumOf { a -> MoneyRepo.balance(a, txns) * (rate(a.currency) ?: 0.0) }
-    fun newTxn(type: String = MoneyRepo.EXPENSE, cat: Long? = null) {
-        edit = Txn(at = System.currentTimeMillis(), type = type, amount = 0.0, accountId = accounts.firstOrNull { !it.archived }?.id ?: 0, categoryId = cat)
-    }
-
-    Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding()) {
-        // шапка: общий баланс (можно скрыть), курсы мелко
-        Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { hide = !hide; prefs.edit().putBoolean("hide", hide).apply() }) {
-                    Text("Общий баланс ", style = MaterialTheme.typography.bodyMedium)
-                    Icon(if (hide) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, "Скрыть", Modifier.size(18.dp), tint = Pal.Muted)
-                }
-                Text(if (hide) "••••• грн." else fmtMoney(total), style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold))
-                if (usd != null || eur != null) Text(listOfNotNull(usd?.let { "$ " + "%.2f".format(it).replace('.', ',') }, eur?.let { "€ " + "%.2f".format(it).replace('.', ',') }).joinToString("   ") + "  · НБУ",
-                    style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
-            }
-            if (onBack != null) Box(Modifier.align(Alignment.CenterStart).padding(start = 12.dp)) { RoundIconButton(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Назад", onBack) }
-        }
-        if (tab in 1..3) PeriodBar(ps)
-        Box(Modifier.weight(1f)) {
-            when (tab) {
-                0 -> AccountsTab(accounts, txns, hide)
-                1 -> CategoriesTab(cats, txns, ps, onAdd = { type, cat -> newTxn(type, cat) })
-                2 -> OperationsTab(accounts, cats, txns, ps, onEdit = { edit = it })
-                3 -> StatsTab(cats, txns, ps)
-                else -> MoreTab()
-            }
-            if (tab == 2) ExtendedFloatingActionButton(onClick = { newTxn() }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp), containerColor = Color(0xFFD3E4FB), contentColor = Pal.Ink,
-                icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Добавить") })
-        }
-        // свой нижний бар раздела
-        Row(Modifier.fillMaxWidth().background(Color(0xFFE6EEF8)).navigationBarsPadding().padding(vertical = 6.dp)) {
-            listOf(
-                Triple("Счета", Icons.Rounded.AccountBalanceWallet, 0), Triple("Категории", Icons.Rounded.Category, 1),
-                Triple("Операции", Icons.AutoMirrored.Rounded.ReceiptLong, 2), Triple("Статистика", Icons.Rounded.BarChart, 3), Triple("Больше", Icons.Rounded.Apps, 4),
-            ).forEach { (t, ic, i) ->
-                Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { tab = i; prefs.edit().putInt("tab", i).apply() }.padding(vertical = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.clip(RoundedCornerShape(50)).background(if (tab == i) Color(0xFFCFE0F5) else Color.Transparent).padding(horizontal = 14.dp, vertical = 3.dp)) {
-                        Icon(ic, t, tint = if (tab == i) Color(0xFF2F5C8F) else Pal.Muted, modifier = Modifier.size(22.dp))
-                    }
-                    Text(t, style = MaterialTheme.typography.labelSmall, color = if (tab == i) Color(0xFF2F5C8F) else Pal.Muted, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Medium)
-                }
-            }
-        }
-    }
-    edit?.let { TxnEditor(it, accounts, cats) { edit = null } }
-}
-
-@Composable
-private fun PeriodBar(ps: PeriodState) {
-    var menu by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton({ ps.shift(-1) }, enabled = ps.period != Period.ALL) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Раньше") }
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable { menu = true }.padding(8.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(ps.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium)); Icon(Icons.Rounded.ArrowDropDown, null)
-            }
-            DropdownMenu(menu, { menu = false }) {
-                Period.entries.forEach { p -> DropdownMenuItem({ Text(p.title) }, { ps.period = p; menu = false }) }
-                DropdownMenuItem({ Text("Сегодня") }, { ps.anchor = LocalDate.now(); menu = false })
-            }
-        }
-        IconButton({ ps.shift(1) }, enabled = ps.period != Period.ALL) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Позже") }
-    }
-}
-
-/** Значок категории в цветном квадрате. */
-@Composable
-fun CatBadge(c: Category?, size: androidx.compose.ui.unit.Dp = 44.dp) {
-    val col = catColor(c)
-    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.25f)).background(col.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-        Icon(catIcon(c), null, tint = col, modifier = Modifier.size(size * 0.55f))
-    }
-}
-
-private fun rootOf(id: Long?, byId: Map<Long, Category>): Category? { var c = id?.let { byId[it] }; while (c?.parentId != null) c = byId[c.parentId]; return c }
-
-// ================= Категории (главная раздела) =================
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun CategoriesTab(cats: List<Category>, txns: List<Txn>, ps: PeriodState, onAdd: (String, Long?) -> Unit) {
-    var income by rememberSaveable { mutableStateOf(false) }
     var editCat by remember { mutableStateOf<Category?>(null) }
-    var editMode by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    var importOpen by remember { mutableStateOf(false) }
+
+    val total = accounts.sumOf { it.initial } + all.sumOf { delta(it) }
+    val from = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    val to = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    val inMonth = all.filter { it.at in from until to }
+    val spent = inMonth.filter { it.type == MoneyRepo.EXPENSE }.sumOf { it.amount }
+    val earned = inMonth.filter { it.type == MoneyRepo.INCOME }.sumOf { it.amount }
     val byId = cats.associateBy { it.id }
-    val inP = txns.filter { ps.contains(it.at) }
-    val exp = inP.filter { it.type == MoneyRepo.EXPENSE }.sumOf { it.amount }
-    val inc = inP.filter { it.type == MoneyRepo.INCOME }.sumOf { it.amount }
-    val type = if (income) MoneyRepo.INCOME else MoneyRepo.EXPENSE
-    val sums = inP.filter { it.type == type }.groupBy { rootOf(it.categoryId, byId)?.id }.mapValues { (_, l) -> l.sumOf { it.amount } }
-    val tops = cats.filter { it.parentId == null && it.income == income && !it.archived }
-    val total = if (income) inc else exp
-    LazyVerticalGrid(GridCells.Fixed(2), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item(span = { GridItemSpan(2) }) {
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFFE3ECF7)).padding(8.dp)) {
-                listOf(false to "Расходы", true to "Доходы").forEach { (inc0, t) ->
-                    val sel = income == inc0
-                    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (sel) Color.White else Color.Transparent).clickable { income = inc0 }.padding(vertical = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(t, style = MaterialTheme.typography.bodyLarge, color = if (sel) Pal.Ink else Pal.Muted)
-                        Text(fmtMoney(if (inc0) inc else exp), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Medium), color = if (inc0) GREEN else RED)
-                    }
+    val wallet = accounts.firstOrNull { !it.archived } ?: accounts.firstOrNull()
+
+    fun newTxn(c: Category?, inc: Boolean): Txn {
+        val now = LocalDate.now()
+        val at = if (YearMonth.from(now) == month) System.currentTimeMillis() else month.atDay(1).atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+        return Txn(at = at, type = if (inc) MoneyRepo.INCOME else MoneyRepo.EXPENSE, amount = 0.0, accountId = wallet?.id ?: 0, categoryId = c?.id)
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        ScreenScaffold("Финансы", onBack, actions = {
+            Box {
+                RoundIconButton(Icons.Rounded.MoreVert, "Ещё", { menu = true })
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem({ Text("Новая категория") }, { menu = false; editCat = Category(name = "", income = income, color = PALETTE[5][3].toArgb()) })
+                    DropdownMenuItem({ Text("Импорт из Sumlio") }, { menu = false; importOpen = true })
+                    DropdownMenuItem({ Text(if (hide) "Показывать сумму" else "Скрывать сумму") }, { menu = false; hide = !hide; prefs.edit().putBoolean("hide", hide).apply() })
                 }
             }
-        }
-        item(span = { GridItemSpan(2) }) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (editMode) "Нажми на категорию, чтобы изменить" else "Нажми на категорию — добавить операцию", style = MaterialTheme.typography.labelMedium, color = Pal.Muted, modifier = Modifier.weight(1f))
-                IconButton({ editMode = !editMode }) { Icon(if (editMode) Icons.Rounded.Check else Icons.Rounded.Edit, "Редактировать категории") }
+        }) {
+            // свободные деньги
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { hide = !hide; prefs.edit().putBoolean("hide", hide).apply() }) {
+                    Text("Свободные деньги", style = MaterialTheme.typography.labelLarge, color = Pal.Muted)
+                    Icon(if (hide) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null, Modifier.padding(start = 6.dp).size(16.dp), tint = Pal.Muted)
+                }
+                Text(if (hide) "••• ••• грн" else fmtMoney(total), style = MaterialTheme.typography.headlineLarge, color = if (total < 0) RED else Pal.Ink)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton({ month = month.minusMonths(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Раньше") }
+                    Text(month.atDay(1).format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.clickable { month = YearMonth.now() }.padding(horizontal = 8.dp))
+                    IconButton({ month = month.plusMonths(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Позже") }
+                }
+                Segmented(listOf("Категории", "Операции", "Статистика"), tab, { tab = it }, Modifier.fillMaxWidth(), track = Pal.Mint)
+                Spacer(Modifier.height(10.dp))
+            }
+            when (tab) {
+                0 -> CategoriesTab(cats, inMonth, byId, income, { income = it }, spent, earned, onAdd = { c -> edit = newTxn(c, c.income) }, onEditCat = { editCat = it },
+                    onNewCat = { editCat = Category(name = "", income = income, color = PALETTE[5][3].toArgb()) })
+                1 -> OperationsTab(all, inMonth, from, accounts, byId, onEdit = { edit = it })
+                else -> StatsTab(cats, inMonth, byId, month, income, { income = it }, spent, earned)
             }
         }
-        items(tops, key = { it.id }) { c ->
-            val v = sums[c.id] ?: 0.0
-            val col = catColor(c)
-            val share = if (total > 0) (v / total).toFloat() else 0f
-            Box(Modifier.height(78.dp).clip(RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFDCE3EC), RoundedCornerShape(14.dp)).background(Color.White)
-                .combinedClickable(onClick = { if (editMode) editCat = c else onAdd(type, c.id) }, onLongClick = { editCat = c })) {
-                // заливка снизу — доля категории в сумме периода
-                if (share > 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(share.coerceIn(0.04f, 1f)).fillMaxHeight(0.5f).background(col.copy(alpha = 0.16f)))
-                Row(Modifier.fillMaxSize().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CatBadge(c, 48.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(c.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-                        Text(fmtMoney(v), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium), color = if (v > 0) col else Pal.Muted, maxLines = 1)
+        // добавить — квадратная кнопка внизу справа
+        Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(58.dp).clip(RoundedCornerShape(18.dp)).background(Pal.Ink)
+            .clickable { edit = newTxn(cats.firstOrNull { it.income == income && it.parentId == null && !it.archived }, income) }, contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Add, "Добавить", tint = Color.White)
+        }
+    }
+    edit?.let { t -> TxnSheet(t, cats, wallet) { edit = null } }
+    editCat?.let { c -> CategoryEditor(c, cats, all) { editCat = null } }
+    if (importOpen) ImportDialog { importOpen = false }
+}
+
+
+@Composable
+private fun TypeSwitch(income: Boolean, onChange: (Boolean) -> Unit, spent: Double, earned: Double) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pal.Line).padding(5.dp)) {
+        listOf(false to ("Расходы" to spent), true to ("Доходы" to earned)).forEach { (inc, p) ->
+            val sel = income == inc
+            val bg by animateColorAsState(if (sel) Pal.Card else Color.Transparent, label = "t")
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(bg).clickable { onChange(inc) }.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(p.first, style = MaterialTheme.typography.labelLarge, color = if (sel) Pal.Ink else Pal.Muted)
+                Text(fmtMoney(p.second), style = MaterialTheme.typography.titleLarge, color = if (inc) GREEN else RED)
+            }
+        }
+    }
+}
+
+// ================= Категории =================
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CategoriesTab(cats: List<Category>, txns: List<Txn>, byId: Map<Long, Category>, income: Boolean, onIncome: (Boolean) -> Unit, spent: Double, earned: Double,
+                          onAdd: (Category) -> Unit, onEditCat: (Category) -> Unit, onNewCat: () -> Unit) {
+    val roots = cats.filter { it.parentId == null && it.income == income && !it.archived }.sortedWith(compareBy({ it.sort }, { it.name.lowercase() }))
+    val sums = txns.filter { it.type == if (income) MoneyRepo.INCOME else MoneyRepo.EXPENSE }.groupBy { rootOf(it.categoryId, byId)?.id }.mapValues { (_, l) -> l.sumOf { it.amount } }
+    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 100.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { TypeSwitch(income, onIncome, spent, earned) }
+        items(roots.chunked(2), key = { r -> r.joinToString { "${it.id}" } }) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { c ->
+                    val sum = sums[c.id] ?: 0.0
+                    val col = finColor(c)
+                    val over = c.budget != null && sum > c.budget
+                    val part = c.budget?.takeIf { it > 0 }?.let { (sum / it).toFloat().coerceIn(0f, 1f) }
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Pal.Card)
+                        .border(if (over) 1.5.dp else 1.dp, if (over) RED else Pal.Line, RoundedCornerShape(16.dp))
+                        .combinedClickable(onClick = { onAdd(c) }, onLongClick = { onEditCat(c) })) {
+                        // заполнение бюджета — подложкой снизу вверх
+                        if (part != null) Box(Modifier.matchParentSize().padding(top = (64 * (1 - part)).dp).background((if (over) RED else col).copy(alpha = 0.12f)))
+                        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FinBadge(c, 42.dp)
+                            Column(Modifier.padding(start = 10.dp)) {
+                                Text(c.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                Text(fmtMoney(sum), style = MaterialTheme.typography.titleSmall, color = if (sum > 0) col else Pal.Muted, maxLines = 1)
+                            }
+                        }
                     }
                 }
-                if (editMode) Icon(Icons.Rounded.Edit, null, Modifier.align(Alignment.TopEnd).padding(6.dp).size(16.dp), tint = Pal.Muted)
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
         item {
-            Box(Modifier.height(78.dp).clip(RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFDCE3EC), RoundedCornerShape(14.dp)).clickable { editCat = Category(name = "", income = income, tint = tops.size % CAT_COLORS.size) },
-                contentAlignment = Alignment.Center) {
-                Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Add, null, tint = Pal.Muted); Text(" Категория", color = Pal.Muted) }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, Pal.Line, RoundedCornerShape(16.dp)).clickable(onClick = onNewCat).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                Icon(Icons.Rounded.Add, null, tint = Pal.Muted); Text(" Категория", style = MaterialTheme.typography.labelLarge, color = Pal.Muted)
             }
         }
-    }
-    editCat?.let { CategoryEditor(it, cats) { editCat = null } }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CategoryEditor(c: Category, cats: List<Category>, onDone: () -> Unit) {
-    val ctx = LocalContext.current
-    val dao = remember { AppDb.get(ctx).money() }
-    var name by remember { mutableStateOf(c.name) }
-    var tint by remember { mutableIntStateOf(c.tint) }
-    var icon by remember { mutableStateOf(c.icon.ifBlank { guessIcon(c.name) }) }
-    var sub by remember { mutableStateOf("") }
-    val subs = cats.filter { it.parentId == c.id && c.id != 0L }
-    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
-            Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
-                Text(if (c.id == 0L) "Новая категория" else "Категория", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                RoundIconButton(Icons.Rounded.Check, "Сохранить", {
-                    if (name.isNotBlank()) AppScope.io.launch { dao.upsertCategory(c.copy(name = name.trim(), tint = tint, icon = icon)) }
-                    onDone()
-                }, bg = Pal.Ink, tint = Color.White)
-            }
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CatBadge(c.copy(tint = tint, icon = icon), 56.dp); Spacer(Modifier.width(12.dp))
-                    Box(Modifier.weight(1f)) { AppTextField(name, { name = it; if (c.icon.isBlank()) icon = guessIcon(it) }, "Название") }
-                }
-                SectionLabel("Цвет")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CAT_COLORS.forEachIndexed { i, col -> Box(Modifier.size(if (i == tint) 36.dp else 30.dp).clip(CircleShape).background(col).clickable { tint = i }) }
-                }
-                SectionLabel("Значок")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CAT_ICONS.forEach { (k, ic) ->
-                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(if (k == icon) CAT_COLORS[tint % CAT_COLORS.size].copy(alpha = 0.18f) else Color.White).clickable { icon = k }, contentAlignment = Alignment.Center) {
-                            Icon(ic, k, tint = if (k == icon) CAT_COLORS[tint % CAT_COLORS.size] else Pal.Muted)
-                        }
-                    }
-                }
-                if (c.id != 0L && c.parentId == null) {
-                    SectionLabel("Подкатегории")
-                    subs.forEach { s ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("• ${s.name}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            IconButton({ AppScope.io.launch { dao.deleteCategory(s) } }) { Icon(Icons.Rounded.Close, "Удалить", tint = Pal.Muted) }
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { AppTextField(sub, { sub = it }, "Новая подкатегория") }
-                        IconButton({ if (sub.isNotBlank()) { val n = sub.trim(); AppScope.io.launch { dao.upsertCategory(Category(name = n, income = c.income, parentId = c.id, tint = tint)) }; sub = "" } }) { Icon(Icons.Rounded.Add, "Добавить") }
-                    }
-                }
-                if (c.id != 0L) Row {
-                    TextButton({ AppScope.io.launch { dao.upsertCategory(c.copy(archived = true)) }; onDone() }) { Text("Скрыть") }
-                    Spacer(Modifier.weight(1f))
-                    TextButton({ AppScope.io.launch { dao.deleteCategory(c) }; onDone() }) { Text("Удалить (операции останутся)", color = Pal.RoseInk) }
-                }
-                Spacer(Modifier.height(24.dp))
-            }
-        }
+        item { Text("Нажми на плитку — записать ${if (income) "доход" else "расход"}. Долгое нажатие — изменить категорию, иконку, цвет и бюджет.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted) }
     }
 }
 
 // ================= Операции =================
 
 @Composable
-private fun OperationsTab(accounts: List<Account>, cats: List<Category>, txns: List<Txn>, ps: PeriodState, onEdit: (Txn) -> Unit) {
-    val z = ZoneId.systemDefault()
-    var q by remember { mutableStateOf("") }
-    var searching by remember { mutableStateOf(false) }
-    val (from, to) = ps.range
-    val startMs = from.atStartOfDay(z).toInstant().toEpochMilli()
-    val endMs = to.plusDays(1).atStartOfDay(z).toInstant().toEpochMilli()
-    val active = accounts.filter { !it.archived && it.currency == "UAH" }
-    val startBal = active.sumOf { a -> MoneyRepo.balance(a, txns.filter { it.at < startMs }) }
-    val endBal = active.sumOf { a -> MoneyRepo.balance(a, txns.filter { it.at < endMs }) }
-    val byId = cats.associateBy { it.id }
-    val list = txns.filter { ps.contains(it.at) && (q.isBlank() || it.comment.contains(q, true) || it.tags.contains(q, true) || byId[it.categoryId]?.name?.contains(q, true) == true) }
-    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp)) {
+private fun OperationsTab(all: List<Txn>, txns: List<Txn>, from: Long, accounts: List<Account>, byId: Map<Long, Category>, onEdit: (Txn) -> Unit) {
+    val start = accounts.sumOf { it.initial } + all.filter { it.at < from }.sumOf { delta(it) }
+    val end = start + txns.sumOf { delta(it) }
+    val days = txns.groupBy { dayOf(it.at) }.toSortedMap(compareByDescending { it })
+    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 100.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.5.dp, Color(0xFFDCE3EC), RoundedCornerShape(16.dp)).padding(vertical = 10.dp)) {
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text("Начальный баланс", style = MaterialTheme.typography.bodySmall, color = Pal.Ink); Text(fmtMoney(startBal), style = MaterialTheme.typography.titleMedium, color = if (startBal >= 0) GREEN else RED) }
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text("Конечный баланс", style = MaterialTheme.typography.bodySmall, color = Pal.Ink); Text(fmtMoney(endBal), style = MaterialTheme.typography.titleMedium, color = if (endBal >= 0) GREEN else RED) }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, Pal.Line, RoundedCornerShape(16.dp)).padding(12.dp)) {
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text("Начало месяца", style = MaterialTheme.typography.labelMedium, color = Pal.Muted); Text(fmtMoney(start), style = MaterialTheme.typography.titleMedium, color = if (start < 0) RED else GREEN) }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text("Конец месяца", style = MaterialTheme.typography.labelMedium, color = Pal.Muted); Text(fmtMoney(end), style = MaterialTheme.typography.titleMedium, color = if (end < 0) RED else GREEN) }
             }
         }
-        item {
-            if (searching) Box(Modifier.padding(top = 8.dp)) { AppTextField(q, { q = it }, "Поиск: комментарий, тег, категория") }
-            else TextButton({ searching = true }) { Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Text(" Поиск") }
-        }
-        if (list.isEmpty()) item { EmptyHint("В этом периоде операций нет") }
-        list.groupBy { Instant.ofEpochMilli(it.at).atZone(z).toLocalDate() }.forEach { (d, l) ->
+        if (days.isEmpty()) item { EmptyHint("В этом месяце операций нет. Нажми «+» или плитку категории.") }
+        days.forEach { (d, list) ->
             item(key = "d$d") {
-                val sum = l.sumOf { when (it.type) { MoneyRepo.INCOME -> it.amount; MoneyRepo.EXPENSE -> -it.amount; else -> 0.0 } }
-                Column(Modifier.padding(top = 18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${d.dayOfMonth}", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Medium))
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(d.format(DateTimeFormatter.ofPattern("EEEE", RU)), style = MaterialTheme.typography.bodyMedium)
-                            Text(d.format(DateTimeFormatter.ofPattern("MMMM yyyy", RU)), style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Text((if (sum > 0) "+" else "") + fmtMoney(sum), style = MaterialTheme.typography.titleMedium, color = if (sum >= 0) GREEN else RED)
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${d.dayOfMonth}", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.width(38.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, RU), style = MaterialTheme.typography.labelLarge)
+                        Text(d.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)), style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
                     }
-                    HorizontalDivider(Modifier.padding(top = 8.dp), color = Color(0xFFDCE3EC))
+                    val s = list.sumOf { delta(it) }
+                    Text((if (s > 0) "+" else "") + fmtMoney(s), style = MaterialTheme.typography.titleSmall, color = if (s < 0) RED else if (s > 0) GREEN else Pal.Muted)
+                }
+                HorizontalDivider(color = Pal.Line)
+            }
+            items(list.sortedByDescending { it.at }, key = { it.id }) { t ->
+                val c = t.categoryId?.let { byId[it] }
+                val root = rootOf(t.categoryId, byId)
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onEdit(t) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (t.type == MoneyRepo.TRANSFER || t.type == MoneyRepo.ADJUST) Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(Pal.Line), contentAlignment = Alignment.Center) {
+                        Icon(if (t.type == MoneyRepo.TRANSFER) Icons.Rounded.SwapHoriz else Icons.Rounded.Tune, null, tint = Pal.Muted)
+                    } else FinBadge(root, 44.dp)
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(when (t.type) { MoneyRepo.TRANSFER -> "Перевод"; MoneyRepo.ADJUST -> "Корректировка"; else -> (root?.name ?: "Без категории") + if (c != null && c.parentId != null) " (${c.name})" else "" },
+                            style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                        val sub = listOfNotNull(t.comment.ifBlank { null }, t.tags.takeIf { it.isNotBlank() }?.split(',')?.joinToString(" ") { "#${it.trim()}" }).joinToString(" · ")
+                        if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+                    }
+                    if (t.photo.isNotBlank()) Icon(Icons.Rounded.AttachFile, null, Modifier.size(16.dp), tint = Pal.Muted)
+                    Text(fmtMoney(abs(delta(t)).let { if (t.type == MoneyRepo.TRANSFER) t.amount else it }), style = MaterialTheme.typography.titleSmall,
+                        color = when (t.type) { MoneyRepo.INCOME -> GREEN; MoneyRepo.EXPENSE -> RED; else -> Pal.Muted })
                 }
             }
-            items(l, key = { it.id }) { t -> TxnRow(t, accounts, cats) { onEdit(t) } }
         }
-    }
-}
-
-@Composable
-fun TxnRow(t: Txn, accounts: List<Account>, cats: List<Category>, onClick: () -> Unit) {
-    val acc = accounts.firstOrNull { it.id == t.accountId }
-    val cat = cats.firstOrNull { it.id == t.categoryId }
-    val parent = cat?.parentId?.let { p -> cats.firstOrNull { it.id == p } }
-    val title = when (t.type) {
-        MoneyRepo.TRANSFER -> "Перевод → ${accounts.firstOrNull { it.id == t.toAccountId }?.name ?: "?"}"
-        MoneyRepo.ADJUST -> "Корректировка"
-        else -> cat?.let { if (parent != null) "${parent.name} (${it.name})" else it.name } ?: t.comment.ifBlank { "Без категории" }
-    }
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (t.type == MoneyRepo.TRANSFER) Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Pal.Line), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SwapHoriz, null, tint = Pal.Muted) }
-        else CatBadge(parent ?: cat, 48.dp)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.CreditCard, null, Modifier.size(18.dp), tint = Pal.Ink)
-                Text(" " + listOfNotNull(acc?.name, t.comment.takeIf { it.isNotBlank() && cat != null }).joinToString(" · "), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-            }
-        }
-        Text(fmtMoney(abs(t.amount), acc?.currency ?: "UAH"), style = MaterialTheme.typography.titleMedium,
-            color = when (t.type) { MoneyRepo.INCOME -> GREEN; MoneyRepo.EXPENSE -> RED; else -> Pal.Muted })
     }
 }
 
 // ================= Статистика =================
 
 @Composable
-private fun StatsTab(cats: List<Category>, txns: List<Txn>, ps: PeriodState) {
-    var income by rememberSaveable { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<Long?>(null) }
-    val byId = cats.associateBy { it.id }
+private fun StatsTab(cats: List<Category>, txns: List<Txn>, byId: Map<Long, Category>, month: YearMonth, income: Boolean, onIncome: (Boolean) -> Unit, spent: Double, earned: Double) {
     val type = if (income) MoneyRepo.INCOME else MoneyRepo.EXPENSE
-    val inP = txns.filter { ps.contains(it.at) && it.type == type }
-    val total = inP.sumOf { it.amount }
-    val sums = inP.groupBy { rootOf(it.categoryId, byId) }.map { (c, l) -> c to l.sumOf { it.amount } }.sortedByDescending { it.second }
-    val zero = cats.filter { it.parentId == null && it.income == income && !it.archived && sums.none { s -> s.first?.id == it.id } }
-    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val list = txns.filter { it.type == type }
+    val byRoot = list.groupBy { rootOf(it.categoryId, byId) }.mapValues { (_, l) -> l.sumOf { it.amount } }.entries.sortedByDescending { it.value }
+    val sum = byRoot.sumOf { it.value }
+    var sel by remember(income, month) { mutableStateOf<Category?>(null) }
+    val today = LocalDate.now()
+    val daysPassed = if (YearMonth.from(today) == month) today.dayOfMonth else month.lengthOfMonth()
+    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 100.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { TypeSwitch(income, onIncome, spent, earned) }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Расходы", !income, { income = false; selected = null }); Chip("Доходы", income, { income = true; selected = null })
+            val flow = earned - spent
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.5.dp, if (flow < 0) RED else GREEN, RoundedCornerShape(16.dp)).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Денежный поток", style = MaterialTheme.typography.labelLarge)
+                Text((if (flow > 0) "+" else "") + fmtMoney(flow), style = MaterialTheme.typography.titleLarge, color = if (flow < 0) RED else GREEN)
             }
         }
         item {
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).border(1.5.dp, Color(0xFFDCE3EC), RoundedCornerShape(18.dp)).padding(20.dp), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
-                    val stroke = size.minDimension * 0.095f
-                    val d = size.minDimension - stroke
-                    val tl = Offset((size.width - d) / 2, (size.height - d) / 2)
-                    if (total <= 0) drawArc(Color(0xFFE3E8EF), 0f, 360f, false, tl, Size(d, d), style = Stroke(stroke))
-                    var start = -90f
-                    val gap = if (sums.size > 1) 1.6f else 0f
-                    sums.forEach { (c, v) ->
-                        val sweep = (v / total * 360).toFloat()
-                        val dim = selected != null && c?.id != selected
-                        drawArc(catColor(c).copy(alpha = if (dim) 0.25f else 1f), start + gap / 2, (sweep - gap).coerceAtLeast(0.5f), false, tl, Size(d, d), style = Stroke(if (c?.id == selected) stroke * 1.25f else stroke, cap = StrokeCap.Butt))
-                        start += sweep
+            AppCard(Modifier.fillMaxWidth()) {
+                Box(Modifier.fillMaxWidth().aspectRatio(1.3f), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxHeight().aspectRatio(1f)) {
+                        val st = size.minDimension * 0.12f
+                        val r = size.minDimension / 2 - st / 2
+                        if (sum <= 0) drawCircle(Pal.Line, r, style = Stroke(st))
+                        var a = -90f
+                        byRoot.forEach { (c, v) ->
+                            val sw = (360 * v / sum).toFloat()
+                            val chosen = sel == null || sel?.id == c?.id
+                            drawArc(finColor(c).copy(alpha = if (chosen) 1f else 0.3f), a + 1f, (sw - 2f).coerceAtLeast(0.5f), false, Offset(center.x - r, center.y - r), Size(2 * r, 2 * r), style = Stroke(if (sel?.id == c?.id && sel != null) st * 1.3f else st))
+                            a += sw
+                        }
                     }
-                }
-                val sc = sums.firstOrNull { it.first?.id == selected }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { selected = null }) {
-                    if (sc != null) {
-                        CatBadge(sc.first, 56.dp)
-                        Text(sc.first?.name ?: "Без категории", style = MaterialTheme.typography.titleMedium)
-                        Text(fmtMoney(sc.second), style = MaterialTheme.typography.titleLarge, color = catColor(sc.first))
-                        Text("${(sc.second / total * 100).toInt()} %", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
-                    } else {
-                        Box(Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFEDEFF3)), contentAlignment = Alignment.Center) { Text("$", fontSize = 28.sp, color = Pal.Muted) }
-                        Text(if (total > 0) fmtMoney(total) else "Нет операций", style = MaterialTheme.typography.titleMedium, color = Pal.Muted)
-                        Text("Не выбрано", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val c = sel
+                        if (c != null) { FinBadge(c, 52.dp); Text(c.name, style = MaterialTheme.typography.titleSmall); Text(fmtMoney(byRoot.firstOrNull { it.key?.id == c.id }?.value ?: 0.0), style = MaterialTheme.typography.titleMedium, color = finColor(c)) }
+                        else { Text(if (income) "Доходы" else "Расходы", style = MaterialTheme.typography.labelLarge, color = Pal.Muted); Text(fmtMoney(sum), style = MaterialTheme.typography.titleLarge) }
                     }
                 }
             }
         }
         item {
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).border(1.5.dp, Color(0xFFDCE3EC), RoundedCornerShape(18.dp)).padding(vertical = 8.dp)) {
-                (sums + zero.map { it to 0.0 }).forEach { (c, v) ->
-                    val share = if (total > 0) (v / total).toFloat() else 0f
-                    val col = catColor(c)
-                    Row(Modifier.fillMaxWidth().clickable { selected = if (selected == c?.id) null else c?.id }.background(if (selected != null && selected == c?.id) col.copy(alpha = 0.06f) else Color.Transparent).padding(16.dp, 10.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        CatBadge(c, 48.dp)
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Row { Text(c?.name ?: "Без категории", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1); Text(fmtMoney(v), style = MaterialTheme.typography.bodyLarge) }
-                            Spacer(Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Canvas(Modifier.weight(1f).height(10.dp)) {
-                                    val h = size.height; val w = size.width
-                                    val filled = (w * share).coerceAtLeast(if (share > 0) h * 2 else 0f)
-                                    if (filled > 0) drawRoundRect(col, Offset.Zero, Size(filled, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
-                                    val rest = w - filled - (if (filled > 0) h else 0f)
-                                    if (rest > 0) {
-                                        drawRoundRect(Color(0xFFD6E2F2), Offset(w - rest, 0f), Size(rest, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
-                                        drawCircle(col, h * 0.22f, Offset(w - h / 2, h / 2))
-                                    }
+            AppCard(Modifier.fillMaxWidth()) {
+                if (byRoot.isEmpty()) Text("За этот месяц пусто", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+                byRoot.forEach { (c, v) ->
+                    val pct = if (sum > 0) v / sum else 0.0
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { sel = if (sel?.id == c?.id) null else c }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FinBadge(c, 40.dp)
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Row { Text(c?.name ?: "Без категории", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f)); Text(fmtMoney(v), style = MaterialTheme.typography.bodyMedium) }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                Box(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp)).background(Pal.Line)) {
+                                    Box(Modifier.fillMaxWidth(pct.toFloat()).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(finColor(c)))
                                 }
-                                Text("${(share * 100).toInt()} %", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(52.dp), textAlign = TextAlign.End)
+                                Text("  ${(pct * 100).toInt()} %", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(52.dp), textAlign = TextAlign.End)
                             }
                         }
                     }
                 }
             }
         }
-    }
-}
-
-// ================= Счета =================
-
-@Composable
-private fun AccountsTab(accounts: List<Account>, txns: List<Txn>, hide: Boolean) {
-    val ctx = LocalContext.current
-    val dao = remember { AppDb.get(ctx).money() }
-    var edit by remember { mutableStateOf<Account?>(null) }
-    var transfer by remember { mutableStateOf<Txn?>(null) }
-    val cats by dao.categories().collectAsState(initial = emptyList())
-    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(accounts, key = { it.id }) { a ->
-            val b = MoneyRepo.balance(a, txns)
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, Color(0xFFDCE3EC), RoundedCornerShape(16.dp)).background(Color.White).clickable { edit = a }.padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(CAT_COLORS[a.tint % CAT_COLORS.size].copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
-                    Icon(if (a.name.contains("налич", true) || a.name.contains("готів", true)) Icons.Rounded.Payments else Icons.Rounded.CreditCard, null, tint = CAT_COLORS[a.tint % CAT_COLORS.size])
+        item {
+            // по дням месяца
+            AppCard(Modifier.fillMaxWidth()) {
+                SectionLabel("По дням")
+                val perDay = (1..month.lengthOfMonth()).map { d -> list.filter { dayOf(it.at).dayOfMonth == d }.sumOf { it.amount } }
+                val max = perDay.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+                Canvas(Modifier.fillMaxWidth().height(150.dp).padding(top = 8.dp)) {
+                    val bw = size.width / perDay.size
+                    for (k in 0..4) { val y = size.height * k / 4f; drawLine(Pal.Line, Offset(0f, y), Offset(size.width, y), 1f) }
+                    perDay.forEachIndexed { i, v ->
+                        if (v <= 0) return@forEachIndexed
+                        val h = (v / max * size.height).toFloat()
+                        drawRoundRect(if (income) GREEN else RED, Offset(i * bw + bw * 0.18f, size.height - h), Size(bw * 0.64f, h), androidx.compose.ui.geometry.CornerRadius(bw * 0.3f))
+                    }
                 }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(a.name + if (a.archived) " (архив)" else "", style = MaterialTheme.typography.bodyLarge)
-                    Text("${txns.count { it.accountId == a.id || it.toAccountId == a.id }} операций", style = MaterialTheme.typography.bodySmall)
-                }
-                Text(if (hide) "•••" else fmtMoney(b, a.currency), style = MaterialTheme.typography.titleMedium, color = if (b >= 0) GREEN else RED)
+                Row(Modifier.fillMaxWidth()) { listOf("1", "10", "20", "${month.lengthOfMonth()}").forEachIndexed { i, t -> Text(t, style = MaterialTheme.typography.labelSmall, color = Pal.Muted, modifier = if (i < 3) Modifier.weight(1f) else Modifier) } }
+                Text("Самый большой день: ${fmtMoney(perDay.maxOrNull() ?: 0.0)}", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PillButton("+ Счёт", { edit = Account(name = "", tint = accounts.size % CAT_COLORS.size) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
-                PillButton("Перевод", { transfer = Txn(at = System.currentTimeMillis(), type = MoneyRepo.TRANSFER, amount = 0.0, accountId = accounts.firstOrNull()?.id ?: 0) }, Modifier.weight(1f), enabled = accounts.size >= 2)
+            AppCard(Modifier.fillMaxWidth()) {
+                SectionLabel("Средние значения · за $daysPassed дн.")
+                Row(Modifier.padding(top = 6.dp)) { Text("День", modifier = Modifier.weight(1f)); Text(fmtMoney(sum / daysPassed.coerceAtLeast(1))) }
+                Row(Modifier.padding(top = 4.dp)) { Text("Неделя", modifier = Modifier.weight(1f)); Text(fmtMoney(sum / daysPassed.coerceAtLeast(1) * 7)) }
+                if (!income && YearMonth.from(today) == month) Row(Modifier.padding(top = 4.dp)) { Text("Прогноз на месяц", modifier = Modifier.weight(1f)); Text(fmtMoney(sum / daysPassed.coerceAtLeast(1) * month.lengthOfMonth())) }
+            }
+        }
+        val budgets = cats.filter { it.parentId == null && it.budget != null && !it.archived && !it.income }
+        if (!income && budgets.isNotEmpty()) {
+            item {
+                val bs = budgets.sumOf { it.budget ?: 0.0 }; val used = budgets.sumOf { b -> byRoot.firstOrNull { it.key?.id == b.id }?.value ?: 0.0 }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                    Text("Бюджеты", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.End) { Text("${fmtMoney(used)} / ${fmtMoney(bs)}", style = MaterialTheme.typography.labelMedium); Text(fmtMoney(bs - used), color = if (bs - used < 0) RED else GREEN, style = MaterialTheme.typography.titleSmall) }
+                }
+            }
+            items(budgets, key = { "b${it.id}" }) { b ->
+                val used = byRoot.firstOrNull { it.key?.id == b.id }?.value ?: 0.0; val lim = b.budget ?: 1.0; val over = used > lim
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.5.dp, if (over) RED else Pal.Line, RoundedCornerShape(16.dp)).padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FinBadge(b, 34.dp); Text("  ${b.name}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        Text("${fmtMoney(used)} / ${fmtMoney(lim)}", style = MaterialTheme.typography.labelMedium)
+                    }
+                    Box(Modifier.padding(top = 8.dp).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Pal.Line)) {
+                        Box(Modifier.fillMaxWidth((used / lim).toFloat().coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(if (over) RED else GREEN))
+                    }
+                    Text(if (over) "перерасход ${fmtMoney(used - lim)}" else "осталось ${fmtMoney(lim - used)}", style = MaterialTheme.typography.titleSmall, color = if (over) RED else GREEN, modifier = Modifier.align(Alignment.End).padding(top = 4.dp))
+                }
             }
         }
     }
-    transfer?.let { TxnEditor(it, accounts, cats) { transfer = null } }
-    edit?.let { a ->
-        var name by remember { mutableStateOf(a.name) }
-        var cur by remember { mutableStateOf(a.currency) }
-        var initial by remember { mutableStateOf(if (a.initial != 0.0) a.initial.toString() else "") }
-        var archived by remember { mutableStateOf(a.archived) }
-        AlertDialog(onDismissRequest = { edit = null }, title = { Text("Счёт") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppTextField(name, { name = it }, "Название")
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("UAH", "USD", "EUR", "PLN").forEach { c -> Chip(c, cur == c, { cur = c }) } }
-                    AppTextField(initial, { initial = it }, "Начальный остаток", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    Row(verticalAlignment = Alignment.CenterVertically) { Text("В архиве", modifier = Modifier.weight(1f)); Switch(archived, { archived = it }) }
-                    if (a.id != 0L) TextButton({ AppScope.io.launch { dao.deleteAccount(a) }; edit = null }) { Text("Удалить счёт", color = Pal.RoseInk) }
+}
+
+// ================= Ввод операции =================
+
+/** Нижняя панель ввода: дата, категория и подкатегории, сумма калькулятором, комментарий, теги, фото. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TxnSheet(t0: Txn, cats: List<Category>, wallet: Account?, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).money() }
+    val byId = cats.associateBy { it.id }
+    var at by remember { mutableLongStateOf(t0.at) }
+    var catId by remember { mutableStateOf(t0.categoryId) }
+    val root = rootOf(catId, byId)
+    val income = root?.income ?: (t0.type == MoneyRepo.INCOME)
+    var expr by remember { mutableStateOf(if (t0.amount > 0) fmtMoney(t0.amount).substringBeforeLast(' ').replace(" ", "") else "") }
+    var comment by remember { mutableStateOf(t0.comment) }
+    var tags by remember { mutableStateOf(t0.tags) }
+    var photo by remember { mutableStateOf(t0.photo) }
+    var field by remember { mutableStateOf<String?>(null) }   // comment | tags
+    var pickCat by remember { mutableStateOf(false) }
+    var pickDate by remember { mutableStateOf(false) }
+    var newSub by remember { mutableStateOf<String?>(null) }
+    val photoPick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> u?.let { copyIntoApp(ctx, it, "money")?.let { p -> photo = p } } }
+    val value = remember(expr) { runCatching { com.pank.vsevodnom.ui.calc.Expr.eval(expr.ifBlank { "0" }.replace('*', '×').replace('/', '÷').replace('-', '−')) }.getOrNull() }
+    val col = finColor(root)
+    fun save(dup: Boolean = false) {
+        val v = value ?: return
+        if (v <= 0) { onDone(); return }
+        val t = t0.copy(id = if (dup) 0 else t0.id, at = at, amount = v, categoryId = catId, type = if (t0.type == MoneyRepo.TRANSFER || t0.type == MoneyRepo.ADJUST) t0.type else if (income) MoneyRepo.INCOME else MoneyRepo.EXPENSE,
+            accountId = if (t0.accountId == 0L) wallet?.id ?: 0 else t0.accountId, comment = comment.trim(), tags = tags.split(',', ' ').map { it.trim().removePrefix("#") }.filter { it.isNotBlank() }.joinToString(","), photo = photo, source = t0.source.ifBlank { "manual" })
+        AppScope.io.launch { if (t.accountId == 0L) { val id = dao.upsertAccount(Account(name = "Счёт")); dao.upsertTxn(t.copy(accountId = id)) } else dao.upsertTxn(t) }
+        onDone()
+    }
+    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(Modifier.fillMaxSize().background(Color(0x66000000)).clickable(onClick = onDone)) {
+            Spacer(Modifier.weight(1f))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).background(Pal.Bg).clickable(enabled = false) {}.dialogBars().padding(horizontal = 12.dp)) {
+                Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp).size(40.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(Pal.Line))
+                // дата
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton({ at -= 86_400_000L }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Вчера") }
+                    Row(Modifier.weight(1f).clickable { pickDate = true }, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.CalendarToday, null, Modifier.size(18.dp), tint = Pal.Muted)
+                        val d = dayOf(at)
+                        Text("  " + (if (d == LocalDate.now()) "Сегодня, " else if (d == LocalDate.now().minusDays(1)) "Вчера, " else d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, RU).replaceFirstChar { it.uppercase() } + ", ") + d.format(DateTimeFormatter.ofPattern("d MMMM", RU)), style = MaterialTheme.typography.titleSmall)
+                    }
+                    IconButton({ at += 86_400_000L }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Завтра") }
                 }
-            },
-            confirmButton = { TextButton({ if (name.isNotBlank()) AppScope.io.launch { dao.upsertAccount(a.copy(name = name.trim(), currency = cur, initial = initial.replace(',', '.').toDoubleOrNull() ?: 0.0, archived = archived)) }; edit = null }) { Text("Сохранить") } },
-            dismissButton = { TextButton({ edit = null }) { Text("Отмена") } })
+                // счёт и категория
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Pal.Card).border(1.dp, Pal.Line, RoundedCornerShape(16.dp)).padding(12.dp)) {
+                        Text("Копилка", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                        Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.AccountBalanceWallet, null, tint = Pal.SkyInk, modifier = Modifier.size(20.dp)); Text("  Все деньги", style = MaterialTheme.typography.titleSmall) }
+                    }
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(col.copy(alpha = 0.1f)).border(1.5.dp, col, RoundedCornerShape(16.dp)).clickable { pickCat = true }.padding(12.dp)) {
+                        Text(if (income) "Доход" else "Категория", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                        Row(verticalAlignment = Alignment.CenterVertically) { Icon(finIcon(root), null, tint = col, modifier = Modifier.size(20.dp)); Text("  ${root?.name ?: "Выбрать"}", style = MaterialTheme.typography.titleSmall, maxLines = 1) }
+                    }
+                }
+                // подкатегории
+                if (root != null) Row(Modifier.fillMaxWidth().padding(vertical = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    cats.filter { it.parentId == root.id && !it.archived }.forEach { s ->
+                        val on = catId == s.id
+                        Text(s.name, style = MaterialTheme.typography.labelLarge, color = if (on) Color.White else col,
+                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(if (on) col else Color.Transparent).border(1.5.dp, col, RoundedCornerShape(20.dp)).clickable { catId = if (on) root.id else s.id }.padding(14.dp, 8.dp))
+                    }
+                    Text("+", style = MaterialTheme.typography.labelLarge, color = col, modifier = Modifier.clip(RoundedCornerShape(20.dp)).border(1.5.dp, col.copy(alpha = 0.5f), RoundedCornerShape(20.dp)).clickable { newSub = "" }.padding(14.dp, 8.dp))
+                }
+                // сумма
+                Text((expr.ifBlank { "0" }) + " грн", style = MaterialTheme.typography.displaySmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), maxLines = 1,
+                    color = if (income) GREEN else Pal.Ink)
+                if (value != null && expr.any { it in "+−×÷" }) Text("= ${fmtMoney(value)}", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                when (field) {
+                    "comment" -> AppTextField(comment, { comment = it }, "Комментарий")
+                    "tags" -> AppTextField(tags, { tags = it }, "Теги через запятую")
+                }
+                // вложение, комментарий, теги
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    IconButton({ photoPick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.AttachFile, "Фото чека", tint = if (photo.isNotBlank()) col else Pal.Ink) }
+                    IconButton({ field = if (field == "comment") null else "comment" }) { Icon(Icons.Rounded.ChatBubbleOutline, "Комментарий", tint = if (comment.isNotBlank()) col else Pal.Ink) }
+                    IconButton({ field = if (field == "tags") null else "tags" }) { Icon(Icons.Rounded.Sell, "Теги", tint = if (tags.isNotBlank()) col else Pal.Ink) }
+                }
+                if (photo.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) { AppImage(photo, Modifier.size(56.dp), maxPx = 200); TextButton({ photo = "" }) { Text("Убрать фото") } }
+                // калькулятор
+                val keys = listOf(listOf("÷", "7", "8", "9", "⌫"), listOf("×", "4", "5", "6", "C"), listOf("−", "1", "2", "3", "✓"), listOf("+", "грн", "0", ",", "✓"))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                    keys.forEachIndexed { r, row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            row.forEachIndexed { i, k ->
+                                if (k == "✓" && r == 3) return@forEachIndexed
+                                val okKey = k == "✓"
+                                Box(Modifier.weight(1f).height(if (okKey) 118.dp else 56.dp).clip(RoundedCornerShape(16.dp)).background(if (okKey) col.copy(alpha = 0.25f) else if (i == 0) Pal.Line else Pal.Card)
+                                    .clickable {
+                                        when (k) {
+                                            "⌫" -> expr = expr.dropLast(1); "C" -> expr = ""; "✓" -> save(); "грн" -> {}
+                                            "," -> if (!expr.takeLastWhile { it.isDigit() || it == ',' }.contains(',')) expr += ","
+                                            "+", "−", "×", "÷" -> if (expr.isNotEmpty() && expr.last() !in "+−×÷") expr += k
+                                            else -> if (expr.length < 16) expr += k
+                                        }
+                                    }, contentAlignment = Alignment.Center) {
+                                    when (k) {
+                                        "⌫" -> Icon(Icons.AutoMirrored.Rounded.Backspace, "Стереть")
+                                        "✓" -> Icon(Icons.Rounded.Check, "Готово", tint = col, modifier = Modifier.size(30.dp))
+                                        else -> Text(k, fontSize = if (k.length > 1) 16.sp else 24.sp, color = Pal.Ink)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (t0.id != 0L) Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    PillButton("Удалить", { AppScope.io.launch { dao.deleteTxn(t0) }; onDone() }, bg = Pal.Rose, fg = Pal.RoseInk)
+                    PillButton("Дублировать", { save(dup = true) }, bg = Pal.Card, fg = Pal.Ink)
+                }
+            }
+        }
+    }
+    if (pickCat) AlertDialog(onDismissRequest = { pickCat = false }, confirmButton = { TextButton({ pickCat = false }) { Text("Закрыть") } }, title = { Text("Категория") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                listOf(false to "Расходы", true to "Доходы").forEach { (inc, title) ->
+                    Text(title, style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.padding(vertical = 6.dp))
+                    cats.filter { it.parentId == null && it.income == inc && !it.archived }.sortedBy { it.sort }.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                            row.forEach { c ->
+                                Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (root?.id == c.id) finColor(c).copy(alpha = 0.15f) else Color.Transparent).clickable { catId = c.id; pickCat = false }.padding(6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally) { FinBadge(c, 40.dp); Text(c.name, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+                            }
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
+        })
+    if (pickDate) {
+        val dp = rememberDatePickerState(initialSelectedDateMillis = dayOf(at).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
+        DatePickerDialog(onDismissRequest = { pickDate = false }, confirmButton = {
+            TextButton({ dp.selectedDateMillis?.let { val d = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate(); val tm = Instant.ofEpochMilli(at).atZone(zone).toLocalTime(); at = d.atTime(tm).atZone(zone).toInstant().toEpochMilli() }; pickDate = false }) { Text("Ок") }
+        }) { DatePicker(dp, showModeToggle = false) }
+    }
+    newSub?.let { s0 ->
+        var s by remember { mutableStateOf(s0) }
+        AlertDialog(onDismissRequest = { newSub = null }, title = { Text("Подкатегория") }, text = { AppTextField(s, { s = it }, "Например: Такси") },
+            confirmButton = { TextButton({ val n = s.trim(); val r = root; if (n.isNotBlank() && r != null) AppScope.io.launch { val id = dao.upsertCategory(Category(name = n, income = r.income, parentId = r.id, tint = r.tint, color = r.color)); catId = id }; newSub = null }) { Text("Добавить") } },
+            dismissButton = { TextButton({ newSub = null }) { Text("Отмена") } })
     }
 }
 
-// ================= Больше =================
+// ================= Категория =================
 
 @Composable
-private fun MoreTab() {
+private fun CategoryEditor(c0: Category, cats: List<Category>, txns: List<Txn>, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).money() }
+    var c by remember { mutableStateOf(c0.copy(icon = c0.icon.ifBlank { "t:dots-circle-horizontal" }, color = if (c0.color != 0) c0.color else finColor(c0).toArgb())) }
+    var budget by remember { mutableStateOf(c0.budget?.let { fmtMoney(it).substringBeforeLast(' ').replace(" ", "") } ?: "") }
+    var page by remember { mutableIntStateOf(0) }   // 0 основное, 1 иконка, 2 цвет
+    var confirmDel by remember { mutableStateOf(false) }
+    val subs = cats.filter { it.parentId == c0.id && c0.id != 0L }
+    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
+                Text(if (c0.id == 0L) "Новая категория" else "Категория", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                RoundIconButton(Icons.Rounded.Check, "Сохранить", {
+                    if (c.name.isNotBlank()) AppScope.io.launch { dao.upsertCategory(c.copy(name = c.name.trim(), budget = budget.replace(',', '.').replace(" ", "").toDoubleOrNull()?.takeIf { it > 0 })) }
+                    onDone()
+                }, bg = Pal.Ink, tint = Color.White)
+            }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val col = Color(c.color)
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(col.copy(alpha = 0.12f)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FinBadge(c, 56.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Box(Modifier.weight(1f)) { AppTextField(c.name, { c = c.copy(name = it) }, "Название") }
+                }
+                Segmented(listOf("Тип", "Иконка", "Цвет"), page, { page = it }, Modifier.fillMaxWidth())
+                when (page) {
+                    1 -> IconPicker(c.icon, col) { c = c.copy(icon = it) }
+                    2 -> Box(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) { ColorPicker(col) { c = c.copy(color = it.toArgb()) } }
+                    else -> {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip("Расход", !c.income, { c = c.copy(income = false) }); Chip("Доход", c.income, { c = c.copy(income = true) })
+                        }
+                        if (!c.income) AppTextField(budget, { budget = it.filter { ch -> ch.isDigit() || ch == ',' || ch == '.' } }, "Бюджет на месяц, грн (необязательно)")
+                        if (subs.isNotEmpty()) {
+                            Text("Подкатегории", style = MaterialTheme.typography.labelLarge, color = Pal.Muted)
+                            subs.forEach { s -> Row(verticalAlignment = Alignment.CenterVertically) { Text("• ${s.name}", modifier = Modifier.weight(1f)); TextButton({ AppScope.io.launch { dao.upsertCategory(s.copy(archived = !s.archived)) } }) { Text(if (s.archived) "Вернуть" else "Скрыть") } } }
+                        }
+                        Text("Подкатегорию можно добавить прямо при вводе расхода — кнопкой «+» рядом с чипами.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                        if (c0.id != 0L) {
+                            PillButton(if (c0.archived) "Вернуть из архива" else "В архив (скрыть)", { AppScope.io.launch { dao.upsertCategory(c0.copy(archived = !c0.archived)) }; onDone() }, Modifier.fillMaxWidth(), bg = Pal.Card, fg = Pal.Ink)
+                            PillButton("Удалить", { confirmDel = true }, Modifier.fillMaxWidth(), bg = Pal.Rose, fg = Pal.RoseInk)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+    if (confirmDel) {
+        val used = txns.count { t -> t.categoryId == c0.id || subs.any { it.id == t.categoryId } }
+        AlertDialog(onDismissRequest = { confirmDel = false }, title = { Text("Удалить «${c0.name}»?") },
+            text = { Text(if (used > 0) "Операций с ней: $used — они останутся, но без категории. Лучше «В архив»." else "Операций с ней нет.") },
+            confirmButton = { TextButton({ AppScope.io.launch { subs.forEach { dao.deleteCategory(it) }; dao.deleteCategory(c0) }; confirmDel = false; onDone() }) { Text("Удалить", color = Pal.RoseInk) } },
+            dismissButton = { TextButton({ confirmDel = false }) { Text("Отмена") } })
+    }
+}
+
+@Composable
+private fun ImportDialog(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val dao = remember { AppDb.get(ctx).money() }
-    val cats by dao.categories().collectAsState(initial = emptyList())
     var msg by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { u ->
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
         if (u != null) scope.launch {
             busy = true
             msg = runCatching { MoneyRepo.importSumlio(ctx, ctx.contentResolver.openInputStream(u)!!.use { it.readBytes().toString(Charsets.UTF_8) }) }
-                .fold({ "Импортировано операций: ${it.added}, пропущено повторов: ${it.skipped}. Новых счетов: ${it.accounts}, категорий: ${it.categories}." }, { "Не получилось: ${it.message}" })
+                .fold({ "Импортировано операций: ${it.added}, пропущено повторов: ${it.skipped}." }, { "Не получилось: ${it.message}" })
             busy = false
         }
     }
-    var showHidden by remember { mutableStateOf(false) }
-    LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            AppCard(Modifier.fillMaxWidth()) {
-                SectionLabel("Импорт из Sumlio")
-                Text("Повторы пропускаются, можно загружать файл заново.", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(8.dp))
-                PillButton("Выбрать файл .csv", { picker.launch(arrayOf("text/*", "*/*")) }, Modifier.fillMaxWidth(), enabled = !busy)
-                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-                msg?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Импорт из Sumlio") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Выбери экспорт .csv. Повторы пропускаются, файл можно загружать снова. Все счета Sumlio складываются в одну копилку.", style = MaterialTheme.typography.bodySmall)
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                msg?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             }
-        }
-        item {
-            AppCard(Modifier.fillMaxWidth(), onClick = { showHidden = !showHidden }) {
-                SectionLabel("Скрытые категории · ${cats.count { it.archived }}")
-                if (showHidden) cats.filter { it.archived }.forEach { c ->
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                        CatBadge(c, 32.dp); Text("  ${c.name}", modifier = Modifier.weight(1f))
-                        TextButton({ AppScope.io.launch { dao.upsertCategory(c.copy(archived = false)) } }) { Text("Вернуть") }
-                    }
-                }
-            }
-        }
-        item {
-            AppCard(Modifier.fillMaxWidth(), color = Pal.Lilac) {
-                Text("Расходы и доходы вводятся вручную: «Категории» → нажми на нужную плитку, или «Операции» → «Добавить». Долгое нажатие на плитку — изменить категорию.", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-// ================= Редактор операции =================
-
-/** Полноэкранное добавление/изменение операции. */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun TxnEditor(t: Txn, accounts: List<Account>, cats: List<Category>, onDone: () -> Unit) {
-    val ctx = LocalContext.current
-    var type by remember { mutableStateOf(if (t.type == MoneyRepo.ADJUST) MoneyRepo.EXPENSE else t.type) }
-    var amount by remember { mutableStateOf(if (t.amount != 0.0) abs(t.amount).toString().removeSuffix(".0") else "") }
-    var acc by remember { mutableLongStateOf(t.accountId.takeIf { id -> accounts.any { it.id == id } } ?: accounts.firstOrNull()?.id ?: 0) }
-    var toAcc by remember { mutableStateOf(t.toAccountId) }
-    var cat by remember { mutableStateOf(t.categoryId) }
-    var comment by remember { mutableStateOf(t.comment) }
-    var tags by remember { mutableStateOf(t.tags) }
-    var at by remember { mutableLongStateOf(t.at) }
-    var pickDate by remember { mutableStateOf(false) }
-    val fr = remember { androidx.compose.ui.focus.FocusRequester() }
-    LaunchedEffect(Unit) { if (t.id == 0L) runCatching { fr.requestFocus() } }
-    Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
-                Text(if (t.id == 0L) "Новая операция" else "Операция", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).padding(start = 12.dp))
-                if (t.id != 0L) IconButton({ AppScope.io.launch { AppDb.get(ctx).money().deleteTxn(t) }; onDone() }) { Icon(Icons.Rounded.Delete, "Удалить", tint = Pal.RoseInk) }
-            }
-            Segmented(listOf("Расход", "Доход", "Перевод"), listOf(MoneyRepo.EXPENSE, MoneyRepo.INCOME, MoneyRepo.TRANSFER).indexOf(type).coerceAtLeast(0),
-                { val nt = listOf(MoneyRepo.EXPENSE, MoneyRepo.INCOME, MoneyRepo.TRANSFER)[it]; if (nt != type) { type = nt; cat = null } }, track = Pal.Sky)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth().focusRequester(fr), label = { Text("Сумма, грн") }, singleLine = true, shape = RoundedCornerShape(14.dp),
-                    textStyle = MaterialTheme.typography.displayMedium.copy(color = if (type == MoneyRepo.INCOME) GREEN else if (type == MoneyRepo.EXPENSE) RED else Pal.Ink),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Pal.Card, unfocusedContainerColor = Pal.Card))
-                if (type != MoneyRepo.TRANSFER) {
-                    SectionLabel("Категория")
-                    val tops = cats.filter { it.parentId == null && it.income == (type == MoneyRepo.INCOME) && !it.archived }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 4) {
-                        tops.forEach { c ->
-                            val sel = cat == c.id || cats.firstOrNull { it.id == cat }?.parentId == c.id
-                            Column(Modifier.width(78.dp).clip(RoundedCornerShape(12.dp)).background(if (sel) catColor(c).copy(alpha = 0.14f) else Color.Transparent).clickable { cat = c.id }.padding(4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally) {
-                                CatBadge(c, 44.dp)
-                                Text(c.name, style = MaterialTheme.typography.labelSmall, maxLines = 1, textAlign = TextAlign.Center, color = if (sel) catColor(c) else Pal.Ink)
-                            }
-                        }
-                    }
-                    val parent = cat?.let { id -> cats.firstOrNull { it.id == id }?.let { it.parentId ?: it.id } }
-                    val subs = cats.filter { it.parentId == parent && parent != null }
-                    if (subs.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { subs.forEach { s -> Chip(s.name, cat == s.id, { cat = if (cat == s.id) parent else s.id }) } }
-                }
-                SectionLabel(if (type == MoneyRepo.TRANSFER) "Откуда" else "Счёт")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { accounts.filter { !it.archived }.forEach { a -> Chip(a.name, acc == a.id, { acc = a.id }) } }
-                if (type == MoneyRepo.TRANSFER) {
-                    SectionLabel("Куда")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { accounts.filter { !it.archived && it.id != acc }.forEach { a -> Chip(a.name, toAcc == a.id, { toAcc = a.id }) } }
-                }
-                SectionLabel("Когда")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val d = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalDate()
-                    Chip("Сегодня", d == LocalDate.now(), { at = System.currentTimeMillis() })
-                    Chip("Вчера", d == LocalDate.now().minusDays(1), { at = System.currentTimeMillis() - 86_400_000 })
-                    Chip(d.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), false, { pickDate = true })
-                }
-                AppTextField(comment, { comment = it }, "Комментарий")
-                AppTextField(tags, { tags = it }, "Теги через запятую")
-            }
-            PillButton("Сохранить", {
-                val v = amount.replace(',', '.').replace(" ", "").toDoubleOrNull() ?: return@PillButton
-                if (v <= 0 || acc == 0L || (type == MoneyRepo.TRANSFER && toAcc == null)) return@PillButton
-                AppScope.io.launch {
-                    AppDb.get(ctx).money().upsertTxn(t.copy(type = type, amount = v, accountId = acc, toAccountId = if (type == MoneyRepo.TRANSFER) toAcc else null,
-                        toAmount = if (type == MoneyRepo.TRANSFER) v else null, categoryId = if (type == MoneyRepo.TRANSFER) null else cat, comment = comment.trim(), tags = tags.trim(), at = at, source = t.source.ifBlank { "manual" }))
-                }
-                onDone()
-            }, Modifier.fillMaxWidth())
-        }
-    }
-    if (pickDate) {
-        val dp = rememberDatePickerState(initialSelectedDateMillis = at)
-        DatePickerDialog(onDismissRequest = { pickDate = false }, confirmButton = {
-            TextButton({ dp.selectedDateMillis?.let { at = it + 12 * 3600_000L }; pickDate = false }) { Text("Ок") }
-        }) { DatePicker(dp) }
-    }
+        },
+        confirmButton = { TextButton({ picker.launch(arrayOf("text/*", "*/*")) }, enabled = !busy) { Text("Выбрать файл") } },
+        dismissButton = { TextButton(onDismiss) { Text("Закрыть") } })
 }

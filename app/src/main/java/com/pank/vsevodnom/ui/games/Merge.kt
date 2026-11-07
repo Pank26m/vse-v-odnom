@@ -1,5 +1,6 @@
 package com.pank.vsevodnom.ui.games
 
+import androidx.compose.material3.TextButton
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -92,10 +93,14 @@ fun MergeScreen(onBack: () -> Unit) {
     var won by remember { mutableStateOf(false) }
     val over = remember(ver) { !g.canMove() }
     fun go(d: Int) { if (g.move(d)) { ver++; if (Hi.submit(ctx, "merge", g.score)) best = g.score; if (g.max >= 2048 && !won) won = true } }
-    ScreenScaffold("Слияние", onBack) {
+    ScreenScaffold("2048", onBack, actions = {
+        TextButton({ g = MergeGame(); ver++; won = false }) { Text("Новая игра") }
+    }) {
         key(ver) { ScoreBar(g.score, best, "макс ${g.max}") }
         Text("Смахивай — одинаковые числа сливаются. Цель: 2048.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
-        Spacer(Modifier.height(16.dp))
+        if (won) Text("2048 собрано! Можно играть дальше.", style = MaterialTheme.typography.titleSmall, color = Pal.MintInk, modifier = Modifier.padding(16.dp, 6.dp))
+        // поле внизу экрана — до него удобно дотягиваться большим пальцем
+        Spacer(Modifier.weight(1f))
         Box(Modifier.fillMaxWidth().padding(16.dp).aspectRatio(1f).clip(RoundedCornerShape(18.dp)).background(Color(0xFFE6E2EC))
             .pointerInput(g) {
                 var acc = androidx.compose.ui.geometry.Offset.Zero
@@ -124,9 +129,6 @@ fun MergeScreen(onBack: () -> Unit) {
             }
             if (over) Box(Modifier.fillMaxSize()) { GameOverlay("Ходов нет", "Счёт ${g.score}", "Заново") { g = MergeGame(); ver++; won = false } }
         }
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PillButton("Новая игра", { g = MergeGame(); ver++; won = false }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
-        }
-        if (won) Text("2048 собрано! Можно играть дальше.", style = MaterialTheme.typography.titleSmall, color = Pal.MintInk, modifier = Modifier.padding(16.dp))
+        Spacer(Modifier.height(12.dp))
     }
 }

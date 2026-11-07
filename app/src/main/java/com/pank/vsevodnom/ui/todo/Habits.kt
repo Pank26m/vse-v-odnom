@@ -148,19 +148,11 @@ fun HabitRow(h: Habit, logs: List<HabitLog>, day: LocalDate, compact: Boolean = 
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(h.title, style = MaterialTheme.typography.titleSmall)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StreakFlame(Todo.streak(h, logs, today), habitDone(h, logs, today), 16.dp)
-                if (!compact) {
-                    Spacer(Modifier.width(10.dp))
-                    (6 downTo 0).forEach { k ->
-                        val d = today.minusDays(k.toLong())
-                        Box(Modifier.padding(horizontal = 1.5.dp).size(7.dp).clip(CircleShape).background(when {
-                            habitDone(h, logs, d) -> t.ink.copy(alpha = 0.8f); Todo.isDue(h, d, logs) -> Pal.Ink.copy(alpha = 0.1f); else -> Color.Transparent }))
-                    }
-                }
-                if (h.perDay > 1) Text("  $cnt/${h.perDay}", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
-            }
+            if (h.perDay > 1) Text("$cnt/${h.perDay} за день", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
         }
+        // огонёк серии — слева от галочки
+        StreakFlame(Todo.streak(h, logs, today), habitDone(h, logs, today), 18.dp)
+        CheckDivider(height = 32.dp)
         CheckCircle(done, t.ink, 30.dp) { AppScope.io.launch { Todo.tickHabit(ctx, h, day) } }
     }
 }
@@ -177,7 +169,7 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
     val reminders = remember { mutableStateListOf<Int>().apply { addAll(HabitReminders.times(h0)) } }
     val t = Tints.all[h.tint % 6]
     Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
                 Text(if (h0.id == 0L) "Новая привычка" else "Привычка", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
@@ -282,7 +274,7 @@ internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onD
     val (md, mn) = habitRate(h, logs, month.atDay(1), month.atEndOfMonth().coerceAtMost(today))
     val total = logs.count { it.habitId == h.id && it.count >= h.perDay }
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDismiss)
                 Spacer(Modifier.weight(1f))
@@ -290,22 +282,30 @@ internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onD
             }
             Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // шапка
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(t.bg).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(76.dp).clip(RoundedCornerShape(22.dp)).background(Color.White.copy(alpha = 0.7f)), contentAlignment = Alignment.Center) { Text(h.icon.ifBlank { "✓" }, fontSize = 40.sp) }
+                // шапка — компактная: значок и название, ниже огонёк и галочка в одну линию
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(t.bg).padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.7f)), contentAlignment = Alignment.Center) { Text(h.icon.ifBlank { "✓" }, fontSize = 28.sp) }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(h.title, style = MaterialTheme.typography.titleLarge)
+                            Text(when (h.daysMask) { 0b1111111 -> "каждый день"; 0b0011111 -> "по будням"; 0b1100000 -> "по выходным"; else -> DOW.filterIndexed { i, _ -> h.daysMask and (1 shl i) != 0 }.joinToString(", ") } +
+                                (h.goalDays?.let { " · цель $it дней" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = t.ink)
+                        }
+                    }
                     Spacer(Modifier.height(10.dp))
-                    Text(h.title, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
-                    Text(when (h.daysMask) { 0b1111111 -> "каждый день"; 0b0011111 -> "по будням"; 0b1100000 -> "по выходным"; else -> DOW.filterIndexed { i, _ -> h.daysMask and (1 shl i) != 0 }.joinToString(", ") } +
-                        (h.goalDays?.let { " · цель $it дней" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = t.ink)
-                    Spacer(Modifier.height(12.dp))
-                    StreakFlame(streak, habitDone(h, logs, today), 44.dp)
-                    Text(if (streak == 0) "серия не начата" else if (habitDone(h, logs, today)) "дней подряд — огонь горит" else "дней подряд — отметь сегодня, чтобы не погасла", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(12.dp))
-                    CheckCircle(habitDone(h, logs, today), t.ink, 40.dp) { AppScope.io.launch { Todo.tickHabit(ctx, h, today) } }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.55f)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StreakFlame(streak, habitDone(h, logs, today), 30.dp)
+                        Text(if (streak == 0) "  серия не начата" else if (habitDone(h, logs, today)) "  дней подряд — огонь горит" else "  отметь сегодня, чтобы не погасла",
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        CheckDivider(height = 34.dp)
+                        CheckCircle(habitDone(h, logs, today), t.ink, 36.dp) { AppScope.io.launch { Todo.tickHabit(ctx, h, today) } }
+                    }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    RateTile("Эта неделя", wd, wn, Modifier.weight(1f))
-                    RateTile("Месяц", md, mn, Modifier.weight(1f))
-                    Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Pal.Card).padding(12.dp)) {
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    RateTile("Эта неделя", wd, wn, Modifier.weight(1f).fillMaxHeight())
+                    RateTile("Месяц", md, mn, Modifier.weight(1f).fillMaxHeight())
+                    Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(Pal.Card).padding(12.dp)) {
                         Text("Рекорд", style = MaterialTheme.typography.labelSmall); Text("${bestStreak(h, logs)}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFE8711A)); Text("всего $total", style = MaterialTheme.typography.labelSmall)
                     }
                 }

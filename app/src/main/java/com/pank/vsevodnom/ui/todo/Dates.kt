@@ -143,6 +143,10 @@ fun DatesPage(onBack: () -> Unit) {
                                 Text(when (days) { 0L -> "сегодня!"; 1L -> "завтра"; else -> "через $days дн." }, style = MaterialTheme.typography.labelLarge, color = if (days <= 7) col else Pal.Muted)
                                 if (b.contactKey.isNotBlank()) Icon(Icons.Rounded.Person, "Из контактов", Modifier.size(14.dp), tint = Pal.Muted)
                             }
+                            // «поздравил» — на ближайшую дату; отметка снимается повторным нажатием
+                            var doneMark by remember(b.id, n) { mutableStateOf(BdayDone.isDone(ctx, b.id, n)) }
+                            CheckDivider()
+                            CheckCircle(doneMark, col, 26.dp) { if (doneMark) BdayDone.unmark(ctx, b.id, n) else BdayDone.mark(ctx, b.id, n); doneMark = !doneMark }
                         }
                     }
                 }
@@ -180,11 +184,10 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
     var pick by remember { mutableStateOf(false) }
     val col = DATE_COLORS[b.tint % DATE_COLORS.size]
     Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
                 Text(if (b0.id == 0L) "Новая дата" else "Дата", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                RoundIconButton(Icons.Rounded.Casino, "Идея подарка", { onGift(b) }, bg = Pal.Butter, tint = Pal.ButterInk)
                 RoundIconButton(Icons.Rounded.Check, "Сохранить", {
                     if (b.name.isNotBlank()) AppScope.io.launch { AppDb.get(ctx).todo().upsertBirthday(b.copy(name = b.name.trim(), year = year.toIntOrNull(), priority = 0)) }
                     onDone()
@@ -202,12 +205,11 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
                 FormCard("Что это") { ChoiceGrid(KINDS, { it == b.kind }, 2) { b = b.copy(kind = it) } }
                 FormCard("Когда (каждый год)") {
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Ink.copy(alpha = 0.05f)).clickable { pick = true }.padding(12.dp, 10.dp)) {
-                        Text("Дата" + if (year.isEmpty()) " · без года" else "", style = MaterialTheme.typography.labelSmall)
+                        Text("Дата", style = MaterialTheme.typography.labelSmall)
                         Text(MonthDay.of(b.month, b.day.coerceAtMost(Month.of(b.month).maxLength())).atYear(2024).format(DateTimeFormatter.ofPattern("d MMMM", RU)) + (year.takeIf { it.isNotEmpty() }?.let { " $it" } ?: ""),
                             style = MaterialTheme.typography.titleMedium, color = ACCENT)
                     }
                     year.toIntOrNull()?.let { y -> Text("Будет ${nextOccurrence(b).year - y} — ${nextOccurrence(b).format(DateTimeFormatter.ofPattern("d MMMM yyyy", RU))}", style = MaterialTheme.typography.bodySmall) }
-                        ?: Text("Год можно указать в календаре — тогда покажу, сколько исполнится.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                 }
                 FormCard("Цвет") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -224,20 +226,14 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
     if (pick) {
         val y0 = year.toIntOrNull()?.coerceIn(1900, 2100) ?: LocalDate.now().year
         val dp = rememberDatePickerState(initialSelectedDateMillis = LocalDate.of(y0, b.month, b.day.coerceAtMost(java.time.YearMonth.of(y0, b.month).lengthOfMonth())).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
-        var useYear by remember { mutableStateOf(year.isNotEmpty()) }
         DatePickerDialog(onDismissRequest = { pick = false }, confirmButton = {
             TextButton({
-                dp.selectedDateMillis?.let { val d = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate(); b = b.copy(day = d.dayOfMonth, month = d.monthValue); year = if (useYear) d.year.toString() else "" }
+                // год сохраняем, только если выбран не текущий (дни рождения — в прошлом); текущий = «без года»
+                dp.selectedDateMillis?.let { val d = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate(); b = b.copy(day = d.dayOfMonth, month = d.monthValue); year = if (d.year != LocalDate.now().year) d.year.toString() else "" }
                 pick = false
             }) { Text("Ок") }
         }, dismissButton = { TextButton({ pick = false }) { Text("Отмена") } }) {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                DatePicker(dp)
-                Row(Modifier.fillMaxWidth().clickable { useYear = !useYear }.padding(16.dp, 4.dp, 16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(useYear, { useYear = it })
-                    Text("Запомнить год (покажу возраст)", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
+            DatePicker(dp, showModeToggle = false, title = null)
         }
     }
 }
@@ -247,6 +243,9 @@ object BdayDone {
     private fun p(ctx: Context) = ctx.getSharedPreferences("dates", Context.MODE_PRIVATE)
     private fun key(id: Long, day: LocalDate) = "${day.toEpochDay()}:$id"
     fun isDone(ctx: Context, id: Long, day: LocalDate = LocalDate.now()) = key(id, day) in (p(ctx).getStringSet("done", emptySet()) ?: emptySet())
+    fun unmark(ctx: Context, id: Long, day: LocalDate) {
+        p(ctx).edit().putStringSet("done", ((p(ctx).getStringSet("done", emptySet()) ?: emptySet()) - key(id, day)).toSet()).apply()
+    }
     fun mark(ctx: Context, id: Long, day: LocalDate = LocalDate.now()) {
         val cutoff = day.toEpochDay() - 400
         val old = (p(ctx).getStringSet("done", emptySet()) ?: emptySet()).filter { (it.substringBefore(':').toLongOrNull() ?: 0) > cutoff }
@@ -254,28 +253,43 @@ object BdayDone {
     }
 }
 
-/** Кубик: случайная необычная идея подарка (для годовщин — романтичные). */
+/** Идеи подарков: assets/gifts.txt, строки «тема|идея» (500+). */
+object GiftIdeas {
+    @Volatile private var all: List<Pair<String, String>>? = null
+    fun load(ctx: Context): List<Pair<String, String>> = all ?: runCatching {
+        ctx.assets.open("gifts.txt").bufferedReader().readLines().mapNotNull { l -> l.split('|').takeIf { it.size == 2 }?.let { it[0].trim() to it[1].trim() } }
+    }.getOrDefault(emptyList()).also { all = it }
+}
+
+/** Кубик: случайная идея подарка, можно выбрать тему. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun GiftDialog(b: Birthday?, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
-    val pool = if (b?.kind == "anniversary") ROMANTIC + GIFTS else GIFTS
-    var idea by remember { mutableStateOf(pool.random()) }
+    val ideas = remember { GiftIdeas.load(ctx).ifEmpty { GIFTS.map { "Разное" to it } + ROMANTIC.map { "Романтика" to it } } }
+    val themes = remember(ideas) { ideas.map { it.first }.distinct() }
+    var theme by remember { mutableStateOf<String?>(null) }
+    fun pick() = ideas.filter { theme == null || it.first == theme }.random()
+    var idea by remember { mutableStateOf(pick()) }
     val spin = remember { Animatable(0f) }
     var roll by remember { mutableIntStateOf(0) }
     LaunchedEffect(roll) { spin.snapTo(0f); spin.animateTo(360f, tween(450)) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(b?.name?.takeIf { it.isNotBlank() }?.let { "Подарок: $it" } ?: "Идея подарка") },
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Идея подарка · ${ideas.size} идей") },
         text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.size(64.dp).rotate(spin.value).clip(RoundedCornerShape(16.dp)).background(Pal.Butter).clickable { idea = pool.random(); roll++ }, contentAlignment = Alignment.Center) { Text("🎲", fontSize = 34.sp) }
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(64.dp).rotate(spin.value).clip(RoundedCornerShape(16.dp)).background(Pal.Butter).clickable { idea = pick(); roll++ }, contentAlignment = Alignment.Center) { Text("🎲", fontSize = 34.sp) }
                 Spacer(Modifier.height(12.dp))
-                Text(idea, style = MaterialTheme.typography.titleMedium)
+                Text(idea.second, style = MaterialTheme.typography.titleMedium)
+                Text(idea.first, style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                Spacer(Modifier.height(12.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Chip("Все темы", theme == null, { theme = null; idea = pick(); roll++ })
+                    themes.forEach { t -> Chip(t, theme == t, { theme = t; idea = pick(); roll++ }) }
+                }
             }
         },
-        confirmButton = { TextButton({ idea = pool.random(); roll++ }) { Text("Ещё") } },
-        dismissButton = {
-            if (b != null && b.id != 0L) TextButton({ AppScope.io.launch { AppDb.get(ctx).todo().upsertBirthday(b.copy(note = (b.note + "\n🎁 " + idea).trim())) }; onDismiss() }) { Text("В заметку") }
-            else TextButton(onDismiss) { Text("Закрыть") }
-        })
+        confirmButton = { TextButton({ idea = pick(); roll++ }) { Text("Ещё") } },
+        dismissButton = { TextButton(onDismiss) { Text("Закрыть") } })
 }
 
 /** Контакт с днём рождения из телефонной книги. */

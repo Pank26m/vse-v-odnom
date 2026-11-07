@@ -112,7 +112,7 @@ fun PowerScreen(onBack: () -> Unit) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SiteButton("ДТЭК Киевские\nэлектросети", Modifier.weight(1f)) { web("https://www.dtek-kem.com.ua/ua/shutdowns") }
-                    SiteButton("YASNO", Modifier.weight(1f)) { web("https://yasno.ua/schedule-turn-off-electricity") }
+                    SiteButton("YASNO", Modifier.weight(1f)) { web("https://yasno.ua/") }
                 }
             }
         }
@@ -150,7 +150,7 @@ private fun HourGrid(st: PowerState, day: LocalDate, today: Boolean) {
                 val isNow = today && now.hour == h
                 Box(
                     Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(10.dp)).background(Pal.Card)
-                        .border(if (isNow) 2.dp else 1.dp, if (isNow) NowRing else Pal.Line, RoundedCornerShape(10.dp)),
+                        .border(if (isNow) 3.5.dp else 1.dp, if (isNow) NowRing else Pal.Line, RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(Modifier.matchParentSize()) {
@@ -175,7 +175,7 @@ private fun HourGrid(st: PowerState, day: LocalDate, today: Boolean) {
             }
         }
         Spacer(Modifier.height(4.dp))
-        Legend(Modifier.border(2.dp, NowRing, CircleShape), Pal.Card, "текущий час")
+        Legend(Modifier.border(3.dp, NowRing, CircleShape), Pal.Card, "текущий час")
         Legend(Modifier.border(1.dp, Pal.Line, CircleShape), Pal.Card, "есть свет")
         Legend(Modifier, OffFill, "нет света")
         Legend(Modifier, MaybeFill, "возможное отключение")

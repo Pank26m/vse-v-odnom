@@ -73,7 +73,8 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // карты: MapLibre (векторные тайлы, офлайн-области). 12.3.1 — последняя, что собирается с AGP 8.7 / compileSdk 35
+    implementation("org.maplibre.gl:android-sdk:12.3.1")
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")

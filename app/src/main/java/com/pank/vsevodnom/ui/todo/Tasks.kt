@@ -87,7 +87,12 @@ fun TasksPage(onBack: () -> Unit) {
     var q by remember { mutableStateOf("") }
     val today = LocalDate.now().toEpochDay()
     var extraTags by remember { mutableStateOf(prefs.getStringSet("extra_tags", emptySet())!!.toList()) }
-    val allTags = (tasks.flatMap { it.tagList() } + extraTags).distinct().sorted()
+    // пары из расписания — как задачи с тегом «кнуба» (на 2 недели вперёд), отметка хранится отдельно
+    val sched = remember { AppDb.get(ctx).schedule() }
+    val lessons by remember { sched.lessons(today, today + 14) }.collectAsState(initial = emptyList())
+    val aliases by sched.aliases().collectAsState(initial = emptyList())
+    var lessonDone by remember { mutableStateOf(prefs.getStringSet("lesson_done", emptySet())!!.toSet()) }
+    val allTags = (tasks.flatMap { it.tagList() } + extraTags + if (lessons.isNotEmpty()) listOf(KNUBA) else emptyList()).distinct().sorted()
     var newTagDlg by remember { mutableStateOf(false) }
 
     val filtered = tasks.filter { t ->
@@ -140,7 +145,30 @@ fun TasksPage(onBack: () -> Unit) {
                         Icon(Icons.Rounded.Close, "Сбросить", Modifier.padding(start = 6.dp).size(16.dp), tint = Pal.LilacInk)
                     }
                 }
-                if (groups.isEmpty()) item { EmptyHint(if (tasks.isEmpty()) "Задач нет. Нажми «+», чтобы добавить." else "Под фильтр ничего не попало") }
+                val showLessons = (f.tag == null || f.tag == KNUBA) && q.isBlank() && lessons.isNotEmpty()
+                if (groups.isEmpty() && !showLessons) item { EmptyHint(if (tasks.isEmpty()) "Задач нет. Нажми «+», чтобы добавить." else "Под фильтр ничего не попало") }
+                if (showLessons) {
+                    val left = lessons.filter { f.done || "${it.id}" !in lessonDone }.sortedWith(compareBy({ it.epochDay }, { it.start }))
+                    item(key = "knuba") { Text("Пары · #$KNUBA · ${left.size}", style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)) }
+                    items(left.take(if (f.tag == KNUBA) 200 else 6), key = { "l${it.id}" }) { l ->
+                        val done = "${l.id}" in lessonDone
+                        Leaving("l${l.id}", onLeft = { lessonDone = lessonDone + "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() }) { checked, leave ->
+                            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CheckCircle(done || checked, Pal.LilacInk, 24.dp) {
+                                    if (done) { lessonDone = lessonDone - "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() } else leave()
+                                }
+                                CheckDivider(height = 30.dp)
+                                Column(Modifier.weight(1f)) {
+                                    Text(aliases.firstOrNull { it.abbr == l.subject }?.fullName?.takeIf { it.isNotBlank() } ?: l.subject,
+                                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold, textDecoration = if (done || checked) TextDecoration.LineThrough else null), maxLines = 2)
+                                    Text("${dateLabel(l.epochDay)}, ${l.start}–${l.end}" + listOf(l.kind, l.room).filter { it.isNotBlank() }.joinToString(" · ", prefix = " · ") + " · #$KNUBA",
+                                        style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                    if (f.tag != KNUBA && left.size > 6) item(key = "knuba-more") { TextButton({ f.tag = KNUBA; f.save(prefs) }) { Text("Все пары (${left.size})") } }
+                }
                 groups.forEach { (title, l) ->
                     item(key = "g$title") {
                         Text("$title · ${l.size}", style = MaterialTheme.typography.labelLarge, color = if (title == "Просрочено") Pal.RoseInk else Pal.Muted, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
@@ -168,6 +196,8 @@ fun TasksPage(onBack: () -> Unit) {
     if (filterOpen) FilterDialog(f, allTags, { f.save(prefs) }) { filterOpen = false }
 }
 
+const val KNUBA = "кнуба"
+
 /** Строка задачи. Невыполненная при отметке показывает галочку и плавно уезжает. */
 @Composable
 fun TaskRow(t: TaskItem, showMeta: Boolean = true, onClick: () -> Unit) {
@@ -184,7 +214,8 @@ private fun TaskRowBody(t: TaskItem, checked: Boolean, showMeta: Boolean, onClic
     val overdue = !t.done && (t.dueDay ?: Long.MAX_VALUE) < today
     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         CheckCircle(checked, if (t.priority > 0) prioColor(t.priority) else Pal.LilacInk, 24.dp, onCheck)
-        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+        CheckDivider(height = 30.dp)
+        Column(Modifier.weight(1f)) {
             Text(t.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold, textDecoration = if (checked) TextDecoration.LineThrough else null), color = if (checked) Pal.Muted else Pal.Ink, maxLines = 2)
             if (showMeta) {
                 val meta = listOfNotNull(
@@ -235,7 +266,7 @@ fun TaskEditor(t0: TaskItem, knownTags: List<String>, onDone: () -> Unit) {
         onDone()
     }
     Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
                 Text(if (t0.id == 0L) "Новая задача" else "Задача", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
@@ -379,7 +410,7 @@ fun MonthPicker(month: YearMonth, onMonth: (YearMonth) -> Unit, selected: Long?,
 @Composable
 private fun FilterDialog(f: TaskFilter, tags: List<String>, onChange: () -> Unit, onDismiss: () -> Unit) {
     Dialog({ onChange(); onDismiss() }, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", { onChange(); onDismiss() })
                 Text("Фильтр и сортировка", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))

@@ -15,3 +15,8 @@
 -keep class com.github.junrar.** { *; }
 -dontwarn com.github.junrar.**
 -dontwarn org.slf4j.**
+# libarchive (RAR5/7z): нативный код вызывает Java-классы по имени
+-keep class me.zhanghai.android.libarchive.** { *; }
+# MapLibre: нативное ядро карты обращается к Java-слою через JNI
+-keep class org.maplibre.** { *; }
+-dontwarn org.maplibre.**

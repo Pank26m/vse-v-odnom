@@ -33,8 +33,22 @@ object SmsRepo {
     private val CODE = Regex("(?<![\\d+])(\\d{3}[- ]?\\d{3}|\\d{4,8})(?!\\d)")
 
     /** Достаёт код подтверждения из текста, если он там есть. */
-    fun extractCode(body: String): String? {
-        if (!CODE_WORDS.containsMatchIn(body)) return null
+    private val BARE = Regex("(?<![0-9+.,])([0-9]{6}|[0-9]{4})(?![0-9.,])")
+
+    /**
+     * Код из СМС. Со словами «код/пароль/…» — как раньше. Без слов — только от незнакомых отправителей (не из контактов):
+     * отдельно стоящие 4 или 6 цифр, не сумма и не год.
+     */
+    fun extractCode(body: String, fromContact: Boolean = true): String? {
+        if (!CODE_WORDS.containsMatchIn(body)) {
+            if (fromContact) return null
+            return BARE.findAll(body).firstOrNull { m ->
+                val tail = body.substring(m.range.last + 1).trimStart().take(4).lowercase()
+                val v = m.value
+                !(tail.startsWith("грн") || tail.startsWith("uah") || tail.startsWith("₴") || tail.startsWith("$") || tail.startsWith("руб")) &&
+                    !(v.length == 4 && (v.startsWith("19") || v.startsWith("20")))
+            }?.value
+        }
         // предпочитаем число, стоящее после ключевого слова
         val kw = CODE_WORDS.find(body)!!
         val after = CODE.find(body, kw.range.first)
@@ -66,13 +80,14 @@ object SmsRepo {
         prefs(ctx).edit().putStringSet("spam", s).putStringSet("ham", h).apply()
     }
 
-    fun isSpam(ctx: Context, address: String, body: String, isContact: Boolean): Boolean {
-        if (address in hamSenders(ctx) || isContact) return false
-        if (address in spamSenders(ctx)) return true
-        if (extractCode(body) != null) return false
-        val low = body.lowercase()
-        return spamWords(ctx).any { it.isNotBlank() && low.contains(it.lowercase()) }
+    /** Спам — только то, что ты сам отметил («Это спам?» → Да). Фильтра по словам больше нет. */
+    fun isSpam(ctx: Context, address: String, @Suppress("UNUSED_PARAMETER") body: String, isContact: Boolean): Boolean {
+        if (isContact) return false
+        return address in spamSenders(ctx)
     }
+
+    /** Спрашивать «Это спам?» — если отправитель не контакт и ещё не отмечен ни так, ни так. */
+    fun shouldAsk(ctx: Context, address: String, isContact: Boolean) = !isContact && address !in spamSenders(ctx) && address !in hamSenders(ctx)
 
     fun hasPermission(ctx: Context) = ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
 
@@ -103,7 +118,7 @@ object SmsRepo {
         return all.groupBy { normalize(it.address) }.map { (_, list) ->
             val last = list.first()
             val name = names.getOrPut(last.address) { contactName(ctx, last.address) }
-            val code = list.firstOrNull { it.inbox }?.takeIf { System.currentTimeMillis() - it.date < 24 * 3600_000L }?.let { extractCode(it.body) }
+            val code = list.firstOrNull { it.inbox }?.takeIf { System.currentTimeMillis() - it.date < 24 * 3600_000L }?.let { extractCode(it.body, fromContact = name != null) }
             val seen = maxOf(readAllAt(ctx), readAt(ctx, last.address))
             SmsThread(last.address, name, last, list.count { it.inbox && !it.read && it.date > seen }, list.size, isSpam(ctx, last.address, last.body, name != null), code)
         }
@@ -140,7 +155,8 @@ class SmsReceiver : BroadcastReceiver() {
         SmsRepo.ensureChannels(ctx)
         val name = SmsRepo.contactName(ctx, address)
         val spam = SmsRepo.isSpam(ctx, address, body, name != null)
-        val code = SmsRepo.extractCode(body)
+        val code = SmsRepo.extractCode(body, fromContact = name != null)
+        val ask = code == null && !spam && SmsRepo.shouldAsk(ctx, address, name != null)
         val open = PendingIntent.getActivity(ctx, address.hashCode(), Intent(ctx, MainActivity::class.java).putExtra("route", "sms"),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val b = NotificationCompat.Builder(ctx, if (spam) SmsRepo.CH_SPAM else SmsRepo.CH_SMS)
@@ -155,7 +171,25 @@ class SmsReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             b.addAction(0, "Скопировать $code", copy)
         }
-        runCatching { ctx.getSystemService(NotificationManager::class.java).notify((address + body).hashCode(), b.build()) }
+        val nid = (address + body).hashCode()
+        if (ask) {
+            // всплывающее «Это спам?»: Да — отправитель уходит в «Спам» (ничего не удаляется), Нет — больше не спрашиваем
+            fun act(yes: Boolean) = PendingIntent.getBroadcast(ctx, nid + if (yes) 1 else 2, Intent(ctx, SpamAnswerReceiver::class.java).putExtra("address", address).putExtra("spam", yes).putExtra("nid", nid),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            b.setContentTitle("${name ?: address} · это спам?").addAction(0, "Да, спам", act(true)).addAction(0, "Нет", act(false))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+        }
+        runCatching { ctx.getSystemService(NotificationManager::class.java).notify(nid, b.build()) }
+    }
+}
+
+class SpamAnswerReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        val a = intent.getStringExtra("address") ?: return
+        val yes = intent.getBooleanExtra("spam", false)
+        SmsRepo.markSpam(ctx, a, yes)
+        runCatching { ctx.getSystemService(NotificationManager::class.java).cancel(intent.getIntExtra("nid", 0)) }
+        Toast.makeText(ctx, if (yes) "Отправитель в «Спаме». Сообщения не удалены." else "Ок, оставляю во входящих", Toast.LENGTH_SHORT).show()
     }
 }
 

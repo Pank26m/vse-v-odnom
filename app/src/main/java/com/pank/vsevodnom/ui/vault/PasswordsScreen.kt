@@ -62,9 +62,11 @@ import kotlinx.coroutines.delay
 import java.util.UUID
 
 /** Копирование секрета: помечаем как чувствительное и очищаем буфер через 45 секунд. */
-fun copySecret(ctx: Context, label: String, value: String) {
+fun copySecret(ctx: Context, label: String, value: String, sensitive: Boolean = true) {
     val cm = ctx.getSystemService(ClipboardManager::class.java)
     val clip = ClipData.newPlainText(label, value)
+    // звёздочками (скрытым) в буфере показываем только пароли и коды; логин — обычным текстом и без автоочистки
+    if (!sensitive) { cm.setPrimaryClip(clip); if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Логин скопирован", Toast.LENGTH_SHORT).show(); return }
     if (Build.VERSION.SDK_INT >= 33) clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
     cm.setPrimaryClip(clip)
     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
@@ -210,9 +212,13 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(e.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                            Text(listOf(e.login.ifBlank { e.url }, e.tags.joinToString(" · ") { "#$it" }).filter { it.isNotBlank() }.joinToString("  "), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            if (e.login.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(e.login, style = MaterialTheme.typography.bodySmall, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                                Icon(Icons.Rounded.ContentCopy, "Скопировать логин", Modifier.padding(start = 6.dp).size(26.dp).clip(RoundedCornerShape(8.dp)).clickable { copySecret(ctx, "Логин", e.login, sensitive = false) }.padding(5.dp), tint = Pal.Muted)
+                            }
+                            val rest = listOf(if (e.login.isBlank()) e.url else "", e.tags.joinToString(" · ") { "#$it" }).filter { it.isNotBlank() }.joinToString("  ")
+                            if (rest.isNotBlank()) Text(rest, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
                         }
-                        if (e.login.isNotBlank()) IconButton({ copySecret(ctx, "Логин", e.login) }) { Icon(Icons.Rounded.Person, "Скопировать логин", tint = Pal.Muted) }
                         if (e.password.isNotBlank()) IconButton({ copySecret(ctx, "Пароль", e.password) }) { Icon(Icons.Rounded.Key, "Скопировать пароль", tint = Pal.LilacInk) }
                     }
                 }
@@ -326,7 +332,7 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
     }
 
     Dialog(onDismiss, secure) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDismiss)
                 Text(if (e.title.isBlank()) "Новая запись" else e.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f), maxLines = 1)
@@ -339,7 +345,7 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(login, { login = it }, label = { Text("Логин / почта / телефон") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
-                            trailingIcon = { if (login.isNotBlank()) IconButton({ copySecret(ctx, "Логин", login) }) { Icon(Icons.Rounded.ContentCopy, "Скопировать") } })
+                            trailingIcon = { if (login.isNotBlank()) IconButton({ copySecret(ctx, "Логин", login, sensitive = false) }) { Icon(Icons.Rounded.ContentCopy, "Скопировать") } })
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             pass, { pass = it }, label = { Text("Пароль") }, singleLine = true, modifier = Modifier.fillMaxWidth(),

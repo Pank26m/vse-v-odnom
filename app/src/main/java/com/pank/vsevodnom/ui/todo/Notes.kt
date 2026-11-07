@@ -221,6 +221,7 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) voice.start() }
     val pickFile = rememberFilePicker("notes") { f -> att = att.copy(files = att.files + f) }
     val pickContact = rememberContactPicker { c -> att = att.copy(contacts = att.contacts + c) }
+    val pickAudio = rememberFilePicker("notes", arrayOf("audio/*")) { f -> att = att.copy(files = att.files + f) }
     fun current() = n0.copy(title = title.trim(), body = body.text.trimEnd(), tint = tint, pinned = pinned, tags = tags.joinToString(","), attachments = att.toJson(), updatedAt = System.currentTimeMillis(),
         createdAt = if (n0.createdAt == 0L) System.currentTimeMillis() else n0.createdAt)
     fun save() {
@@ -231,7 +232,7 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
         onDone()
     }
     Dialog({ save() }, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(NOTE_COLORS[tint % NOTE_COLORS.size]).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().background(NOTE_COLORS[tint % NOTE_COLORS.size]).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton({ save() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Сохранить и выйти") }
                 Spacer(Modifier.weight(1f))
@@ -285,6 +286,25 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
                     Box(Modifier.weight(1f)) { AppTextField(newTag, { newTag = it.replace(",", "") }, "Новый тег") }
                     IconButton({ if (newTag.isNotBlank()) { tags = (tags + newTag.trim()).distinct(); newTag = "" } }) { Icon(Icons.Rounded.Add, "Добавить") }
                 }
+                // вложения — подписанными кнопками, чтобы их было видно сразу
+                Text("Добавить в заметку", style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.padding(top = 8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    @Composable fun A(ic: androidx.compose.ui.graphics.vector.ImageVector, t: String, f: () -> Unit) =
+                        Row(Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.75f)).clickable(onClick = f).padding(12.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(ic, null, Modifier.size(18.dp), tint = ACCENT); Text(" $t", style = MaterialTheme.typography.labelLarge)
+                        }
+                    A(Icons.Rounded.AddPhotoAlternate, "Фото") { photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                    A(if (voice.recording) Icons.Rounded.Stop else Icons.Rounded.Mic, if (voice.recording) "Стоп" else "Голосовое") {
+                        if (voice.recording) voice.stop()?.let { att = att.copy(audio = att.audio + it) }
+                        else if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) voice.start()
+                        else mic.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                    A(Icons.Rounded.AudioFile, "Аудио") { pickAudio() }
+                    A(Icons.Rounded.AttachFile, "Файл") { pickFile() }
+                    A(Icons.Rounded.AddLocationAlt, "Место") { panel = "place" }
+                    A(Icons.Rounded.PersonAddAlt, "Контакт") { pickContact() }
+                    A(Icons.Rounded.Draw, "Рисунок") { panel = "draw" }
+                }
                 Spacer(Modifier.height(40.dp))
             }
             // нижняя панель вложений
@@ -312,10 +332,17 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
 @Composable
 internal fun PlacePicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double>) -> Unit) {
     val ctx = LocalContext.current
+    var onMap by remember { mutableStateOf(false) }
+    if (onMap) { com.pank.vsevodnom.ui.map.MapPointPicker(onDismiss = { onMap = false }) { onPick(it) }; return }
     val places by remember { AppDb.get(ctx).map().places() }.collectAsState(initial = emptyList())
     AlertDialog(onDismissRequest = onDismiss, confirmButton = { TextButton(onDismiss) { Text("Отмена") } }, title = { Text("Прикрепить место") },
         text = {
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                item {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Pal.Lilac).clickable { onMap = true }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Map, null, tint = Pal.LilacInk); Text("   Выбрать точку на карте", color = Pal.LilacInk)
+                    }
+                }
                 item {
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
                         val lm = ctx.getSystemService(android.location.LocationManager::class.java)
@@ -361,7 +388,7 @@ internal fun DrawingDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
         onSave(f.absolutePath)
     }
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onDismiss) { Icon(Icons.Rounded.Close, "Закрыть") }
                 Text("Рисунок", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))

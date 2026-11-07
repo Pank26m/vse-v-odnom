@@ -1,5 +1,7 @@
 package com.pank.vsevodnom.ui.common
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -206,4 +208,26 @@ fun NetWait(error: String?, modifier: Modifier = Modifier) {
             Text(if (com.pank.vsevodnom.data.Net.online) "Загрузка…" else "Жду интернет…", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
         }
     } else Text(error, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = modifier)
+}
+
+/** Отступы системных панелей, снятые с окна приложения: внутри полноэкранных Dialog система иногда отдаёт нули. */
+class RootInsets {
+    var top by androidx.compose.runtime.mutableStateOf(0.dp)
+    var bottom by androidx.compose.runtime.mutableStateOf(0.dp)
+    var ime by androidx.compose.runtime.mutableStateOf(0.dp)
+}
+val LocalRootInsets = androidx.compose.runtime.staticCompositionLocalOf { RootInsets() }
+
+/** Для полноэкранных окон: сверху — строка состояния, снизу — системная панель или клавиатура (что больше). */
+@Composable
+fun Modifier.dialogBars(): Modifier {
+    val r = LocalRootInsets.current
+    val top = maxOf(r.top, WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+    val bottom = maxOf(r.bottom, r.ime, WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(), WindowInsets.ime.asPaddingValues().calculateBottomPadding())
+    // окно диалога: пусть клавиатура сжимает его, а не перекрывает поля
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.SideEffect {
+        (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    }
+    return this.padding(top = top, bottom = bottom)
 }

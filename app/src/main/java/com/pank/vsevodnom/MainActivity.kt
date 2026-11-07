@@ -47,6 +47,8 @@ import com.pank.vsevodnom.ui.life.CartScreen
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -80,6 +82,13 @@ class MainActivity : FragmentActivity() {
         pendingRoute.value = routeFrom(intent)
 
         setContent {
+            // размеры системных панелей с окна приложения — для полноэкранных окон (там система отдаёт нули)
+            val rootInsets = androidx.compose.runtime.remember { com.pank.vsevodnom.ui.common.RootInsets() }
+            val iTop = androidx.compose.foundation.layout.WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            val iBottom = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val iIme = androidx.compose.foundation.layout.WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+            androidx.compose.runtime.SideEffect { rootInsets.top = iTop; rootInsets.bottom = iBottom; rootInsets.ime = iIme }
+            androidx.compose.runtime.CompositionLocalProvider(com.pank.vsevodnom.ui.common.LocalRootInsets provides rootInsets) {
             AppTheme {
                 val nav = rememberNavController()
                 val back: () -> Unit = { if (!nav.popBackStack()) finish() }
@@ -108,8 +117,8 @@ class MainActivity : FragmentActivity() {
                 }
                 androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
                 androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize().background(com.pank.vsevodnom.ui.theme.Pal.Bg)) {
-                val barVisible = route in tabRoutes && route != "money"  // у «Финансов» свой нижний бар
-                val playerVisible = com.pank.vsevodnom.data.Player.current != null && route != "money"
+                val barVisible = route in tabRoutes
+                val playerVisible = com.pank.vsevodnom.data.Player.current != null
                 val offline = !com.pank.vsevodnom.data.Net.online
                 if (offline) com.pank.vsevodnom.ui.common.OfflineBanner()
                 androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f).then(
@@ -175,6 +184,7 @@ class MainActivity : FragmentActivity() {
                 }
                 com.pank.vsevodnom.ui.music.FullPlayer()
                 }
+            }
             }
         }
     }
