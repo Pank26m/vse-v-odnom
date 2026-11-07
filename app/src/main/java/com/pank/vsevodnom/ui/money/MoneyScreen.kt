@@ -255,7 +255,7 @@ private fun CategoryEditor(c: Category, cats: List<Category>, onDone: () -> Unit
     var icon by remember { mutableStateOf(c.icon.ifBlank { guessIcon(c.name) }) }
     var sub by remember { mutableStateOf("") }
     val subs = cats.filter { it.parentId == c.id && c.id != 0L }
-    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
@@ -582,7 +582,7 @@ private fun TxnEditor(t: Txn, accounts: List<Account>, cats: List<Category>, onD
     var pickDate by remember { mutableStateOf(false) }
     val fr = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(Unit) { if (t.id == 0L) runCatching { fr.requestFocus() } }
-    Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)

@@ -96,38 +96,5 @@ fun MusicScreen(onBack: () -> Unit) {
             }
         }
     }
-    Box(Modifier.fillMaxSize()) { MiniPlayer(Modifier.align(Alignment.BottomCenter)) }
 }
 
-/** Плеер внизу: обложка, название, перемотка, назад/пауза/дальше, вперемешку, повтор. */
-@Composable
-private fun MiniPlayer(modifier: Modifier) {
-    val s = Player.current ?: return
-    var pos by remember { mutableIntStateOf(0) }; var dur by remember { mutableIntStateOf(1) }
-    var dragging by remember { mutableStateOf<Float?>(null) }
-    LaunchedEffect(s.id) { while (true) { pos = Player.position(); dur = Player.duration().coerceAtLeast(1); delay(500) } }
-    Column(modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp).clip(RoundedCornerShape(22.dp)).background(Pal.Ink).padding(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AppImage(Music.art(s.albumId).toString(), Modifier.size(46.dp), maxPx = 120, radius = 10.dp)
-            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                Text(s.title, style = MaterialTheme.typography.titleSmall, color = Color.White, maxLines = 1)
-                Text(s.artist, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
-            }
-            IconButton({ Player.shuffle = !Player.shuffle }) { Icon(Icons.Rounded.Shuffle, "Вперемешку", tint = if (Player.shuffle) Pal.Lilac else Color.White.copy(alpha = 0.5f)) }
-            IconButton({ Player.repeat = (Player.repeat + 1) % 3 }) { Icon(if (Player.repeat == 2) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Повтор", tint = if (Player.repeat > 0) Pal.Lilac else Color.White.copy(alpha = 0.5f)) }
-        }
-        Slider(dragging ?: pos.toFloat() / dur, { dragging = it }, onValueChangeFinished = { dragging?.let { Player.seek((it * dur).toInt()) }; dragging = null },
-            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Pal.Lilac, inactiveTrackColor = Color.White.copy(alpha = 0.2f)))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(mmss(pos.toLong()), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-            Spacer(Modifier.weight(1f))
-            IconButton({ Player.prev() }) { Icon(Icons.Rounded.SkipPrevious, "Назад", tint = Color.White) }
-            Box(Modifier.size(52.dp).clip(CircleShape).background(Color.White).clickable { Player.toggle() }, contentAlignment = Alignment.Center) {
-                Icon(if (Player.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Пауза", tint = Pal.Ink)
-            }
-            IconButton({ Player.next() }) { Icon(Icons.Rounded.SkipNext, "Дальше", tint = Color.White) }
-            Spacer(Modifier.weight(1f))
-            Text(mmss(dur.toLong()), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-        }
-    }
-}

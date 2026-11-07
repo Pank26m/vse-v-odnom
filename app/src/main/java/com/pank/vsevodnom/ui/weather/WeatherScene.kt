@@ -162,32 +162,48 @@ private fun DrawScope.bolt(top: Offset, len: Float) {
     drawPath(p, Color(0xFFFCE7A6))
 }
 
-/** Маленькая статичная иконка погоды для списков. */
+/** Иконка погоды. animated = true — для главной: солнце крутится, облака плывут, дождь и снег падают, молния вспыхивает. */
 @Composable
 fun WeatherGlyph(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier, animated: Boolean = false) {
-    val ph = if (animated) rememberInfiniteTransition(label = "g").animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "p").value else 0.5f
+    val inf = rememberInfiniteTransition(label = "g")
+    val ph = if (animated) inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "p").value else 0.5f
+    val slow = if (animated) inf.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing)), label = "s").value else 0f
+    val flash = if (animated) inf.animateFloat(0f, 1f, infiniteRepeatable(tween(2600, easing = LinearEasing)), label = "f").value else 0.1f
     Canvas(modifier) {
         val w = size.width; val h = size.height
+        val sway = if (animated) sin(slow * 2 * PI).toFloat() * w * 0.05f else 0f
         val sunC = Offset(w * 0.62f, h * 0.36f)
         when (scene) {
-            Scene.CLEAR -> if (isDay) sun(Offset(w / 2, h / 2), w * 0.24f, ph * 72f) else moon(Offset(w / 2, h / 2), w * 0.3f)
+            Scene.CLEAR -> if (isDay) sun(Offset(w / 2, h / 2), w * (0.24f + if (animated) sin(ph * 2 * PI).toFloat() * 0.012f else 0f), slow * 360f)
+                else { moon(Offset(w / 2, h / 2), w * 0.3f); if (animated) drawCircle(Color(0xFFF7F3E3).copy(alpha = 0.25f * (0.5f + 0.5f * sin(slow * 2 * PI).toFloat())), w * 0.42f, Offset(w / 2, h / 2)) }
             Scene.PARTLY -> {
-                if (isDay) sun(sunC, w * 0.18f, 0f) else moon(sunC, w * 0.2f)
-                cloud(Offset(w * 0.45f, h * 0.55f), w * 0.3f, Color(0xFFB9C7D8))
+                if (isDay) sun(sunC, w * 0.18f, slow * 360f) else moon(sunC, w * 0.2f)
+                cloud(Offset(w * 0.45f + sway, h * 0.55f), w * 0.3f, Color(0xFFB9C7D8))
             }
             else -> {
                 val cc = if (scene == Scene.THUNDER || scene == Scene.RAIN) Color(0xFF9DAFC6) else Color(0xFFB9C7D8)
-                cloud(Offset(w * 0.5f, h * 0.38f), w * 0.34f, cc)
+                if (scene == Scene.CLOUDY && animated) cloud(Offset(w * 0.62f - sway, h * 0.3f), w * 0.22f, Color(0xFFD3DCE7))
+                cloud(Offset(w * 0.5f + sway * 0.6f, h * 0.38f), w * 0.34f, cc)
                 when (scene) {
-                    Scene.RAIN, Scene.DRIZZLE -> for (i in 0..2) {
+                    Scene.RAIN, Scene.DRIZZLE, Scene.THUNDER -> for (i in 0..2) {
+                        if (scene == Scene.THUNDER && i == 1) continue
                         val x = w * (0.3f + i * 0.2f)
-                        val dy = ((ph + i * 0.33f) % 1f) * h * 0.14f
-                        drawLine(Color(0xFF6E98C9), Offset(x, h * 0.68f + dy), Offset(x - w * 0.05f, h * 0.84f + dy), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
+                        val k = (ph + i * 0.33f) % 1f
+                        val dy = k * h * 0.2f
+                        drawLine(Color(0xFF6E98C9).copy(alpha = 1f - k * 0.7f), Offset(x, h * 0.66f + dy), Offset(x - w * 0.05f, h * 0.8f + dy), strokeWidth = w * (if (scene == Scene.DRIZZLE) 0.05f else 0.07f), cap = StrokeCap.Round)
                     }
-                    Scene.SNOW -> for (i in 0..2) drawCircle(Color(0xFF8FA9C7), radius = w * 0.06f, center = Offset(w * (0.3f + i * 0.2f), h * (0.74f + ((ph + i * 0.33f) % 1f) * 0.16f)))
-                    Scene.THUNDER -> bolt(Offset(w * 0.52f, h * 0.6f), h * 0.38f)
-                    Scene.FOG -> for (i in 0..1) drawLine(Color(0xFF9DAFC6), Offset(w * 0.15f, h * (0.75f + i * 0.14f)), Offset(w * 0.85f, h * (0.75f + i * 0.14f)), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
+                    Scene.SNOW -> for (i in 0..2) {
+                        val k = (ph * 0.6f + i * 0.33f) % 1f
+                        drawCircle(Color(0xFF8FA9C7).copy(alpha = 1f - k * 0.6f), radius = w * 0.06f, center = Offset(w * (0.3f + i * 0.2f) + sin((k + i) * 2 * PI).toFloat() * w * 0.04f, h * (0.7f + k * 0.24f)))
+                    }
+                    Scene.FOG -> for (i in 0..1) { val dx = sway * (if (i == 0) 1 else -1); drawLine(Color(0xFF9DAFC6), Offset(w * 0.15f + dx, h * (0.75f + i * 0.14f)), Offset(w * 0.85f + dx, h * (0.75f + i * 0.14f)), strokeWidth = w * 0.07f, cap = StrokeCap.Round) }
                     else -> {}
+                }
+                if (scene == Scene.THUNDER) {
+                    // вспышка: две короткие молнии за цикл, остальное время — бледная
+                    val on = flash in 0.0f..0.08f || flash in 0.14f..0.2f || !animated
+                    if (on) { if (animated) drawCircle(Color(0xFFFFF4C2).copy(alpha = 0.35f), w * 0.45f, Offset(w * 0.52f, h * 0.62f)); bolt(Offset(w * 0.52f, h * 0.56f), h * 0.42f) }
+                    else drawPath(Path().apply { moveTo(w * 0.52f, h * 0.56f); lineTo(w * 0.46f, h * 0.77f) }, Color(0xFFFCE7A6).copy(alpha = 0.25f), style = androidx.compose.ui.graphics.drawscope.Stroke(w * 0.03f))
                 }
             }
         }

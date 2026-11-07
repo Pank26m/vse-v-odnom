@@ -1,5 +1,8 @@
 package com.pank.vsevodnom.ui.files
 
+import me.zhanghai.android.libarchive.Archive as LA
+import me.zhanghai.android.libarchive.ArchiveEntry as LAE
+
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -38,12 +41,12 @@ import java.util.zip.ZipOutputStream
 data class ArcEntry(val name: String, val size: Long, val dir: Boolean)
 
 /**
- * Архивы: zip, rar (RAR4; формат RAR5 библиотекой не поддерживается), tar, tar.gz/tgz, gz.
+ * Архивы: zip, rar (RAR4 и RAR5 — через libarchive, запасной путь — junrar), 7z, tar, tar.gz/tgz, gz.
  * Файл копируется во временную папку, распаковка — в «Загрузки/<имя архива>/».
  */
 object Archives {
     fun kind(name: String) = name.lowercase().let { n ->
-        when { n.endsWith(".zip") || n.endsWith(".apk") || n.endsWith(".jar") -> "zip"; n.endsWith(".rar") -> "rar"
+        when { n.endsWith(".zip") || n.endsWith(".apk") || n.endsWith(".jar") -> "zip"; n.endsWith(".rar") -> "rar"; n.endsWith(".7z") -> "rar"
             n.endsWith(".tar.gz") || n.endsWith(".tgz") -> "tgz"; n.endsWith(".tar") -> "tar"; n.endsWith(".gz") -> "gz"; else -> "zip" }
     }
 
@@ -56,7 +59,8 @@ object Archives {
     /** Обход архива: для каждой записи вызывает cb(запись, поток с содержимым). */
     fun walk(f: File, kind: String, cb: (ArcEntry, InputStream?) -> Unit) {
         when (kind) {
-            "rar" -> com.github.junrar.Archive(f).use { a ->
+            // libarchive; если он не смог открыть файл вообще — пробуем junrar (старые RAR)
+            "rar" -> if (runCatching { var seen = 0; runCatching { walkLibarchive(f) { e, i -> seen++; cb(e, i) } }.onFailure { if (seen > 0) throw IllegalStateException(it.message) else throw it } }.exceptionOrNull()?.let { it !is IllegalStateException } == true) com.github.junrar.Archive(f).use { a ->
                 for (h in a.fileHeaders) {
                     val e = ArcEntry(h.fileName.replace('\\', '/'), h.fullUnpackSize, h.isDirectory)
                     if (h.isDirectory) cb(e, null) else a.getInputStream(h).use { cb(e, it) }
@@ -70,6 +74,44 @@ object Archives {
                 while (true) { val e = z.nextEntry ?: break; cb(ArcEntry(e.name, e.size, e.isDirectory), if (e.isDirectory) null else z) }
             }
         }
+    }
+
+    /** libarchive: читает RAR5, RAR4, 7z и многое другое. */
+    private fun walkLibarchive(f: File, cb: (ArcEntry, InputStream?) -> Unit) {
+        val a = LA.readNew()
+        try {
+            LA.readSupportFilterAll(a); LA.readSupportFormatAll(a)
+            LA.readOpenFileName(a, f.absolutePath.toByteArray(), 64 * 1024)
+            val buf = java.nio.ByteBuffer.allocateDirect(64 * 1024)
+            while (true) {
+                val e = LA.readNextHeader(a)
+                if (e == 0L) break
+                val name = (runCatching { LAE.pathnameUtf8(e) }.getOrNull() ?: LAE.pathname(e)?.let { String(it) } ?: "без имени").replace('\\', '/')
+                val dir = LAE.filetype(e) == 0x4000
+                val size = if (LAE.sizeIsSet(e)) LAE.size(e) else -1L
+                if (dir) { cb(ArcEntry(name, size, true), null); continue }
+                var used = false
+                val ins = object : InputStream() {
+                    private var eof = false
+                    private fun fill(): Boolean {
+                        if (eof) return false
+                        if (buf.hasRemaining() && used) return true
+                        buf.clear(); LA.readData(a, buf); buf.flip(); used = true
+                        if (!buf.hasRemaining()) eof = true
+                        return !eof
+                    }
+                    override fun read(): Int = if (fill()) buf.get().toInt() and 0xff else -1
+                    override fun read(b: ByteArray, off: Int, len: Int): Int {
+                        if (len == 0) return 0
+                        if (!fill()) return -1
+                        val n = minOf(len, buf.remaining()); buf.get(b, off, n); return n
+                    }
+                }
+                buf.clear(); buf.flip()
+                cb(ArcEntry(name, size, false), ins)
+            }
+            LA.readClose(a)
+        } finally { runCatching { LA.readFree(a) } }
     }
 
     fun list(f: File, kind: String): List<ArcEntry> { val out = ArrayList<ArcEntry>(); walk(f, kind) { e, _ -> out += e }; return out }
@@ -132,7 +174,7 @@ fun ArchiveScreen(onBack: () -> Unit) {
                     f to Archives.list(f, Archives.kind(name))
                 }
             }.onSuccess { (f, l) -> file = f; entries = l }
-                .onFailure { file = null; entries = emptyList(); msg = if (it.javaClass.name.contains("junrar")) "Этот RAR не открывается: скорее всего формат RAR5 — его библиотека не читает. Zip, tar и старые RAR работают." else "Не открылся: ${it.message}" }
+                .onFailure { file = null; entries = emptyList(); msg = if (it.javaClass.name.contains("junrar")) "Этот RAR не открылся: возможно, он повреждён или защищён паролем." else "Не открылся: ${it.message}" }
             busy = false
         }
     }
@@ -144,7 +186,7 @@ fun ArchiveScreen(onBack: () -> Unit) {
     ScreenScaffold("Архивы", onBack) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PillButton("Открыть архив", { open.launch(arrayOf("application/zip", "application/x-rar-compressed", "application/vnd.rar", "application/x-tar", "application/gzip", "*/*")) }, Modifier.weight(1f))
+                PillButton("Открыть архив", { open.launch(arrayOf("application/zip", "application/x-rar-compressed", "application/vnd.rar", "application/x-7z-compressed", "application/x-tar", "application/gzip", "*/*")) }, Modifier.weight(1f))
                 PillButton("Создать zip", { pickMany.launch(arrayOf("*/*")) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -166,7 +208,7 @@ fun ArchiveScreen(onBack: () -> Unit) {
             }
         }
         LazyColumn(contentPadding = PaddingValues(16.dp, 10.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (file == null && msg == null) item { EmptyHint("Открой .zip, .rar, .tar или .gz — покажу, что внутри, и распакую в «Загрузки».") }
+            if (file == null && msg == null) item { EmptyHint("Открой .zip, .rar (в том числе RAR5), .7z, .tar или .gz — покажу, что внутри, и распакую в «Загрузки».") }
             items(entries.filter { !it.dir }) { e ->
                 val sel = e.name in selected
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (sel) Pal.Lilac else Pal.Card).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {

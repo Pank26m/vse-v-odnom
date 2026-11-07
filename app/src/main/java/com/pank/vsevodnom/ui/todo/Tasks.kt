@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -70,8 +71,8 @@ private class TaskFilter(p: android.content.SharedPreferences) {
     var done by mutableStateOf(p.getBoolean("done", false))
     fun save(p: android.content.SharedPreferences) = p.edit().putString("sort", sort.name).putString("show", show.name).putString("prios", prios.joinToString(","))
         .putString("tag", tag).putBoolean("done", done).apply()
-    val active get() = show != Show.ALL || prios.isNotEmpty() || tag != null || sort != Sort.DATE
-    fun reset() { sort = Sort.DATE; show = Show.ALL; prios = emptySet(); tag = null }
+    val active get() = show != Show.ALL || prios.isNotEmpty() || sort != Sort.DATE
+    fun reset() { sort = Sort.DATE; show = Show.ALL; prios = emptySet() }
 }
 
 @Composable
@@ -85,7 +86,9 @@ fun TasksPage(onBack: () -> Unit) {
     var filterOpen by remember { mutableStateOf(false) }
     var q by remember { mutableStateOf("") }
     val today = LocalDate.now().toEpochDay()
-    val allTags = tasks.flatMap { it.tagList() }.distinct().sorted()
+    var extraTags by remember { mutableStateOf(prefs.getStringSet("extra_tags", emptySet())!!.toList()) }
+    val allTags = (tasks.flatMap { it.tagList() } + extraTags).distinct().sorted()
+    var newTagDlg by remember { mutableStateOf(false) }
 
     val filtered = tasks.filter { t ->
         (f.done || !t.done) && (f.prios.isEmpty() || t.priority in f.prios) && (f.tag == null || f.tag in t.tagList()) &&
@@ -117,10 +120,22 @@ fun TasksPage(onBack: () -> Unit) {
         }) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 item { AppTextField(q, { q = it }, "Поиск задач") }
+                item {
+                    // теги — сразу сверху: по ним чаще всего и сортируют
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Chip("Все", f.tag == null, { f.tag = null; f.save(prefs) })
+                            allTags.forEach { tg -> Chip("#$tg", f.tag == tg, { f.tag = if (f.tag == tg) null else tg; f.save(prefs) }) }
+                        }
+                        Box(Modifier.padding(start = 6.dp).size(32.dp).clip(CircleShape).background(Pal.Card).clickable { newTagDlg = true }, contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Add, "Новый тег", Modifier.size(18.dp), tint = ACCENT)
+                        }
+                    }
+                }
                 if (f.active) item {
                     Row(Modifier.clip(RoundedCornerShape(10.dp)).background(Pal.Lilac).clickable { f.reset(); f.save(prefs) }.padding(12.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(listOfNotNull(f.show.title.takeIf { f.show != Show.ALL }, f.sort.title.takeIf { f.sort != Sort.DATE },
-                            f.prios.takeIf { it.isNotEmpty() }?.sortedDescending()?.joinToString { PRIO[it].first }, f.tag?.let { "#$it" }).joinToString(" · "),
+                            f.prios.takeIf { it.isNotEmpty() }?.sortedDescending()?.joinToString { PRIO[it].first }).joinToString(" · "),
                             style = MaterialTheme.typography.labelLarge, color = Pal.LilacInk)
                         Icon(Icons.Rounded.Close, "Сбросить", Modifier.padding(start = 6.dp).size(16.dp), tint = Pal.LilacInk)
                     }
@@ -135,11 +150,21 @@ fun TasksPage(onBack: () -> Unit) {
             }
         }
         Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(58.dp).clip(RoundedCornerShape(18.dp)).background(Pal.Ink)
-            .clickable { edit = TaskItem(title = "", dueDay = today) }, contentAlignment = Alignment.Center) {
+            .clickable { edit = TaskItem(title = "", dueDay = today, tags = f.tag ?: "") }, contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.Add, "Добавить задачу", tint = Color.White)
         }
     }
     edit?.let { TaskEditor(it, allTags) { edit = null } }
+    if (newTagDlg) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(onDismissRequest = { newTagDlg = false }, title = { Text("Новый тег") }, text = { AppTextField(name, { name = it.replace(",", "").replace("#", "") }, "Например: учёба") },
+            confirmButton = { TextButton({
+                val n = name.trim()
+                if (n.isNotBlank()) { extraTags = (extraTags + n).distinct(); prefs.edit().putStringSet("extra_tags", extraTags.toSet()).apply(); f.tag = n; f.save(prefs) }
+                newTagDlg = false
+            }) { Text("Добавить") } },
+            dismissButton = { TextButton({ newTagDlg = false }) { Text("Отмена") } })
+    }
     if (filterOpen) FilterDialog(f, allTags, { f.save(prefs) }) { filterOpen = false }
 }
 
@@ -191,17 +216,25 @@ fun TaskEditor(t0: TaskItem, knownTags: List<String>, onDone: () -> Unit) {
     var month by remember { mutableStateOf(YearMonth.from(LocalDate.ofEpochDay(t0.dueDay ?: LocalDate.now().toEpochDay()))) }
     val fr = remember { FocusRequester() }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> u?.let { copyIntoApp(ctx, it, "tasks")?.let { p -> t = t.copy(image = p) } } }
+    var att by remember { mutableStateOf(NoteAtt.of(t0.attachments)) }
+    var placeOpen by remember { mutableStateOf(false) }
+    val voice = remember { VoiceNote(ctx, "tasks") }
+    DisposableEffect(Unit) { onDispose { voice.release() } }
+    val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) voice.start() }
+    val pickFile = rememberFilePicker("tasks") { f -> att = att.copy(files = att.files + f) }
+    val pickContact = rememberContactPicker { c -> att = att.copy(contacts = att.contacts + c) }
     LaunchedEffect(Unit) { if (t0.id == 0L) runCatching { fr.requestFocus() } }
     fun save() {
+        voice.stop()?.let { att = att.copy(audio = att.audio + it) }
         if (t.title.isBlank()) { onDone(); return }
-        val item = t.copy(title = t.title.trim(), note = note.text.trimEnd(), tags = (t.tagList() + newTag.trim()).filter { it.isNotBlank() }.distinct().joinToString(","))
+        val item = t.copy(attachments = att.toJson(), title = t.title.trim(), note = note.text.trimEnd(), tags = (t.tagList() + newTag.trim()).filter { it.isNotBlank() }.distinct().joinToString(","))
         AppScope.io.launch {
             val id = AppDb.get(ctx).todo().upsertTask(item)
             Todo.scheduleReminder(ctx, item.copy(id = if (item.id == 0L) id else item.id))
         }
         onDone()
     }
-    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
@@ -244,17 +277,43 @@ fun TaskEditor(t0: TaskItem, knownTags: List<String>, onDone: () -> Unit) {
                         IconButton({ if (newTag.isNotBlank()) { t = t.copy(tags = (t.tagList() + newTag.trim()).distinct().joinToString(",")); newTag = "" } }) { Icon(Icons.Rounded.Add, "Добавить тег") }
                     }
                 }
-                FormCard("Фото") {
+                FormCard("Фото и вложения") {
                     if (t.image.isNotBlank()) Box {
                         AppImage(t.image, Modifier.fillMaxWidth().height(180.dp), maxPx = 1000)
                         IconButton({ t = t.copy(image = "") }, Modifier.align(Alignment.TopEnd)) { Icon(Icons.Rounded.Close, "Убрать фото", tint = Color.White) }
                     }
-                    PillButton(if (t.image.isBlank()) "Добавить фото" else "Другое фото", { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, Modifier.fillMaxWidth(), bg = Pal.Lilac, fg = Pal.LilacInk)
+                    att.audio.forEach { a -> if (java.io.File(a).exists()) VoiceChip(a, voice, onDelete = { voice.stopPlay(); att = att.copy(audio = att.audio - a); java.io.File(a).delete() }) }
+                    if (voice.recording) Row(verticalAlignment = Alignment.CenterVertically) { RecordingTimer(); TextButton({ voice.stop()?.let { att = att.copy(audio = att.audio + it) } }) { Text("Стоп") } }
+                    FilesAndContacts(att) { att = it }
+                    att.place?.let { (name, lat, lon) ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.75f)).clickable {
+                            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("geo:$lat,$lon?q=$lat,$lon(${android.net.Uri.encode(name)})"))) }
+                        }.padding(12.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Place, null, tint = Pal.RoseInk); Text(" $name", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Icon(Icons.Rounded.Close, "Убрать", Modifier.size(16.dp).clickable { att = att.copy(place = null) }, tint = Pal.Muted)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AttachTile(Icons.Rounded.AddPhotoAlternate, if (t.image.isBlank()) "Фото" else "Другое", Modifier.weight(1f)) { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                        AttachTile(if (voice.recording) Icons.Rounded.Stop else Icons.Rounded.Mic, if (voice.recording) "Стоп" else "Голос", Modifier.weight(1f)) {
+                            if (voice.recording) voice.stop()?.let { att = att.copy(audio = att.audio + it) }
+                            else if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) voice.start()
+                            else mic.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                        AttachTile(Icons.Rounded.AttachFile, "Файл", Modifier.weight(1f)) { pickFile() }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AttachTile(Icons.Rounded.AddLocationAlt, "Место", Modifier.weight(1f)) { placeOpen = true }
+                        AttachTile(Icons.Rounded.PersonAddAlt, "Контакт", Modifier.weight(1f)) { pickContact() }
+                        Spacer(Modifier.weight(1f))
+                    }
+                    Text("Файл — любой: PDF, аудио, документ. Место — из сохранённых на «Карте» или где ты сейчас.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(48.dp))
             }
         }
     }
+    if (placeOpen) PlacePicker(onDismiss = { placeOpen = false }) { pl -> att = att.copy(place = pl); placeOpen = false }
     pickTime?.let { which ->
         val base = if (which == "start") (t.dueMinute ?: 9 * 60) else ((t.dueMinute ?: 9 * 60) + (t.durationMin ?: 60))
         val tp = rememberTimePickerState(base / 60 % 24, base % 60, true)
@@ -270,6 +329,14 @@ fun TaskEditor(t0: TaskItem, knownTags: List<String>, onDone: () -> Unit) {
     if (confirmDel) AlertDialog(onDismissRequest = { confirmDel = false }, title = { Text("Удалить задачу?") },
         confirmButton = { TextButton({ AppScope.io.launch { AppDb.get(ctx).todo().deleteTask(t0) }; confirmDel = false; onDone() }) { Text("Удалить", color = Pal.RoseInk) } },
         dismissButton = { TextButton({ confirmDel = false }) { Text("Отмена") } })
+}
+
+@Composable
+private fun AttachTile(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Column(modifier.clip(RoundedCornerShape(12.dp)).background(Pal.Lilac).clickable(onClick = onClick).padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = Pal.LilacInk)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Pal.LilacInk)
+    }
 }
 
 @Composable
@@ -311,7 +378,7 @@ fun MonthPicker(month: YearMonth, onMonth: (YearMonth) -> Unit, selected: Long?,
 
 @Composable
 private fun FilterDialog(f: TaskFilter, tags: List<String>, onChange: () -> Unit, onDismiss: () -> Unit) {
-    Dialog({ onChange(); onDismiss() }, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog({ onChange(); onDismiss() }, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", { onChange(); onDismiss() })
@@ -332,7 +399,6 @@ private fun FilterDialog(f: TaskFilter, tags: List<String>, onChange: () -> Unit
                         }
                     }
                 }
-                if (tags.isNotEmpty()) FormCard("Тег") { ChoiceGrid(tags.map { it to "#$it" }, { it == f.tag }, 3) { f.tag = if (f.tag == it) null else it } }
                 FormCard { Row(verticalAlignment = Alignment.CenterVertically) { Text("Показывать выполненные", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge); Switch(f.done, { f.done = it }) } }
             }
             Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

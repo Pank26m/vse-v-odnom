@@ -127,9 +127,11 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                 Row(Modifier.fillMaxWidth().height(rowH).zIndex(if (dragging) 1f else 0f)
                     .graphicsLayer { translationY = if (dragging) dragY else 0f }
                     .padding(vertical = 3.dp).then(if (dragging) Modifier.shadow(8.dp, RoundedCornerShape(14.dp)) else Modifier)
-                    .clip(RoundedCornerShape(14.dp)).background(if (e.done) t.bg.copy(alpha = 0.6f) else Pal.Card).clickable { edit = e }.padding(start = 2.dp),
+                    .clip(RoundedCornerShape(14.dp)).background(if (e.done) t.bg.copy(alpha = 0.6f) else Pal.Card).clickable { edit = e }.padding(start = 12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     CheckCircle(e.done, t.ink, 24.dp) { AppScope.io.launch { dao.upsertEntry(e.copy(done = !e.done)) } }
+                    // разделитель между галочкой и названием
+                    Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(28.dp).background(Pal.Ink.copy(alpha = 0.12f)))
                     Text(e.text, style = MaterialTheme.typography.bodyLarge.copy(textDecoration = if (e.done) TextDecoration.LineThrough else null), color = if (e.done) Pal.Muted else Pal.Ink, modifier = Modifier.weight(1f), maxLines = 1)
                     Box(Modifier.fillMaxHeight().width(48.dp).pointerInput(e.id) {
                         detectDragGestures(

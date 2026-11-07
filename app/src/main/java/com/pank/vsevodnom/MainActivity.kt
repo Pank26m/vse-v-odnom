@@ -54,7 +54,8 @@ import androidx.compose.foundation.background
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
-import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Map
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.rounded.Apps
 import com.pank.vsevodnom.ui.piggy.PiggyScreen
 import com.pank.vsevodnom.ui.random.RandomScreen
@@ -81,9 +82,6 @@ class MainActivity : FragmentActivity() {
         setContent {
             AppTheme {
                 val nav = rememberNavController()
-                LaunchedEffect(pendingRoute.value) {
-                    pendingRoute.value?.let { nav.navigate(it) { launchSingleTop = true }; pendingRoute.value = null }
-                }
                 val back: () -> Unit = { if (!nav.popBackStack()) finish() }
                 val entry by nav.currentBackStackEntryAsState()
                 val route = entry?.destination?.route ?: "home"
@@ -91,29 +89,45 @@ class MainActivity : FragmentActivity() {
                     Triple("home", "Главная", androidx.compose.material.icons.Icons.Rounded.Home),
                     Triple("todo", "ToDo", androidx.compose.material.icons.Icons.Rounded.Checklist),
                     Triple("money", "Финансы", androidx.compose.material.icons.Icons.Rounded.AccountBalanceWallet),
-                    Triple("calendar?new={new}", "Календарь", androidx.compose.material.icons.Icons.Rounded.CalendarMonth),
+                    Triple("map", "Карта", androidx.compose.material.icons.Icons.Rounded.Map),
                     Triple("apps", "Все", androidx.compose.material.icons.Icons.Rounded.Apps),
                 )
+                val tabRoutes = tabs.map { it.first }.toSet()
+                // Переход: вкладки нижнего бара всегда открываются «с главной» (назад — сразу на главную),
+                // поэтому из сводки или «Всех» можно уйти в ToDo и потом нажать любую другую вкладку.
+                val go: (String) -> Unit = { r0 ->
+                    val r = if (r0 == "calendar") "todo" else r0
+                    when {
+                        r == "home" -> nav.popBackStack("home", false)
+                        r in tabRoutes -> nav.navigate(r) { popUpTo("home"); launchSingleTop = true }
+                        else -> nav.navigate(r)
+                    }
+                }
+                LaunchedEffect(pendingRoute.value) {
+                    pendingRoute.value?.let { go(it); pendingRoute.value = null }
+                }
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
                 androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize().background(com.pank.vsevodnom.ui.theme.Pal.Bg)) {
-                val barVisible = tabs.any { it.first == route } && route != "money"  // у «Финансов» свой нижний бар
+                val barVisible = route in tabRoutes && route != "money"  // у «Финансов» свой нижний бар
+                val playerVisible = com.pank.vsevodnom.data.Player.current != null && route != "money"
                 val offline = !com.pank.vsevodnom.data.Net.online
                 if (offline) com.pank.vsevodnom.ui.common.OfflineBanner()
                 androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f).then(
                     // плашка уже заняла место под строкой состояния
                     if (offline) androidx.compose.ui.Modifier.consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.statusBars) else androidx.compose.ui.Modifier
                 ).then(
-                    // нижний бар сам учитывает системную панель — внутри экранов её отступ не нужен
-                    if (barVisible) androidx.compose.ui.Modifier.consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.navigationBars) else androidx.compose.ui.Modifier
+                    // нижний бар или плеер сами учитывают системную панель — внутри экранов её отступ не нужен
+                    if (barVisible || playerVisible) androidx.compose.ui.Modifier.consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.navigationBars) else androidx.compose.ui.Modifier
                 )) {
                 NavHost(
                     nav, startDestination = "home",
                     enterTransition = { fadeIn() }, exitTransition = { fadeOut() }
                 ) {
-                    composable("home") { HomeScreen(open = { nav.navigate(it) }) }
+                    composable("home") { HomeScreen(open = go) }
                     composable("todo") { TodoScreen() }
                     composable("money") { MoneyScreen(back) }
                     composable("power") { PowerScreen(back) }
-                    composable("apps") { AppsScreen(open = { nav.navigate(it) }) }
+                    composable("apps") { AppsScreen(open = go) }
                     composable("mood") { MoodScreen(back) }
                     composable("cart?new={new}", arguments = listOf(navArgument("new") { type = NavType.IntType; defaultValue = 0 })) { CartScreen(back, it.arguments?.getInt("new") == 1) }
                     composable("clock/{tab}", arguments = listOf(navArgument("tab") { type = NavType.IntType })) {
@@ -146,20 +160,20 @@ class MainActivity : FragmentActivity() {
                     composable("english") { com.pank.vsevodnom.ui.learn.EnglishScreen(back) }
                 }
                 }
+                if (playerVisible) com.pank.vsevodnom.ui.music.PlayerBar(if (barVisible) androidx.compose.ui.Modifier else androidx.compose.ui.Modifier.navigationBarsPadding())
                 if (barVisible) androidx.compose.material3.NavigationBar(containerColor = com.pank.vsevodnom.ui.theme.Pal.Card) {
                     tabs.forEach { (r, title, icon) ->
                         NavigationBarItem(
                             selected = route == r,
-                            onClick = {
-                                val target = if (r.startsWith("calendar")) "calendar" else r
-                                nav.navigate(target) { popUpTo("home") { saveState = true }; launchSingleTop = true; restoreState = true }
-                            },
+                            onClick = { go(r) },
                             icon = { androidx.compose.material3.Icon(icon, title) },
                             label = { androidx.compose.material3.Text(title) },
                             colors = androidx.compose.material3.NavigationBarItemDefaults.colors(indicatorColor = com.pank.vsevodnom.ui.theme.Pal.Lilac)
                         )
                     }
                 }
+                }
+                com.pank.vsevodnom.ui.music.FullPlayer()
                 }
             }
         }
@@ -174,7 +188,7 @@ class MainActivity : FragmentActivity() {
         // файл расписания, открытый через «Открыть с помощью»
         if (i?.action == Intent.ACTION_VIEW && i.data != null && i.getBooleanExtra("import_schedule", false)) {
             PendingImport.uri = i.data
-            return "calendar"
+            return "todo"
         }
         if (i?.action == Intent.ACTION_SEND) {
             i.getStringExtra(Intent.EXTRA_TEXT)?.let(::extractUrl)?.let { SharedLink.url = it; return "downloads" }
@@ -191,7 +205,7 @@ class MainActivity : FragmentActivity() {
             "passwords" -> "passwords"
             "clock" -> "clock/1"
             "weight" -> "weight"
-            "calendar" -> "calendar"
+            "calendar" -> "todo"
             "alerts" -> "alerts"
             "recorder" -> "recorder"
             "sms" -> "sms"

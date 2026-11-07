@@ -313,7 +313,7 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
     var gen by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
-    val secure = DialogProperties(usePlatformDefaultWidth = false, securePolicy = SecureFlagPolicy.SecureOn)
+    val secure = DialogProperties(usePlatformDefaultWidth = false, securePolicy = SecureFlagPolicy.SecureOn, decorFitsSystemWindows = false)
 
     fun save() {
         if (title.isBlank()) { Toast.makeText(ctx, "Нужно название", Toast.LENGTH_SHORT).show(); return }

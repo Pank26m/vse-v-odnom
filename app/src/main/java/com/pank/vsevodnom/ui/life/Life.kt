@@ -82,6 +82,7 @@ fun MoodScreen(onBack: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { AppCard(Modifier.fillMaxWidth()) { SectionLabel("Как ты сейчас?"); Spacer(Modifier.height(8.dp)); MoodPicker({ adding = it }) } }
             item { MoodChart(moods) }
+            item { MoodStats(moods) }
             if (moods.isEmpty()) item { EmptyHint("Записей пока нет") }
             items(moods, key = { it.id }) { m ->
                 AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
@@ -295,7 +296,7 @@ private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Un
         onDismiss()
     }
 
-    androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+    androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDismiss)

@@ -78,6 +78,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.github.junrar:junrar:7.5.5")
+    // RAR5 (и RAR4, 7z): libarchive 3.7.4. Версия 1.1.0 — новее требуют compileSdk 37
+    implementation("me.zhanghai.android.libarchive:library:1.1.0")
     implementation("org.apache.commons:commons-compress:1.21")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.4")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.4")

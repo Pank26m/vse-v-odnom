@@ -144,7 +144,7 @@ private fun MovieSearch(onDismiss: () -> Unit, onPicked: (MediaItem) -> Unit) {
         runCatching { Movies.search(q.trim()) }.onSuccess { hits = it }.onFailure { err = "Нет связи с поиском" }
         busy = false
     }
-    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
@@ -192,7 +192,7 @@ private fun MovieEditor(m0: MediaItem, onDone: () -> Unit) {
     val info = remember(m.details) { MovieInfo.fromItem(m) }
     fun save() { if (m.title.isNotBlank()) AppScope.io.launch { AppDb.get(ctx).todo().upsertMedia(m.copy(title = m.title.trim(), link = m.link.trim())) }; onDone() }
     fun open(u: String) = runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(if (u.startsWith("http") || u.startsWith("tg:")) u else "https://$u"))) }
-    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onDone) { Icon(Icons.Rounded.Close, "Закрыть") }

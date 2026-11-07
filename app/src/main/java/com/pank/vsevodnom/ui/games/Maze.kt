@@ -71,7 +71,7 @@ private class MazeGame(var level: Int = 1, var lives: Int = 3, var score: Int = 
     var want = 0 to 0
     val clouds = listOf(Color(0xFFE5485D), Color(0xFF8E5BD8), Color(0xFF4A86E8), Color(0xFFF2A33A)).mapIndexed { i, c -> Cloud(home[i % home.size], c, i).also { it.waitHome = i * 2.5f } }
     var fright = 0f; var combo = 0
-    var over = false; var started = false; var deathPause = 0f
+    var over by androidx.compose.runtime.mutableStateOf(false); var started by androidx.compose.runtime.mutableStateOf(false); var deathPause = 0f
     var mode = 0f   // время: тучки периодически «разбредаются», потом снова гонятся
 
     fun wall(x: Int, y: Int, cloud: Boolean): Boolean {

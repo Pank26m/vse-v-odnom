@@ -76,19 +76,41 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
     var edit by remember { mutableStateOf<TaskItem?>(null) }
     var habit by remember { mutableStateOf<Habit?>(null) }
 
-    val feedTasks = open.filter { it.dueDay != null && it.dueDay!! <= t0 }.sortedWith(compareBy({ it.dueDay }, { -it.priority }, { it.dueMinute ?: 9999 }))
+    var detail by remember { mutableStateOf<Habit?>(null) }
+    var bday by remember { mutableStateOf<Birthday?>(null) }
+    var gift by remember { mutableStateOf<Birthday?>(null) }
+    var doneTick by remember { mutableIntStateOf(0) }   // перерисовать после «поздравил»
 
-    Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (onBack != null) { RoundIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onBack); Spacer(Modifier.width(12.dp)) }
-            Text("ToDo", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "stats" }.padding(14.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Insights, null, tint = ACCENT, modifier = Modifier.size(20.dp)); Text(" Статистика", style = MaterialTheme.typography.labelLarge)
-            }
+    // переход из сводки: открыть конкретную задачу, привычку или дату
+    LaunchedEffect(TodoNav.target, tasks, habits, dates) {
+        val t = TodoNav.target ?: return@LaunchedEffect
+        val kind = t.substringBefore(':'); val id = t.substringAfter(':').toLongOrNull()
+        when (kind) {
+            "page" -> { TodoNav.target = null; page = t.substringAfter(':') }
+            "task" -> tasks.firstOrNull { it.id == id }?.let { TodoNav.target = null; edit = it }
+            "habit" -> habits.firstOrNull { it.id == id }?.let { TodoNav.target = null; detail = it }
+            "bday" -> dates.firstOrNull { it.id == id }?.let { TodoNav.target = null; bday = it }
         }
-        LazyColumn(contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
+    }
+
+    val tick = doneTick
+    fun bdaysOn(d: LocalDate) = dates.filter { it.day == d.dayOfMonth && it.month == d.monthValue }
+    fun tasksOn(d: LocalDate) = open.filter { if (d == today) (it.dueDay ?: Long.MAX_VALUE) <= t0 else it.dueDay == d.toEpochDay() }
+        .sortedWith(compareBy({ it.dueDay }, { -it.priority }, { it.dueMinute ?: 9999 }))
+
+    com.pank.vsevodnom.ui.calendar.CalendarScreen(
+        onBack = onBack,
+        title = "ToDo",
+        header = {
+            item(key = "tiles") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // «Статистика» — ровно по ширине плитки под ней
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Spacer(Modifier.weight(1f)); Spacer(Modifier.weight(1f))
+                        Row(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "stats" }.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                            Icon(Icons.Rounded.Insights, null, tint = ACCENT, modifier = Modifier.size(20.dp)); Text(" Статистика", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HubTile("Задачи", Icons.Rounded.TaskAlt, Tints.Sky, "$todayT на сегодня", if (overdue > 0) "$overdue просрочено" else "${open.size} открыто", overdue > 0, Modifier.weight(1f)) { page = "tasks" }
                         HubTile("Привычки", Icons.Rounded.Loop, Tints.Mint, if (dueH.isEmpty()) "сегодня нет" else "${dueH.size - undoneH.size} из ${dueH.size}", "${habits.size} всего", false, Modifier.weight(1f)) { page = "habits" }
@@ -99,29 +121,28 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
                         HubTile("Покупки", Icons.Rounded.ShoppingCart, Tints.Peach, if (shopLeft > 0) "купить $shopLeft" else "всё куплено", "${shopIds.size} списков", false, Modifier.weight(1f)) { page = "shop" }
                         HubTile("Даты", Icons.Rounded.Cake, Tints.Rose, soonDates.firstOrNull()?.name ?: "${dates.size}", soonDates.firstOrNull()?.let { "через ${Duration.between(today.atStartOfDay(), nextOccurrence(it).atStartOfDay()).toDays()} дн." } ?: "дни рождения", false, Modifier.weight(1f)) { page = "dates" }
                     }
+                    Text("Календарь", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
                 }
             }
-            val nothing = feedTasks.isEmpty() && undoneH.isEmpty() && soonDates.isEmpty() && shopLeft == 0
-            item { Text(if (nothing) "Всё сделано — незавершённого нет" else "Не завершено", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp)) }
-            items(feedTasks, key = { "t${it.id}" }) { t -> Labeled("Задача", Tints.Sky) { TaskRow(t) { edit = t } } }
-            items(undoneH, key = { "h${it.id}" }) { h ->
+        },
+        dots = { d ->
+            (if (tasksOn(d).isNotEmpty() && !d.isBefore(today)) listOf(Tints.Sky.ink) else emptyList()) +
+                (if (bdaysOn(d).isNotEmpty()) listOf(Pal.RoseInk) else emptyList())
+        },
+        dayExtras = { d ->
+            val k = d.toEpochDay()
+            val dt = tasksOn(d)
+            if (d.isBefore(today)) return@CalendarScreen
+            items(dt, key = { "t$k-${it.id}" }) { t -> Labeled("Задача", Tints.Sky) { TaskRow(t) { edit = t } } }
+            if (d == today) items(undoneH, key = { "h$k-${it.id}" }) { h ->
                 Leaving(h.id to t0, onLeft = { }) { _, leave ->
-                    Labeled("Привычка", Tints.Mint) {
-                        HabitRowFeed(h, logs, onDone = leave) { habit = h }
-                    }
+                    Labeled("Привычка", Tints.Mint) { HabitRowFeed(h, logs, onDone = leave) { detail = h } }
                 }
             }
-            items(soonDates, key = { "d${it.id}" }) { b ->
-                val days = Duration.between(today.atStartOfDay(), nextOccurrence(b).atStartOfDay()).toDays()
-                Labeled("Дата", Tints.Rose) {
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "dates" }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Cake, null, tint = DATE_COLORS[b.tint % DATE_COLORS.size])
-                        Text("  " + b.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        Text(when (days) { 0L -> "сегодня"; 1L -> "завтра"; else -> "через $days дн." }, style = MaterialTheme.typography.labelLarge, color = Pal.RoseInk)
-                    }
-                }
+            items(bdaysOn(d).filter { tick >= 0 && (d != today || !BdayDone.isDone(ctx, it.id)) }, key = { "d$k-${it.id}" }) { b ->
+                Labeled("Дата", Tints.Rose) { BirthdayRow(b, d, onOpen = { bday = b }) { doneTick++ } }
             }
-            if (shopLeft > 0) item {
+            if (d == today && shopLeft > 0) item(key = "shop$k") {
                 Labeled("Покупки", Tints.Peach) {
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "shop" }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.ShoppingCart, null, tint = Pal.PeachInk)
@@ -130,10 +151,34 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
                     }
                 }
             }
-        }
-    }
+        },
+    )
     edit?.let { TaskEditor(it, tasks.flatMap { t -> t.tagList() }.distinct()) { edit = null } }
     habit?.let { h -> HabitEditor(h) { habit = null } }
+    detail?.let { h -> HabitDetail(habits.firstOrNull { it.id == h.id } ?: h, logs, onEdit = { habit = h; detail = null }) { detail = null } }
+    bday?.let { DateEditor(it, onGift = { g -> gift = g }) { bday = null } }
+    gift?.let { b -> GiftDialog(b) { gift = null } }
+}
+
+/** Куда перейти внутри ToDo, когда открываем раздел снаружи (из сводки): «task:ID», «habit:ID», «bday:ID», «page:shop». */
+object TodoNav { var target by mutableStateOf<String?>(null) }
+
+/** Дата (день рождения) с отметкой «поздравил»: после нажатия плавно уезжает. */
+@Composable
+fun BirthdayRow(b: Birthday, day: LocalDate, onOpen: () -> Unit, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val today = LocalDate.now()
+    Leaving(b.id to day, onLeft = { BdayDone.mark(ctx, b.id, day); onDone() }) { done, leave ->
+        val col = DATE_COLORS[b.tint % DATE_COLORS.size]
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onOpen).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(col.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Cake, null, tint = col) }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(b.name, style = MaterialTheme.typography.titleSmall)
+                Text((if (b.kind == "birthday") "День рождения" else "Дата") + (b.year?.let { " · ${day.year - it}" } ?: "") + if (day == today) " · сегодня" else "", style = MaterialTheme.typography.bodySmall)
+            }
+            if (day == today) CheckCircle(done, col, 26.dp) { leave() }
+        }
+    }
 }
 
 /** Привычка в общей ленте: при отметке плавно уезжает (выполненное не мешает). */

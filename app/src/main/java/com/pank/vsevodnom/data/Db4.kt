@@ -23,6 +23,7 @@ data class TaskItem(
     @ColumnInfo(defaultValue = "") val tags: String = "",          // через запятую
     @ColumnInfo(defaultValue = "") val image: String = "",         // путь к фото внутри приложения
     val durationMin: Int? = null,                                  // длительность (для «17:00–18:00»)
+    @ColumnInfo(defaultValue = "") val attachments: String = "",   // JSON вложений (как у заметок): голос, файлы, контакты, место
 )
 
 @Entity(tableName = "habit")

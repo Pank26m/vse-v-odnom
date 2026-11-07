@@ -32,7 +32,7 @@ private class CellsGame {
     val bots = ArrayList<Blob>()
     val food = ArrayList<Triple<Float, Float, Color>>()
     var aim = Offset.Zero   // направление пальца относительно центра экрана, 0…1
-    var over = false; var started = false
+    var over by androidx.compose.runtime.mutableStateOf(false); var started by androidx.compose.runtime.mutableStateOf(false)
     var maxMass = 20f; var time = 0f
     init { repeat(500) { food += rf() }; repeat(14) { spawnBot() } }
     private fun rf() = Triple(Random.nextFloat() * WORLD, Random.nextFloat() * WORLD, CELL_COLORS.random())

@@ -24,7 +24,7 @@ import com.pank.vsevodnom.ui.theme.Pal
 @Composable
 fun ScreenScaffold(
     title: String,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -40,7 +40,7 @@ fun ScreenScaffold(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            RoundIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onBack)
+            if (onBack != null) RoundIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onBack)
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             actions()
         }

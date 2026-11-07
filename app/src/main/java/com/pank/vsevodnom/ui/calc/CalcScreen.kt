@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -113,7 +116,7 @@ object Expr {
                 return when (name) {
                     "x" -> x ?: throw IllegalArgumentException("x есть только в уравнениях и графиках")
                     "e" -> E
-                    "sin" -> trig(::sin, unary()); "cos" -> trig(::cos, unary()); "tan" -> trig(::tan, unary())
+                    "sin" -> trig(::sin, unary()); "cos" -> trig(::cos, unary()); "tan" -> trig(::tan, unary()); "cot" -> 1.0 / trig(::tan, unary())
                     "asin" -> asin(unary()).let { if (degrees) Math.toDegrees(it) else it }
                     "acos" -> acos(unary()).let { if (degrees) Math.toDegrees(it) else it }
                     "atan" -> atan(unary()).let { if (degrees) Math.toDegrees(it) else it }
@@ -292,6 +295,9 @@ class MathEditor {
     }
     fun power() { val p = MSup(); enter(p, p.exp) }
     fun square() { insert(MSup(MRow(mutableListOf(MChar('2'))))) }
+    fun cube() { insert(MSup(MRow(mutableListOf(MChar('3'))))) }
+    fun cbrt() { val r = MRoot(MRow(mutableListOf(MChar('3')))); enter(r, r.body) }
+    fun parens() { char('('); char(')'); left() }
     fun sqrt() { val r = MRoot(null); enter(r, r.body) }
     fun nroot() { val r = MRoot(MRow()); enter(r, r.index!!) }
     fun func(name: String) { val f = MFunc(name); enter(f, f.arg) }
@@ -353,7 +359,7 @@ fun CalcScreen(onBack: () -> Unit) {
     ScreenScaffold("Калькулятор", onBack) { MathCalculator() }
 }
 
-private val FUN_KEYS = setOf("sin", "cos", "tan", "ln", "log")
+private val FUN_KEYS = setOf("sin", "cos", "tan", "cot", "asin", "acos", "atan", "ln", "log")
 
 @Composable
 private fun MathCalculator() {
@@ -384,10 +390,13 @@ private fun MathCalculator() {
         if (r.startsWith("= ")) ed.load(r.removePrefix("= ").replace(" ", ""))
     }
 
+    var showHistory by remember { mutableStateOf(true) }
     fun press(k: String) {
         when (k) {
             "C" -> ed.clear(); "⌫" -> ed.backspace(); "←" -> ed.left(); "→" -> ed.right(); "↑" -> ed.up(); "↓" -> ed.down()
-            "a/b" -> ed.fraction(); "xⁿ" -> ed.power(); "x²" -> ed.square(); "√" -> ed.sqrt(); "ⁿ√" -> ed.nroot(); "|a|" -> ed.abs()
+            "a/b" -> ed.fraction(); "xⁿ" -> ed.power(); "x²" -> ed.square(); "x³" -> ed.cube(); "√" -> ed.sqrt(); "ⁿ√" -> ed.nroot(); "∛" -> ed.cbrt(); "|a|" -> ed.abs()
+            "( )" -> ed.parens(); "eˣ" -> { ed.char('e'); ed.power() }; "10ˣ" -> { ed.text("10"); ed.power() }; "n!" -> ed.char('!')
+            "DEG", "RAD" -> { Expr.degrees = !Expr.degrees; deg = Expr.degrees }
             "✓" -> save()
             in FUN_KEYS -> ed.func(k)
             else -> ed.text(k)
@@ -397,11 +406,11 @@ private fun MathCalculator() {
     Column(Modifier.fillMaxSize()) {
         // история сверху
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp), reverseLayout = true, horizontalAlignment = Alignment.End) {
-            items(history.take(60)) { h ->
+            if (showHistory) items(history.take(60)) { h ->
                 Text(h, style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, textAlign = TextAlign.End,
                     modifier = Modifier.fillMaxWidth().clickable { h.substringAfterLast("= ", "").replace(" ", "").takeIf { it.isNotBlank() }?.let { ed.text(it) } }.padding(vertical = 5.dp))
             }
-            if (history.isNotEmpty()) item { TextButton({ history = emptyList(); History.save(ctx, history) }) { Text("Очистить историю") } }
+            if (showHistory && history.isNotEmpty()) item { TextButton({ history = emptyList(); History.save(ctx, history) }) { Text("Очистить историю") } }
         }
         // формула
         Box(Modifier.fillMaxWidth().heightIn(min = 96.dp).horizontalScroll(rememberScrollState(), reverseScrolling = true).padding(horizontal = 20.dp, vertical = 8.dp),
@@ -425,32 +434,88 @@ private fun MathCalculator() {
             Text("y = … · график", style = MaterialTheme.typography.labelSmall)
             GraphCanvas(lin, 10f, Modifier.fillMaxSize())
         }
-        // клавиатура
-        val keys = listOf(
-            listOf("x", "=", "(", ")", "a/b", "xⁿ"),
-            listOf("√", "ⁿ√", "π", "e", "|a|", "!"),
-            listOf("sin", "cos", "tan", "ln", "log", "x²"),
-            listOf("7", "8", "9", "÷", "⌫", "C"),
-            listOf("4", "5", "6", "×", "←", "→"),
-            listOf("1", "2", "3", "−", "↑", "↓"),
-            listOf("0", ",", "%", "+", "✓"),
-        )
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            keys.forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEach { k ->
-                        val (bg, fg) = when {
-                            k == "✓" -> Pal.Ink to Color.White
-                            k.length == 1 && k[0] in OPS -> Pal.Butter to Pal.ButterInk
-                            k in setOf("C", "⌫", "←", "→", "↑", "↓") -> Pal.Lilac to Pal.LilacInk
-                            k[0].isDigit() || k == "," -> Pal.Card to Pal.Ink
-                            else -> Pal.Sky to Pal.SkyInk
-                        }
-                        Key(k, bg, fg, 50.dp, Modifier.weight(if (k == "✓") 2.1f else 1f)) { press(k) }
-                    }
+        // клавиатура в духе Photomath: верхняя строка действий, вкладки, сетка; клавиши с точкой раскрывают варианты
+        PhotoKeyboard(deg, showHistory, { showHistory = !showHistory }, ::press)
+    }
+}
+
+private class K(val label: String, val alts: List<String> = emptyList())
+
+private val TABS = listOf("+ −\n× ÷", "f(x)  e\nlog  ln", "sin cos\ntan cot")
+private val LEFT = listOf(
+    listOf(K("( )", listOf("( )", "(", ")", "|a|")), K("e", listOf("e", "n!", "|a|")), K("a/b", listOf("a/b", "÷")), K("√", listOf("√", "∛", "ⁿ√")),
+        K("x²", listOf("x²", "x³", "xⁿ")), K("x"), K("π", listOf("π", "e")), K("%")),
+    listOf(K("ln"), K("log"), K("eˣ"), K("10ˣ"), K("|a|"), K("n!"), K("e"), K("x")),
+    listOf(K("sin", listOf("sin", "asin")), K("cos", listOf("cos", "acos")), K("tan", listOf("tan", "atan")), K("cot"),
+        K("asin"), K("acos"), K("atan"), K("DEG")),
+)
+private val DIGITS = listOf(listOf("7", "8", "9", "÷"), listOf("4", "5", "6", "×"), listOf("1", "2", "3", "−"), listOf("0", ",", "=", "+"))
+private val KeyLine = Color(0xFFE2E2E6)
+private val DigitBg = Color(0xFFF2F2F4)
+
+@Composable
+private fun PhotoKeyboard(deg: Boolean, historyOn: Boolean, onHistory: () -> Unit, press: (String) -> Unit) {
+    var tab by remember { mutableIntStateOf(0) }
+    var popup by remember { mutableStateOf<K?>(null) }
+    Column(Modifier.fillMaxWidth().background(Color.White).padding(bottom = 4.dp)) {
+        // верхняя строка: очистить, история, курсор, ввод, стереть
+        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            TopKey("C") { press("C") }
+            TopKey("↺", if (historyOn) Pal.LilacInk else Pal.Ink) { onHistory() }
+            TopKey("←") { press("←") }
+            TopKey("→") { press("→") }
+            TopKey("↵") { press("✓") }
+            TopKey("⌫") { press("⌫") }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TABS.forEachIndexed { i, t ->
+                Box(Modifier.weight(1f).height(46.dp).clip(RoundedCornerShape(23.dp)).background(if (tab == i) Pal.Ink else Color.White)
+                    .border(1.dp, if (tab == i) Pal.Ink else KeyLine, RoundedCornerShape(23.dp)).clickable { tab = i }, contentAlignment = Alignment.Center) {
+                    Text(t, style = MaterialTheme.typography.labelMedium, color = if (tab == i) Color.White else Pal.Ink, textAlign = TextAlign.Center, lineHeight = 14.sp)
                 }
             }
         }
+        Spacer(Modifier.height(8.dp))
+        val left = LEFT[tab]
+        Column(Modifier.border(0.5.dp, KeyLine)) {
+            for (r in 0 until 4) Row(Modifier.height(IntrinsicSize.Min)) {
+                for (c in 0 until 2) {
+                    val k = left[r * 2 + c]
+                    val label = if (k.label == "DEG") (if (deg) "DEG" else "RAD") else k.label
+                    Box(Modifier.weight(1f)) {
+                        GridKey(label, Color.White, dot = k.alts.isNotEmpty()) { if (k.alts.isNotEmpty()) popup = k else press(label) }
+                        if (popup === k) androidx.compose.ui.window.Popup(alignment = Alignment.BottomStart, offset = androidx.compose.ui.unit.IntOffset(0, -170), onDismissRequest = { popup = null },
+                            properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
+                            Row(Modifier.shadow(10.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Color.White).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                k.alts.forEach { a ->
+                                    Box(Modifier.size(64.dp, 58.dp).clip(RoundedCornerShape(10.dp)).background(if (a == k.label) DigitBg else Color.White).clickable { popup = null; press(a) }, contentAlignment = Alignment.Center) {
+                                        Text(a, style = MaterialTheme.typography.titleLarge, color = Pal.Ink)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                DIGITS[r].forEachIndexed { i, d ->
+                    Box(Modifier.weight(1f)) { GridKey(d, if (i < 3) DigitBg else Color.White) { press(d) } }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TopKey(t: String, color: Color = Pal.Ink, onClick: () -> Unit) {
+    Box(Modifier.size(52.dp, 44.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(t, style = MaterialTheme.typography.titleLarge, color = color)
+    }
+}
+
+@Composable
+private fun GridKey(t: String, bg: Color, dot: Boolean = false, onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth().height(62.dp).background(bg).border(0.5.dp, KeyLine).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(t, style = if (t.length > 3) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge, color = Pal.Ink)
+        if (dot) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp).size(5.dp).clip(CircleShape).background(Color(0xFFD0284F)))
     }
 }
 

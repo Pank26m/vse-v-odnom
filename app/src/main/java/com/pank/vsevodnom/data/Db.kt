@@ -320,7 +320,7 @@ interface LifeDao {
         TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
         Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class, Deck::class, Card::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -342,6 +342,13 @@ abstract class AppDb : RoomDatabase() {
         fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
 
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        /** v7 → v8: вложения у задач. */
+        val M7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `task` ADD COLUMN `attachments` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** v6 → v7: колоды и карточки для обучения. */
         val M6_7 = object : androidx.room.migration.Migration(6, 7) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -449,7 +456,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7)
+                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7, M7_8)
                 .build().also { inst = it }
         }
     }

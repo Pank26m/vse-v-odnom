@@ -102,10 +102,10 @@ fun HabitsPage(onBack: () -> Unit) {
             }
             LazyColumn(contentPadding = PaddingValues(16.dp, 10.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (habits.isNotEmpty()) item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        RateTile("Неделя", wDone, wDue, Modifier.weight(1f))
-                        RateTile("Месяц", mDone, mDue, Modifier.weight(1f))
-                        Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(Pal.Card).padding(12.dp)) {
+                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        RateTile("Неделя", wDone, wDue, Modifier.weight(1f).fillMaxHeight())
+                        RateTile("Месяц", mDone, mDue, Modifier.weight(1f).fillMaxHeight())
+                        Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(Pal.Card).padding(12.dp)) {
                             Text("Лучшая серия", style = MaterialTheme.typography.labelSmall)
                             StreakFlame(habits.maxOfOrNull { Todo.streak(it, logs, today) } ?: 0, true, 24.dp)
                         }
@@ -176,7 +176,7 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
     var emojiOpen by remember { mutableStateOf(h0.id == 0L) }
     val reminders = remember { mutableStateListOf<Int>().apply { addAll(HabitReminders.times(h0)) } }
     val t = Tints.all[h.tint % 6]
-    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
@@ -272,7 +272,7 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
 // ================= Подробности привычки =================
 
 @Composable
-private fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onDismiss: () -> Unit) {
+internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val today = LocalDate.now()
     val t = Tints.all[h.tint % 6]
@@ -281,7 +281,7 @@ private fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onDi
     val (wd, wn) = habitRate(h, logs, today.minusDays((today.dayOfWeek.value - 1).toLong()), today)
     val (md, mn) = habitRate(h, logs, month.atDay(1), month.atEndOfMonth().coerceAtMost(today))
     val total = logs.count { it.habitId == h.id && it.count >= h.perDay }
-    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDismiss)

@@ -67,16 +67,21 @@ import java.time.format.DateTimeFormatter
 val NOTE_COLORS = listOf(Color(0xFFFFFFFF), Color(0xFFFFF4C7), Color(0xFFDDF2E6), Color(0xFFDCEBFA), Color(0xFFF8DDE6), Color(0xFFE7E1F7), Color(0xFFFCE5D6), Color(0xFFE3E7EC))
 private const val TRASH_DAYS = 60
 
-/** Вложения заметки: фото, голос, рисунки, место. */
-data class NoteAtt(val photos: List<String> = emptyList(), val audio: List<String> = emptyList(), val drawings: List<String> = emptyList(), val place: Triple<String, Double, Double>? = null) {
-    fun isEmpty() = photos.isEmpty() && audio.isEmpty() && drawings.isEmpty() && place == null
+/** Вложения заметки или задачи: фото, голос, рисунки, место, файлы («путь\tимя»), контакты («имя\tтелефон»). */
+data class NoteAtt(
+    val photos: List<String> = emptyList(), val audio: List<String> = emptyList(), val drawings: List<String> = emptyList(),
+    val place: Triple<String, Double, Double>? = null, val files: List<String> = emptyList(), val contacts: List<String> = emptyList(),
+) {
+    fun isEmpty() = photos.isEmpty() && audio.isEmpty() && drawings.isEmpty() && place == null && files.isEmpty() && contacts.isEmpty()
     fun toJson(): String = if (isEmpty()) "" else JSONObject().put("photos", JSONArray(photos)).put("audio", JSONArray(audio)).put("drawings", JSONArray(drawings))
+        .put("files", JSONArray(files)).put("contacts", JSONArray(contacts))
         .apply { place?.let { put("place", JSONObject().put("name", it.first).put("lat", it.second).put("lon", it.third)) } }.toString()
     companion object {
         private fun l(o: JSONObject, k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
         fun of(s: String): NoteAtt = runCatching {
             val o = JSONObject(s)
-            NoteAtt(l(o, "photos"), l(o, "audio"), l(o, "drawings"), o.optJSONObject("place")?.let { Triple(it.optString("name"), it.getDouble("lat"), it.getDouble("lon")) })
+            NoteAtt(l(o, "photos"), l(o, "audio"), l(o, "drawings"), o.optJSONObject("place")?.let { Triple(it.optString("name"), it.getDouble("lat"), it.getDouble("lon")) },
+                l(o, "files"), l(o, "contacts"))
         }.getOrDefault(NoteAtt())
     }
 }
@@ -214,6 +219,8 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
     DisposableEffect(Unit) { onDispose { voice.release() } }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { l -> att = att.copy(photos = att.photos + l.mapNotNull { copyIntoApp(ctx, it, "notes") }) }
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) voice.start() }
+    val pickFile = rememberFilePicker("notes") { f -> att = att.copy(files = att.files + f) }
+    val pickContact = rememberContactPicker { c -> att = att.copy(contacts = att.contacts + c) }
     fun current() = n0.copy(title = title.trim(), body = body.text.trimEnd(), tint = tint, pinned = pinned, tags = tags.joinToString(","), attachments = att.toJson(), updatedAt = System.currentTimeMillis(),
         createdAt = if (n0.createdAt == 0L) System.currentTimeMillis() else n0.createdAt)
     fun save() {
@@ -223,7 +230,7 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
         AppScope.io.launch { dao.upsertNote(n) }
         onDone()
     }
-    Dialog({ save() }, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog({ save() }, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(NOTE_COLORS[tint % NOTE_COLORS.size]).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton({ save() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Сохранить и выйти") }
@@ -261,6 +268,7 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
                     }
                 }
                 att.audio.forEach { a -> if (File(a).exists()) VoiceChip(a, voice, onDelete = { voice.stopPlay(); att = att.copy(audio = att.audio - a); File(a).delete() }) }
+                FilesAndContacts(att) { att = it }
                 if (voice.recording) Row(verticalAlignment = Alignment.CenterVertically) { RecordingTimer(); TextButton({ voice.stop()?.let { att = att.copy(audio = att.audio + it) } }) { Text("Стоп") } }
                 att.place?.let { (name, lat, lon) ->
                     Row(Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.7f)).clickable {
@@ -280,7 +288,7 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
                 Spacer(Modifier.height(40.dp))
             }
             // нижняя панель вложений
-            Row(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.85f)).padding(4.dp), horizontalArrangement = Arrangement.SpaceAround) {
+            Row(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.85f)).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 IconButton({ photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.AddPhotoAlternate, "Фото") }
                 IconButton({
                     if (voice.recording) voice.stop()?.let { att = att.copy(audio = att.audio + it) }
@@ -289,6 +297,8 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
                 }) { Icon(if (voice.recording) Icons.Rounded.Stop else Icons.Rounded.Mic, "Голос", tint = if (voice.recording) Pal.RoseInk else Pal.Ink) }
                 IconButton({ panel = "draw" }) { Icon(Icons.Rounded.Draw, "Рисунок") }
                 IconButton({ panel = "place" }) { Icon(Icons.Rounded.AddLocationAlt, "Место") }
+                IconButton({ pickFile() }) { Icon(Icons.Rounded.AttachFile, "Файл") }
+                IconButton({ pickContact() }) { Icon(Icons.Rounded.PersonAddAlt, "Контакт") }
                 IconButton({ panel = if (panel == "tags") null else "tags" }) { Icon(Icons.Rounded.Sell, "Теги") }
                 IconButton({ body = Rich.toggleCheckAtCursor(body) }) { Icon(Icons.Rounded.Checklist, "Список дел") }
             }
@@ -300,7 +310,7 @@ fun NoteEditor(n0: Note, onDone: () -> Unit) {
 
 /** Место из «Карты»: сохранённые места или «где я сейчас». */
 @Composable
-private fun PlacePicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double>) -> Unit) {
+internal fun PlacePicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double>) -> Unit) {
     val ctx = LocalContext.current
     val places by remember { AppDb.get(ctx).map().places() }.collectAsState(initial = emptyList())
     AlertDialog(onDismissRequest = onDismiss, confirmButton = { TextButton(onDismiss) { Text("Отмена") } }, title = { Text("Прикрепить место") },
@@ -326,7 +336,7 @@ private fun PlacePicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, D
 
 /** Рисование пальцем: цвета, толщина, отмена; сохраняется картинкой в заметку. */
 @Composable
-private fun DrawingDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
+internal fun DrawingDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
     val ctx = LocalContext.current
     data class Stroke1(val pts: List<Offset>, val color: Color, val w: Float)
     val strokes = remember { mutableStateListOf<Stroke1>() }
@@ -350,7 +360,7 @@ private fun DrawingDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
         f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
         onSave(f.absolutePath)
     }
-    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onDismiss) { Icon(Icons.Rounded.Close, "Закрыть") }

@@ -92,6 +92,7 @@ object Player {
     }
 
     fun toggle() { val m = mp ?: return; if (m.isPlaying) { m.pause(); playing = false } else { m.start(); playing = true }; refresh() }
+    fun jump(i: Int) { if (i in queue.indices) start(i) }
     fun next() { if (queue.isEmpty()) return; start(if (shuffle) queue.indices.random() else (index + 1) % queue.size) }
     fun prev() { if (queue.isEmpty()) return; if (position() > 4000) seek(0) else start(if (index > 0) index - 1 else queue.lastIndex) }
     fun stop() { runCatching { mp?.release() }; mp = null; playing = false; index = -1; app?.let { it.stopService(Intent(it, MusicService::class.java)) } }

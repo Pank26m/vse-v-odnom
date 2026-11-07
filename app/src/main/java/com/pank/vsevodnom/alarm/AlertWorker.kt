@@ -29,18 +29,16 @@ class AlertWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
         if (!AlertsApi.notifyEnabled(applicationContext)) return Result.success()
         val st = runCatching { AlertsApi.fetch(applicationContext) }.getOrElse { return Result.retry() }
         val prefs = applicationContext.getSharedPreferences("alerts", Context.MODE_PRIVATE)
-        listOf(AlertsApi.KYIV_CITY to "Киев").forEachIndexed { i, (key, title) ->
-            if (!st.known(key)) return@forEachIndexed
-            val now = st.of(key)
-            val was = prefs.getString("lvl_$key", "NONE")
-            if (now.name != was) {
-                prefs.edit().putString("lvl_$key", now.name).apply()
-                val where = st.districts[key].orEmpty().take(3).joinToString(", ")
-                when (now) {
-                    com.pank.vsevodnom.data.AlertLevel.FULL -> notify(100 + i, "Тревога: $title", "Пройди в укрытие")
-                    com.pank.vsevodnom.data.AlertLevel.PARTIAL -> notify(100 + i, "Тревога в части: $title", where.ifBlank { "Отдельные районы" })
-                    com.pank.vsevodnom.data.AlertLevel.NONE -> notify(100 + i, "Отбой: $title", "Тревога закончилась")
-                }
+        // уровень по alert_level: 2 — красная, 1 — жёлтая (угроза), 0 — нет
+        val now = com.pank.vsevodnom.ui.home.kyivAlertLevel(st) ?: return Result.success()
+        val was = prefs.getString("lvl2_kyiv", null)?.toIntOrNull() ?: 0
+        if (now != was) {
+            prefs.edit().putString("lvl2_kyiv", now.toString()).apply()
+            val threats = st.items.filter { it.oblast == AlertsApi.KYIV_CITY }.flatMap { it.threats }.map { com.pank.vsevodnom.ui.alerts.threatName(it.type) }.distinct().joinToString(", ")
+            when (now) {
+                2 -> notify(100, "Тревога: Киев", threats.ifBlank { "Пройди в укрытие" })
+                1 -> notify(100, "Угроза в Киеве (жёлтая)", threats.ifBlank { "Будь внимателен" })
+                else -> notify(100, "Отбой: Киев", "Тревога закончилась")
             }
         }
         return Result.success()

@@ -104,15 +104,6 @@ fun AlertsScreen(onBack: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val s = state
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatusCard("Киев", s, AlertsApi.KYIV_CITY, Modifier.weight(1f))
-                    StatusCard("Киевская обл.", s, AlertsApi.KYIV_OBL, Modifier.weight(1f))
-                }
-            }
-            s?.districts?.get(AlertsApi.KYIV_OBL)?.takeIf { it.isNotEmpty() }?.let { d ->
-                item { AppCard(Modifier.fillMaxWidth(), color = FillYellow.copy(alpha = 0.45f)) { Text("В области тревога здесь:", style = MaterialTheme.typography.labelLarge); Text(d.joinToString("\n"), style = MaterialTheme.typography.bodyMedium) } }
-            }
-            item {
                 AppCard(Modifier.fillMaxWidth(), padding = 10.dp) {
                     AlertMap(s, selected, { selected = it }, Modifier.fillMaxWidth().aspectRatio(AlertGeo.W / AlertGeo.H))
                     Spacer(Modifier.height(8.dp))
@@ -122,6 +113,12 @@ fun AlertsScreen(onBack: () -> Unit) {
                         Spacer(Modifier.width(4.dp)); Dot(FillPartial); Text("в части района", style = MaterialTheme.typography.labelMedium)
                     }
                     Text("Два пальца — приблизить, нажми на район — подробности, двойное нажатие — сброс.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                }
+            }
+            item {
+                AppCard(Modifier.fillMaxWidth(), padding = 10.dp) {
+                    Text("Киев и Киевская область", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(4.dp, 2.dp, 4.dp, 6.dp))
+                    AlertMap(s, selected, { selected = it }, Modifier.fillMaxWidth().aspectRatio(mapAspect(AlertsApi.KYIV_OBL)), focus = AlertsApi.KYIV_OBL)
                 }
             }
             selected?.let { sel -> item { SelectedCard(s, sel) { selected = null } } }
@@ -192,17 +189,4 @@ fun AlertsScreen(onBack: () -> Unit) {
 @Composable
 private fun Dot(c: Color) = Box(Modifier.size(10.dp).clip(CircleShape).background(c))
 
-@Composable
-private fun StatusCard(title: String, s: AlertState?, key: String, modifier: Modifier) {
-    val known = s?.known(key) == true
-    val l = if (known) s!!.of(key) else null
-    val bg = when (l) { AlertLevel.FULL -> FillRed; AlertLevel.PARTIAL -> FillYellow; AlertLevel.NONE -> FillCalm; null -> Pal.Card }
-    AppCard(modifier.heightIn(min = 120.dp), color = bg) {
-        Text(title, style = MaterialTheme.typography.labelLarge, color = Pal.Ink)
-        Spacer(Modifier.height(6.dp))
-        Text(when (l) { AlertLevel.FULL -> "Тревога"; AlertLevel.PARTIAL -> "Частично"; AlertLevel.NONE -> "Спокойно"; null -> if (s == null) "…" else "Нет данных" },
-            style = MaterialTheme.typography.headlineMedium)
-        s?.since?.get(key)?.let { if (l != AlertLevel.NONE) Text(sinceText(it), style = MaterialTheme.typography.bodySmall) }
-    }
-}
 

@@ -65,35 +65,4 @@ class ArcadeTest {
         }
         assertNotNull(g.winner, "партия ботов заканчивается за $turns ходов")
     }
-
-    @Test fun motoRidesForward() {
-        val g = MotoGame(1)
-        g.started = true; g.gas = true
-        var minHeadClear = Float.MAX_VALUE
-        repeat(60 * 8) { g.step(1f / 60f) }   // 8 секунд газа
-        assertFalse(g.crashed, "на первом уровне просто газ не должен ронять гонщика за 8 с")
-        assertTrue(g.center.x > 400f, "уехал вперёд: ${g.center.x}")
-        // колёса не проваливаются сквозь землю
-        listOf(g.rear, g.front).forEach { w ->
-            val (cp, _) = g.track.closest(w.p, 200f)!!
-            assertTrue(w.p.y <= cp.y + 2f, "колесо над землёй")
-        }
-        assertTrue(minHeadClear > 0)
-    }
-
-    @Test fun motoAllLevelsFinishable() {
-        // автопилот: держит скорость, в воздухе выравнивает байк — все трассы должны быть проходимы
-        for (l in 1..8) {
-            val g = MotoGame(l); g.started = true
-            var t = 0f
-            while (!g.finished && !g.crashed && t < 300f) {
-                val tilt = kotlin.math.atan2(g.front.p.y - g.rear.p.y, g.front.p.x - g.rear.p.x)
-                val sp = g.rear.v.len()
-                g.gas = sp < 280f; g.brake = sp > 392f
-                g.leanFwd = tilt < -0.3f; g.leanBack = tilt > 0.3f
-                g.step(1f / 60f); t += 1f / 60f
-            }
-            assertTrue(g.finished, "уровень $l: crashed=${g.crashed}, пройдено ${(100 * g.center.x / g.track.finishX).toInt()}%")
-        }
-    }
 }

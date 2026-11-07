@@ -28,17 +28,41 @@ data class PowerState(
     val emergency: Boolean,             // экстренные отключения — график не действует
     val source: String,
     val fetchedAt: Long,
+    val possible: List<Outage> = emptyList(),   // «возможные» отключения (серым в графике)
 ) {
     private val nowMin get() = LocalTime.now().let { it.hour * 60 + it.minute }
     val offNow get() = outages.any { it.day == LocalDate.now() && nowMin in it.fromMin until it.toMin }
+
+    /** Минуты до включения, если сейчас света нет (идущие подряд отключения склеиваются, завтрашние тоже). */
+    val nextOnInMin: Int? get() {
+        if (!offNow) return null
+        val today = LocalDate.now()
+        val abs = outages.map { (if (it.day == today) 0 else 1440 * (it.day.toEpochDay() - today.toEpochDay()).toInt()).let { d -> (it.fromMin + d) to (it.toMin + d) } }.sortedBy { it.first }
+        var end = abs.first { nowMin in it.first until it.second }.second
+        abs.forEach { (a, b) -> if (a <= end && b > end) end = b }
+        return end - nowMin
+    }
+
+    /** Строка для сводки: ближайшее включение или отключение. */
+    fun nearestText(): String {
+        if (emergency) return "Экстренные отключения — график не действует"
+        nextOnInMin?.let { return "Ближайшее включение через ${fmtMin(it)}" }
+        val today = LocalDate.now()
+        val next = outages.filter { it.day == today && it.fromMin > nowMin }.minByOrNull { it.fromMin }
+            ?: outages.filter { it.day == today.plusDays(1) }.minByOrNull { it.fromMin }
+        next ?: return "Отключений по графику нет"
+        val inMin = next.fromMin - nowMin + if (next.day == today) 0 else 1440
+        return "Ближайшее отключение через ${fmtMin(inMin)} (в %02d:%02d)".format(next.fromMin / 60, next.fromMin % 60)
+    }
     val nextOffInMin: Int? get() = outages.filter { it.day == LocalDate.now() && it.fromMin > nowMin }.minOfOrNull { it.fromMin - nowMin }
+    companion object { fun fmtMin(m: Int) = if (m >= 60) "${m / 60} ч ${m % 60} мин" else "$m мин" }
     val todaySlots get() = outages.filter { it.day == LocalDate.now() && it.toMin > nowMin }.map { it.label() }
 }
 
 /**
  * График отключений ДТЭК Киевские электросети (YASNO).
  * Официального открытого API нет — используем публичный эндпоинт, которым пользуется сайт YASNO.
- * Если он не ответил или сменился формат — работает ручной график (вводится в приложении).
+ * Если он не ответил — показываем последнее, что было, и ссылки на сайты ДТЭК и YASNO.
  */
 object Power {
     var state by mutableStateOf<PowerState?>(null)
@@ -48,9 +72,9 @@ object Power {
     fun setGroup(ctx: Context, g: String) = p(ctx).edit().putString("group", g.trim()).apply()
     fun notify(ctx: Context) = p(ctx).getBoolean("notify", true)
     fun setNotify(ctx: Context, b: Boolean) = p(ctx).edit().putBoolean("notify", b).apply()
-    /** Ручной график: «пн 08:00-12:00, 18:00-22:00» по строкам дней недели (0 = пн). */
-    fun manual(ctx: Context, dow: Int) = p(ctx).getString("manual_$dow", "")!!
-    fun setManual(ctx: Context, dow: Int, v: String) = p(ctx).edit().putString("manual_$dow", v).apply()
+    /** Не беспокоить с 23:00 до 08:00 — напоминания на это время не ставятся. */
+    fun quiet(ctx: Context) = p(ctx).getBoolean("quiet", true)
+    fun setQuiet(ctx: Context, b: Boolean) = p(ctx).edit().putBoolean("quiet", b).apply()
 
     private fun get(url: String): String {
         val c = URL(url).openConnection() as HttpURLConnection
@@ -62,18 +86,14 @@ object Power {
         } finally { c.disconnect() }
     }
 
-    fun parseManual(ctx: Context, day: LocalDate): List<Outage> =
-        Regex("(\\d{1,2})[:.](\\d{2})\\s*[-–—]\\s*(\\d{1,2})[:.](\\d{2})").findAll(manual(ctx, day.dayOfWeek.value - 1)).map {
-            val a = it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()
-            var b = it.groupValues[3].toInt() * 60 + it.groupValues[4].toInt(); if (b <= a) b += 1440
-            Outage(day, a, b)
-        }.toList()
-
     /** Разбор ответа YASNO: { "3.1": { "today": { "slots": [{start, end, type}], "status": … }, "tomorrow": {…} } }. */
-    fun parseYasno(json: String, group: String, today: LocalDate): Pair<List<Outage>, Boolean> {
+    fun parseYasno(json: String, group: String, today: LocalDate): Pair<List<Outage>, Boolean> = parseYasnoFull(json, group, today).let { it.first to it.second }
+
+    /** То же, плюс «возможные» отключения. */
+    fun parseYasnoFull(json: String, group: String, today: LocalDate): Triple<List<Outage>, Boolean, List<Outage>> {
         val root = JSONObject(json)
         val g = root.optJSONObject(group) ?: root.optJSONObject(group.replace('.', '_')) ?: throw RuntimeException("Нет очереди $group в ответе")
-        val out = ArrayList<Outage>(); var emergency = false
+        val out = ArrayList<Outage>(); val maybe = ArrayList<Outage>(); var emergency = false
         listOf("today" to today, "tomorrow" to today.plusDays(1)).forEach { (k, d) ->
             val day = g.optJSONObject(k) ?: return@forEach
             val status = day.optString("status")
@@ -83,24 +103,24 @@ object Power {
                 val s = slots.getJSONObject(i)
                 val type = s.optString("type")
                 if (type.equals("Definite", true) || type.contains("Off", true)) out += Outage(d, s.optInt("start"), s.optInt("end"))
+                else if (type.contains("Possib", true) || type.contains("Maybe", true)) maybe += Outage(d, s.optInt("start"), s.optInt("end"))
             }
         }
-        return out.sortedWith(compareBy({ it.day }, { it.fromMin })) to emergency
+        return Triple(out.sortedWith(compareBy({ it.day }, { it.fromMin })), emergency, maybe)
     }
 
     suspend fun refresh(ctx: Context, force: Boolean = false): PowerState? = withContext(Dispatchers.IO) {
         state?.let { if (!force && System.currentTimeMillis() - it.fetchedAt < 10 * 60_000) return@withContext it }
         val group = group(ctx)
         val today = LocalDate.now()
-        val manual = parseManual(ctx, today) + parseManual(ctx, today.plusDays(1))
-        if (group.isBlank()) {
-            val st = if (manual.isNotEmpty()) PowerState("—", manual, false, "ручной график", System.currentTimeMillis()) else null
-            state = st; st?.let { scheduleReminders(ctx, it) }; return@withContext st
-        }
+        if (group.isBlank()) { state = null; return@withContext null }
         val st = runCatching {
-            val (o, em) = parseYasno(get("https://app.yasno.ua/api/blackout-service/public/shutdowns/regions/25/dsos/902/planned-outages"), group, today)
-            PowerState(group, o, em, "YASNO", System.currentTimeMillis())
-        }.getOrElse { PowerState(group, manual, false, if (manual.isEmpty()) "нет связи с YASNO" else "ручной график", System.currentTimeMillis()) }
+            val (o, em, maybe) = parseYasnoFull(get("https://app.yasno.ua/api/blackout-service/public/shutdowns/regions/25/dsos/902/planned-outages"), group, today)
+            PowerState(group, o, em, "YASNO", System.currentTimeMillis(), maybe)
+        }.getOrElse { e ->
+            // нет связи — оставляем прошлый график, если он про ту же очередь
+            state?.takeIf { it.group == group }?.copy(source = "YASNO (нет связи: ${e.message})") ?: PowerState(group, emptyList(), false, "нет связи с YASNO", System.currentTimeMillis())
+        }
         state = st
         scheduleReminders(ctx, st)
         st
@@ -115,7 +135,9 @@ object Power {
             val at = o.day.atStartOfDay(z).plusMinutes(o.fromMin - 30L).toInstant().toEpochMilli()
             val pi = PendingIntent.getBroadcast(ctx, 300 + i, Intent(ctx, PowerReminderReceiver::class.java).putExtra("slot", o.label()),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            if (st.emergency || at < System.currentTimeMillis()) am.cancel(pi)
+            val h = o.day.atStartOfDay(z).plusMinutes(o.fromMin - 30L).hour
+            val night = quiet(ctx) && (h >= 23 || h < 8)
+            if (st.emergency || night || at < System.currentTimeMillis()) am.cancel(pi)
             else runCatching { am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) }.onFailure { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) }
         }
     }

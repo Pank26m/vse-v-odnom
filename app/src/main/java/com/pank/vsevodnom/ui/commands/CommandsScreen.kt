@@ -99,7 +99,7 @@ private fun CommandEditor(c0: Command, onDelete: (() -> Unit)?, onRun: (Command)
     var adding by remember { mutableStateOf(false) }
     var pickApp by remember { mutableStateOf<Int?>(null) }
     fun upd(i: Int, a: CmdAction) { c = c.copy(actions = c.actions.toMutableList().also { it[i] = a }) }
-    Dialog({ onDone(null) }, DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog({ onDone(null) }, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", { onDone(null) })

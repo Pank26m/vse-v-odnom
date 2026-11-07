@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -59,10 +60,12 @@ fun FilesScreen(onBack: () -> Unit) {
         FileViewer(u, { open = null }, onImportSchedule = { importAsSchedule(ctx, it) })
         return
     }
-    ScreenScaffold("Файлы", onBack) {
+    var appTick by remember { mutableIntStateOf(0) }
+    val appFiles = remember(appTick) { AppFiles.groups(ctx) }
+    ScreenScaffold("Вспомогательные файлы", onBack) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { PillButton("Открыть файл", { picker.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth()) }
-            item { Text("PDF, картинки, текст, Word (.docx), книги (.epub), Excel (.xls, .xlsx). Файлы из Telegram и проводника можно открывать через «Открыть с помощью».", style = MaterialTheme.typography.bodySmall) }
+            item { Text("Сюда — файлы, нужные приложению: расписание пар (.xls), выгрузки Sumlio и веса (.csv), KeePass, PDF и документы. Открываются PDF, картинки, текст, Word, книги, Excel. Из Telegram и проводника — через «Открыть с помощью».", style = MaterialTheme.typography.bodySmall) }
             if (recents.isNotEmpty()) item { SectionLabel("Недавние") }
             items(recents, key = { it.toString() }) { u ->
                 val name = remember(u) { displayName(ctx, u) }
@@ -102,8 +105,38 @@ fun FilesScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            if (appFiles.isNotEmpty()) item { SectionLabel("Файлы приложения · ${AppFiles.size(appFiles.sumOf { it.bytes })}") }
+            appFiles.forEach { g ->
+                item(key = "g" + g.title) {
+                    var openG by remember { mutableStateOf(false) }
+                    AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { openG = !openG }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Folder, null, tint = Pal.LilacInk)
+                            Text("  ${g.title}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                            Text("${g.files.size} · ${AppFiles.size(g.bytes)}", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                        }
+                        if (openG) g.files.take(100).forEach { f ->
+                            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(f.name.substringAfter('_', f.name), style = MaterialTheme.typography.bodySmall, maxLines = 1, modifier = Modifier.weight(1f).clickable { com.pank.vsevodnom.ui.todo.openFile(ctx, f.absolutePath) })
+                                Text(AppFiles.size(f.length()), style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+/** Файлы внутри приложения (вложения, записи, фото): по папкам, с размером. */
+object AppFiles {
+    private val NAMES = mapOf("notes" to "Заметки", "tasks" to "Задачи", "mood" to "Настроение", "recordings" to "Диктофон", "rec" to "Диктофон", "cart" to "Корзина", "pdf" to "PDF")
+    data class Group(val title: String, val files: List<java.io.File>) { val bytes get() = files.sumOf { it.length() } }
+    fun groups(ctx: Context): List<Group> = (ctx.filesDir.listFiles().orEmpty().filter { it.isDirectory && !it.name.startsWith("vault") && !it.name.startsWith("datastore") }).mapNotNull { d ->
+        val fs = d.walkTopDown().filter { it.isFile && !it.name.startsWith(".") }.sortedByDescending { it.lastModified() }.toList()
+        if (fs.isEmpty()) null else Group(NAMES[d.name] ?: d.name, fs)
+    }.sortedByDescending { it.bytes }
+    fun size(b: Long) = when { b >= 1 shl 20 -> "%.1f МБ".format(b / 1048576.0); b >= 1024 -> "${b / 1024} КБ"; else -> "$b Б" }
 }
 
 fun importAsSchedule(ctx: Context, uri: Uri) {

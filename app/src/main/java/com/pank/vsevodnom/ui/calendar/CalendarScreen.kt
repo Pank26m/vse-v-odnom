@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,11 +50,25 @@ private val RU = Locale("ru")
 private val MONTHS_NOM = listOf("Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь")
 private val DOW = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
+/** Что открыть в календаре при переходе из сводки: событие или пару. */
+object CalendarNav { var target by mutableStateOf<Agenda?>(null) }
+
 /** Uri файла расписания, пришедшего через «Открыть с помощью». */
 object PendingImport { var uri by mutableStateOf<Uri?>(null) }
 
 @Composable
-fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
+fun CalendarScreen(
+    onBack: (() -> Unit)?,
+    startNew: Boolean = false,
+    title: String = "Календарь",
+    extraActions: @Composable RowScope.() -> Unit = {},
+    /** Что показать над календарём (в ToDo — плитки разделов). */
+    header: LazyListScope.() -> Unit = {},
+    /** Дела дня (задачи, привычки, даты) — под событиями выбранного дня. */
+    dayExtras: LazyListScope.(LocalDate) -> Unit = {},
+    /** Цвета точек дел в клетке дня. */
+    dots: (LocalDate) -> List<Color> = { emptyList() },
+) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).schedule() }
     val scope = rememberCoroutineScope()
@@ -111,9 +126,22 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
     LaunchedEffect(Unit) {
         if (startNew) { val st = LocalDate.now().atTime(LocalTime.now().plusHours(1).withMinute(0)).atZone(zone).toInstant().toEpochMilli(); editEvent = CalEvent(title = "", startMillis = st, endMillis = st + 3600_000) }
     }
+    LaunchedEffect(CalendarNav.target) {
+        val t = CalendarNav.target ?: return@LaunchedEffect
+        CalendarNav.target = null
+        select(t.date)
+        when (t) {
+            is Agenda.Own -> editEvent = t.e
+            is Agenda.Pair -> lessonInfo = t
+            is Agenda.Sys -> runCatching {
+                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.content.ContentUris.withAppendedId(android.provider.CalendarContract.Events.CONTENT_URI, t.id)))
+            }
+        }
+    }
     LaunchedEffect(PendingImport.uri) { PendingImport.uri?.let { PendingImport.uri = null; doImport(it) } }
 
-    ScreenScaffold("Календарь", onBack, actions = {
+    ScreenScaffold(title, onBack, actions = {
+        extraActions()
         RoundIconButton(Icons.Rounded.Add, "Новое событие", {
             val s = selected.atTime(LocalTime.now().plusHours(1).withMinute(0)).atZone(zone).toInstant().toEpochMilli()
             editEvent = CalEvent(title = "", startMillis = s, endMillis = s + 3600_000)
@@ -133,6 +161,7 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
         }
     }) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            header()
             item {
                 Segmented(listOf("День", "Неделя", "Месяц"), mode, { mode = it; month = YearMonth.from(selected); calPrefs.edit().putInt("mode", it).apply() }, Modifier.fillMaxWidth())
             }
@@ -156,7 +185,7 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
                         Row(Modifier.fillMaxWidth()) {
                             for (d in 0 until 7) {
                                 val date = gridStart.plusDays((w * 7 + d).toLong())
-                                DayCell(date, date.month == month.month, date == selected, date == LocalDate.now(), byDay[date].orEmpty(), Modifier.weight(1f)) {
+                                DayCell(date, date.month == month.month, date == selected, date == LocalDate.now(), byDay[date].orEmpty(), Modifier.weight(1f), dots(date)) {
                                     selected = date
                                 }
                             }
@@ -180,7 +209,7 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
                                     val date = mon.plusDays(d.toLong())
                                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(DOW[d], style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
-                                        DayCell(date, true, date == selected, date == LocalDate.now(), byDay[date].orEmpty(), Modifier.fillMaxWidth()) { selected = date }
+                                        DayCell(date, true, date == selected, date == LocalDate.now(), byDay[date].orEmpty(), Modifier.fillMaxWidth(), dots(date)) { selected = date }
                                     }
                                 }
                             }
@@ -195,8 +224,9 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
                             Text(dayTitle(date), style = MaterialTheme.typography.titleMedium,
                                 color = if (date == LocalDate.now()) Pal.LilacInk else Pal.Ink, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
                         }
-                        if (list.isEmpty()) item { Text("—", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 4.dp)) }
+                        if (list.isEmpty() && dots(date).isEmpty()) item { Text("—", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 4.dp)) }
                         items(list) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
+                        dayExtras(date)
                     }
                 }
                 else -> {
@@ -213,6 +243,7 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
                     item {
                         DayTimeline(byDay[selected].orEmpty(), selected) { a -> when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }
                     }
+                    dayExtras(selected)
                 }
             }
             if (CalendarRepo.hasSysPermission(ctx).not() && lessons.isEmpty() && own.isEmpty()) item {
@@ -225,8 +256,9 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
             if (mode == 2) {
                 item { Text(dayTitle(selected), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
                 val dayItems = byDay[selected].orEmpty()
-                if (dayItems.isEmpty()) item { EmptyHint("Ничего не запланировано") }
+                if (dayItems.isEmpty() && dots(selected).isEmpty()) item { EmptyHint("Ничего не запланировано") }
                 items(dayItems) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
+                dayExtras(selected)
             }
         }
     }
@@ -248,7 +280,7 @@ fun CalendarScreen(onBack: () -> Unit, startNew: Boolean = false) {
 }
 
 @Composable
-private fun DayCell(date: LocalDate, inMonth: Boolean, selected: Boolean, today: Boolean, items: List<Agenda>, modifier: Modifier, onClick: () -> Unit) {
+private fun DayCell(date: LocalDate, inMonth: Boolean, selected: Boolean, today: Boolean, items: List<Agenda>, modifier: Modifier, extra: List<Color> = emptyList(), onClick: () -> Unit) {
     Column(
         modifier.height(52.dp).clip(RoundedCornerShape(14.dp))
             .background(if (selected) Pal.Ink else if (today) Pal.Lilac else Color.Transparent)
@@ -262,12 +294,13 @@ private fun DayCell(date: LocalDate, inMonth: Boolean, selected: Boolean, today:
         )
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(8.dp), verticalAlignment = Alignment.CenterVertically) {
             // прошедшие дни не засоряем точками — события видны в списке при нажатии
-            if (!date.isBefore(LocalDate.now())) items.take(4).forEach { a ->
-                val c = when (a) {
+            if (!date.isBefore(LocalDate.now())) (items.map { a ->
+                when (a) {
                     is Agenda.Pair -> Tints.all[a.tint % 6].ink
                     is Agenda.Own -> Tints.all[a.e.tint % 6].ink
                     is Agenda.Sys -> Color(a.color or 0xFF000000.toInt())
                 }
+            } + extra).take(5).forEach { c ->
                 Box(Modifier.size(5.dp).clip(CircleShape).background(if (selected) Color.White else c))
             }
         }

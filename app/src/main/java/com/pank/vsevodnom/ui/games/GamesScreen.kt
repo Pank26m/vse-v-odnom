@@ -28,10 +28,7 @@ private val GAMES = listOf(
     Game("durak", "Дурак", "подкидной, против бота", "♠", Tints.Rose),
     Game("sudoku", "Судоку", "3 сложности", "9", Tints.Sky),
     Game("mines", "Сапёр", "3 размера поля", "✱", Tints.Mint),
-    Game("runner", "Бегун", "прыгай через камни, пригибайся", "🏃", Tints.Peach),
-    Game("moto", "Мотокросс", "физика, 8 трасс", "🏍", Tints.Mint),
     Game("merge", "Слияние", "числа 4×4, цель — 2048", "²", Tints.Lilac),
-    Game("flyer", "Пёрышко", "шмель между стеблями", "🐝", Tints.Butter),
     Game("snake", "Змейка", "классика, со стенами и без", "🐍", Tints.Mint),
     Game("maze", "Лабиринт", "ёжик против тучек", "🦔", Tints.Sky),
     Game("cells", "Клетки", "съешь меньших, беги от больших", "🫧", Tints.Rose),
@@ -51,10 +48,7 @@ fun GamesScreen(onBack: () -> Unit) {
         "chess" -> ChessScreen(close)
         "durak" -> DurakScreen(close)
         "random" -> com.pank.vsevodnom.ui.random.RandomScreen(close)
-        "runner" -> RunnerScreen(close)
-        "moto" -> MotoScreen(close)
         "merge" -> MergeScreen(close)
-        "flyer" -> FlyerScreen(close)
         "snake" -> SnakeScreen(close)
         "maze" -> MazeScreen(close)
         "cells" -> CellsScreen(close)
