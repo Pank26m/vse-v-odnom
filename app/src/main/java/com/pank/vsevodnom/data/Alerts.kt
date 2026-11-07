@@ -16,6 +16,22 @@ import java.time.format.DateTimeFormatter
 /** Уровень тревоги: нет, частично (отдельные районы/громады), вся область. */
 enum class AlertLevel { NONE, PARTIAL, FULL }
 
+/** Угроза внутри тревоги (alerts.in.ua: threats[]). */
+data class Threat(val type: String, val red: Boolean, val message: String)
+
+/** Одна активная тревога: область, район, громада или город. */
+data class AlertItem(
+    val kind: String,          // oblast / raion / hromada / city
+    val title: String,
+    val oblast: String,        // каноническое имя области (из location_oblast)
+    val raion: String?,        // для громад — их район
+    val red: Boolean,          // alert_level: red — подтверждённая, yellow — «жёлтая» (угроза)
+    val alertType: String,     // air_raid, artillery_shelling, urban_fights, chemical, nuclear
+    val started: LocalDateTime?,
+    val notes: String,
+    val threats: List<Threat>,
+)
+
 data class AlertState(
     val level: Map<String, AlertLevel>,
     val since: Map<String, LocalDateTime?>,
@@ -24,9 +40,11 @@ data class AlertState(
     val source: String,
     val fetchedAt: Long,
     val districtLevel: Boolean,   // true — данные по районам (официальный API), false — только области
+    val items: List<AlertItem> = emptyList(),
 ) {
     fun of(name: String) = level[name] ?: AlertLevel.NONE
     fun known(name: String) = level.containsKey(name)
+    fun itemsOf(oblast: String) = items.filter { it.oblast == oblast }
 }
 
 class RateLimited(val waitSec: Long) : Exception("Слишком частые запросы")
@@ -53,10 +71,11 @@ object AlertsApi {
     fun setNotify(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("notify", on).apply()
 
     private class Http(val code: Int, val body: String, val retryAfter: Long?)
-    private fun get(url: String): Http {
+    private fun get(url: String, token: String? = null): Http {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 12_000; c.readTimeout = 12_000
         c.setRequestProperty("User-Agent", "vse-v-odnom-android")
+        if (token != null) c.setRequestProperty("Authorization", "Bearer $token")
         try {
             val code = c.responseCode
             val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
@@ -64,13 +83,22 @@ object AlertsApi {
         } finally { c.disconnect() }
     }
 
+    const val CRIMEA = "Автономна Республіка Крим"
+    private fun norm(s: String) = s.trim().replace('’', '\'').replace('ʼ', '\'').replace('`', '\'').replace(Regex(" +"), " ")
+
+    /**
+     * Имя области → каноническое. Только точное совпадение (по полному слову),
+     * никаких префиксов: раньше «Чернігівська» и «Чернівецька» сводились к «Черні» и путались.
+     */
     fun canonical(name: String): String {
-        val n = name.trim().replace("’", "'").replace("ʼ", "'")
-        if (n.contains("Київ") && !n.contains("обл")) return KYIV_CITY
-        if (n.contains("Севастоп")) return SEVASTOPOL
-        if (n.contains("Крим")) return "Автономна Республіка Крим"
-        val stem = n.substringBefore(" ").substringBefore("ськ").take(5)
-        return OBLASTS.firstOrNull { it.startsWith(stem) && it.contains("область") } ?: n
+        val n = norm(name)
+        OBLASTS.firstOrNull { norm(it).equals(n, true) }?.let { return it }
+        val low = n.lowercase()
+        if (low == "київ" || low == "м. київ" || low == "місто київ" || low == "kyiv") return KYIV_CITY
+        if (low.contains("севастоп")) return SEVASTOPOL
+        if (low.contains("крим")) return CRIMEA
+        val first = low.substringBefore(' ').removeSuffix(".")
+        return OBLASTS.firstOrNull { it.lowercase().substringBefore(' ') == first && it.contains("область") } ?: n
     }
 
     // ---- кэш и ограничение частоты: сервера отвечают 429, если дёргать чаще ----
@@ -107,28 +135,45 @@ object AlertsApi {
 
     /** alerts.in.ua: список активных тревог с уровнем «область / район / громада / город». */
     private fun fetchOfficial(token: String): AlertState {
-        val h = get("https://api.alerts.in.ua/v1/alerts/active.json?token=$token")
+        val h = get("https://api.alerts.in.ua/v1/alerts/active.json", token)
         checkRate(h)
-        val arr = JSONObject(h.body).optJSONArray("alerts") ?: throw RuntimeException("Неожиданный ответ")
+        return parseOfficial(h.body, System.currentTimeMillis())
+    }
+
+    private fun time(s: String) = runCatching { Instant.parse(s).atZone(ZoneId.systemDefault()).toLocalDateTime() }.getOrNull()
+
+    fun parseOfficial(body: String, now: Long): AlertState {
+        val arr = JSONObject(body).optJSONArray("alerts") ?: throw RuntimeException("Неожиданный ответ")
         val level = OBLASTS.associateWith { AlertLevel.NONE }.toMutableMap()
         val since = HashMap<String, LocalDateTime?>()
         val districts = HashMap<String, MutableList<String>>()
+        val items = ArrayList<AlertItem>()
         for (i in 0 until arr.length()) {
             val a = arr.getJSONObject(i)
+            if (a.optString("finished_at").let { it.isNotBlank() && it != "null" }) continue
             val type = a.optString("location_type")
-            val title = a.optString("location_title")
-            val obl = canonical(a.optString("location_oblast").ifBlank { title })
-            val started = runCatching { Instant.parse(a.optString("started_at")).atZone(ZoneId.systemDefault()).toLocalDateTime() }.getOrNull()
-            val full = type == "oblast" || (type == "city" && (obl == KYIV_CITY || obl == SEVASTOPOL))
-            val target = if (type == "city" && title.contains("Київ")) KYIV_CITY else obl
-            if (full) level[target] = AlertLevel.FULL
-            else {
-                if (level[target] != AlertLevel.FULL) level[target] = AlertLevel.PARTIAL
-                districts.getOrPut(target) { ArrayList() } += title
+            val title = norm(a.optString("location_title"))
+            // location_oblast — точное имя области; location_oblast_uid у районов врёт (равен uid района), его не берём
+            var obl = canonical(a.optString("location_oblast").ifBlank { title })
+            if (type == "city" && (title == KYIV_CITY || title.endsWith(" Київ"))) obl = KYIV_CITY
+            if (type == "city" && title.contains("Севастоп")) obl = SEVASTOPOL
+            val started = time(a.optString("started_at"))
+            val th = a.optJSONArray("threats")
+            val threats = (0 until (th?.length() ?: 0)).mapNotNull { j ->
+                th!!.optJSONObject(j)?.let { t -> Threat(t.optString("threat_type", "unknown"), t.optString("level") == "red", t.optString("source_message").takeIf { m -> m != "null" }.orEmpty()) }
             }
-            since[target] = listOfNotNull(since[target], started).minOrNull()
+            val red = a.optString("alert_level").let { it.isBlank() || it == "red" || it == "null" }
+            items += AlertItem(type, title, obl, a.optString("location_raion").takeIf { it.isNotBlank() && it != "null" }?.let(::norm),
+                red, a.optString("alert_type"), started, a.optString("notes").takeIf { it != "null" }.orEmpty(), threats)
+            val full = type == "oblast" || obl == KYIV_CITY || obl == SEVASTOPOL
+            if (full) level[obl] = AlertLevel.FULL
+            else {
+                if (level[obl] != AlertLevel.FULL) level[obl] = AlertLevel.PARTIAL
+                districts.getOrPut(obl) { ArrayList() }.let { if (title !in it) it += title }
+            }
+            since[obl] = listOfNotNull(since[obl], started).minOrNull()
         }
-        return AlertState(level, since, districts, "alerts.in.ua (по районам)", System.currentTimeMillis(), true)
+        return AlertState(level, since, districts, "alerts.in.ua (по районам)", now, true, items)
     }
 
     /** Публичный агрегатор без ключа: только целые области. */

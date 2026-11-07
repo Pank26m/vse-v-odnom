@@ -27,6 +27,7 @@ import com.pank.vsevodnom.alarm.AlertWorker
 import com.pank.vsevodnom.data.AlertLevel
 import com.pank.vsevodnom.data.AlertState
 import com.pank.vsevodnom.data.AlertsApi
+import com.pank.vsevodnom.data.AlertGeo
 import com.pank.vsevodnom.data.RateLimited
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
@@ -40,9 +41,10 @@ import java.time.format.DateTimeFormatter
 val AlertRed = Color(0xFFE0607E)
 val AlertYellow = Color(0xFFE9B949)
 val AlertGreen = Color(0xFF3FA36B)
-private val FillRed = Color(0xFFF3B6C6)
-private val FillYellow = Color(0xFFF8E3A6)
-private val FillCalm = Color(0xFFDDF2E6)
+internal val FillRed = Color(0xFFF08C9A)
+internal val FillYellow = Color(0xFFF5D06A)
+internal val FillCalm = Color(0xFFE4ECE7)
+internal val FillPartial = Color(0xFFFBEFC4)
 
 fun levelColor(l: AlertLevel?) = when (l) { AlertLevel.FULL -> AlertRed; AlertLevel.PARTIAL -> AlertYellow; AlertLevel.NONE -> AlertGreen; null -> Pal.Muted }
 
@@ -81,6 +83,7 @@ fun AlertsScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     var tick by remember { mutableIntStateOf(0) }
+    var selected by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tick, com.pank.vsevodnom.data.Net.online) {
         while (true) {
@@ -107,46 +110,39 @@ fun AlertsScreen(onBack: () -> Unit) {
                 }
             }
             s?.districts?.get(AlertsApi.KYIV_OBL)?.takeIf { it.isNotEmpty() }?.let { d ->
-                item { AppCard(Modifier.fillMaxWidth(), color = FillYellow) { Text("В области тревога здесь:", style = MaterialTheme.typography.labelLarge); Text(d.joinToString("\n"), style = MaterialTheme.typography.bodyMedium) } }
+                item { AppCard(Modifier.fillMaxWidth(), color = FillYellow.copy(alpha = 0.45f)) { Text("В области тревога здесь:", style = MaterialTheme.typography.labelLarge); Text(d.joinToString("\n"), style = MaterialTheme.typography.bodyMedium) } }
             }
             item {
-                AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
-                    UkraineMapView(s, Modifier.fillMaxWidth().aspectRatio(MAP_W / MAP_H))
+                AppCard(Modifier.fillMaxWidth(), padding = 10.dp) {
+                    AlertMap(s, selected, { selected = it }, Modifier.fillMaxWidth().aspectRatio(AlertGeo.W / AlertGeo.H))
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Dot(FillRed); Text("вся область", style = MaterialTheme.typography.labelMedium)
-                        Spacer(Modifier.width(6.dp)); Dot(FillYellow); Text("часть области", style = MaterialTheme.typography.labelMedium)
-                        Spacer(Modifier.width(6.dp)); Dot(FillCalm); Text("спокойно", style = MaterialTheme.typography.labelMedium)
+                        Dot(FillRed); Text("тревога", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.width(4.dp)); Dot(FillYellow); Text("угроза", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.width(4.dp)); Dot(FillPartial); Text("в части района", style = MaterialTheme.typography.labelMedium)
                     }
+                    Text("Два пальца — приблизить, нажми на район — подробности, двойное нажатие — сброс.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
                 }
             }
+            selected?.let { sel -> item { SelectedCard(s, sel) { selected = null } } }
             if (s != null && !s.districtLevel) item {
                 AppCard(Modifier.fillMaxWidth(), color = Pal.Peach, onClick = { settings = true }) {
                     Text("Сейчас видно только целые области", style = MaterialTheme.typography.titleSmall, color = Pal.PeachInk)
-                    Text("Чтобы видеть районы и «жёлтые» тревоги, нужен бесплатный токен alerts.in.ua. Нажми — расскажу, как получить.", style = MaterialTheme.typography.bodySmall)
+                    Text(if (AlertsApi.token(ctx).isBlank()) "Чтобы видеть районы и «жёлтые» угрозы, вставь токен alerts.in.ua в настройках (⚙)." else "alerts.in.ua сейчас не ответил — показан запасной источник.", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (error != null || state == null) item { NetWait(error) }
             if (s != null) {
                 val on = AlertsApi.OBLASTS.filter { s.of(it) != AlertLevel.NONE }
+                    .sortedWith(compareByDescending<String> { s.of(it).ordinal }.thenBy { it })
                 item { SectionLabel(if (on.isEmpty()) "Тревог нет нигде" else "Сейчас тревога: ${on.size}") }
-                items(on) { n ->
-                    AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Dot(levelColor(s.of(n)))
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(n, style = MaterialTheme.typography.bodyLarge)
-                                s.districts[n]?.takeIf { it.isNotEmpty() }?.let { Text(it.take(4).joinToString(", ") + if (it.size > 4) " и ещё ${it.size - 4}" else "", style = MaterialTheme.typography.bodySmall) }
-                            }
-                            Text(sinceText(s.since[n]), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
+                items(on) { n -> OblastCard(s, n) { selected = n } }
                 item {
                     Text(
                         "Источник: ${s.source} · ${Instant.ofEpochMilli(s.fetchedAt).atZone(ZoneId.systemDefault()).toLocalTime().withNano(0)}\n" +
-                            "Справочно. Для мгновенных сигналов держи официальное приложение «Повітряна тривога». Карта: © OpenStreetMap.",
+                            "Где именно летит дрон, API не сообщает — только тип угрозы и текст сообщения источника, они показаны в карточках.\n" +
+                            "Справочно. Для мгновенных сигналов держи официальное приложение «Повітряна тривога».\n" +
+                            "Границы районов и громад: ukrainian_geodata, Sławomir Matuszak (CC BY 4.0).",
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
@@ -174,7 +170,8 @@ fun AlertsScreen(onBack: () -> Unit) {
                             "2. Укажи почту и цель: «личное приложение, просмотр тревог в Киеве».\n" +
                             "3. Токен придёт письмом — длинная строка из букв и цифр.\n" +
                             "4. Скопируй и вставь в поле ниже → «Сохранить».\n\n" +
-                            "Без токена работает бесплатный источник, но он видит только целые области, без районов и «жёлтых» тревог.", style = MaterialTheme.typography.bodySmall)
+                            "Без токена работает бесплатный источник, но он видит только целые области, без районов и «жёлтых» угроз.\n" +
+                            "Токен хранится только в телефоне.", style = MaterialTheme.typography.bodySmall)
                     }
                     item { TextButton({ runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://alerts.in.ua/"))) } }) { Text("Открыть alerts.in.ua") } }
                     item { AppTextField(token, { token = it }, "Токен alerts.in.ua") }
@@ -209,28 +206,3 @@ private fun StatusCard(title: String, s: AlertState?, key: String, modifier: Mod
     }
 }
 
-@Composable
-fun UkraineMapView(state: AlertState?, modifier: Modifier = Modifier) {
-    val paths = remember {
-        REGION_SHAPES.mapValues { (_, a) ->
-            Path().apply { moveTo(a[0], a[1]); var i = 2; while (i < a.size) { lineTo(a[i], a[i + 1]); i += 2 }; close() }
-        }
-    }
-    Canvas(modifier) {
-        val sc = size.width / MAP_W
-        scale(sc, sc, pivot = Offset.Zero) {
-            paths.forEach { (name, p) ->
-                val fill = when (state?.of(name)) { AlertLevel.FULL -> FillRed; AlertLevel.PARTIAL -> FillYellow; else -> FillCalm }
-                drawPath(p, fill)
-                drawPath(p, Color.White, style = Stroke(2.5f))
-            }
-            // города со своим статусом — кружки
-            listOf(AlertsApi.KYIV_CITY to KYIV_POINT, AlertsApi.SEVASTOPOL to SEVASTOPOL_POINT).forEach { (n, pt) ->
-                val c = Offset(pt[0], pt[1])
-                val known = state?.known(n) == true
-                drawCircle(Color.White, 17f, c)
-                drawCircle(if (known) levelColor(state!!.of(n)) else Pal.Muted, 12f, c)
-            }
-        }
-    }
-}
