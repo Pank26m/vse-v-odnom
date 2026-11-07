@@ -1,0 +1,243 @@
+aberration|отклонение от нормы
+abolish|упразднять
+abrupt|резкий
+accountable|подотчётный
+acquaintance|знакомый
+acute|острый
+adamant|непреклонный
+adept|искусный
+adjacent|соседний
+advent|появление
+aesthetic|эстетический
+affluent|зажиточный
+aftermath|последствия
+alleviate|облегчать
+allude|намекать
+ambiguous|двусмысленный
+amend|вносить поправки
+ample|обильный
+anecdote|случай из жизни
+apprehensive|опасающийся
+arduous|трудный
+articulate|чётко выражать
+ascertain|выяснять
+aspire|стремиться
+astute|проницательный
+audacious|дерзкий
+augment|увеличивать
+austerity|строгая экономия
+avid|заядлый
+benevolent|доброжелательный
+bewildered|озадаченный
+blatant|вопиющий
+bleak|унылый
+blunder|грубая ошибка
+bolster|поддерживать
+brisk|оживлённый
+candid|откровенный
+capricious|капризный
+catastrophe|катастрофа
+cherish|лелеять
+circumvent|обходить
+clandestine|тайный
+coerce|принуждать
+cohesive|сплочённый
+commence|начинать
+commodity|товар
+complacent|самодовольный
+comprehensive|всесторонний
+concise|краткий
+condone|прощать, мириться
+confide|доверять (секрет)
+conform|соответствовать
+congestion|перегруженность
+conscientious|добросовестный
+consensus|консенсус
+contemplate|размышлять
+contempt|презрение
+contemporary|современный
+contend|утверждать, бороться
+convey|передавать
+cordial|сердечный
+corroborate|подтверждать
+covet|жаждать
+credible|правдоподобный
+cumbersome|громоздкий
+curb|обуздывать
+daunting|пугающий
+dearth|нехватка
+debris|обломки
+decipher|расшифровывать
+defer|откладывать
+deficient|недостаточный
+deplete|истощать
+deploy|развёртывать
+deprive|лишать
+deteriorate|ухудшаться
+deter|удерживать
+devastate|опустошать
+diligent|усердный
+diminish|уменьшать
+discern|различать
+discreet|благоразумный, тактичный
+disdain|пренебрежение
+disparity|неравенство
+disperse|рассеивать
+disrupt|нарушать
+divert|отвлекать
+docile|покорный
+dubious|сомнительный
+dwindle|сокращаться
+eccentric|эксцентричный
+elicit|вызывать (реакцию)
+elusive|неуловимый
+embark|отправляться, начинать
+emulate|подражать
+endeavour|стремиться, попытка
+endorse|одобрять
+endure|выносить
+engross|поглощать (внимание)
+enigma|загадка
+entail|влечь за собой
+entice|соблазнять
+ephemeral|мимолётный
+eradicate|искоренять
+erode|разрушать
+erratic|непредсказуемый
+evade|уклоняться
+exacerbate|обострять
+exemplify|служить примером
+exhilarating|бодрящий
+exonerate|оправдывать
+expedite|ускорять
+exploit|эксплуатировать
+extravagant|расточительный
+fabricate|фабриковать
+feasible|осуществимый
+fervent|пылкий
+fluctuate|колебаться
+foster|воспитывать, способствовать
+frugal|бережливый
+futile|тщетный
+galvanize|побуждать
+gratify|радовать
+gullible|доверчивый
+hamper|мешать
+haphazard|случайный
+haughty|надменный
+heed|прислушиваться
+hinder|препятствовать
+hypocrisy|лицемерие
+impair|ослаблять
+impartial|беспристрастный
+impeccable|безупречный
+impede|препятствовать
+imperative|настоятельный
+impetuous|импульсивный
+implement|внедрять
+implicit|подразумеваемый
+impulsive|импульсивный
+incessant|непрерывный
+incite|подстрекать
+incoherent|бессвязный
+indifferent|равнодушный
+indulge|потакать
+inept|неумелый
+inexplicable|необъяснимый
+infer|делать вывод
+ingenious|изобретательный
+inhibit|сдерживать
+innate|врождённый
+insatiable|ненасытный
+insolent|дерзкий
+instigate|провоцировать
+intricate|запутанный
+intrinsic|внутренний
+intuitive|интуитивный
+invoke|ссылаться, вызывать
+jeopardize|ставить под угрозу
+lament|оплакивать
+lenient|снисходительный
+lethargic|вялый
+lucrative|прибыльный
+malicious|злонамеренный
+mandatory|обязательный
+meticulous|дотошный
+mitigate|смягчать
+mundane|обыденный
+negligent|небрежный
+nostalgia|ностальгия
+notorious|печально известный
+nuance|нюанс
+obsolete|устаревший
+obstinate|упрямый
+ominous|зловещий
+opaque|непрозрачный
+outrageous|возмутительный
+overt|открытый
+paramount|первостепенный
+perpetual|вечный
+pertinent|уместный
+pervasive|всепроникающий
+plight|тяжёлое положение
+poignant|острый, трогательный
+pragmatic|прагматичный
+precarious|ненадёжный
+predicament|затруднительное положение
+predominant|преобладающий
+preliminary|предварительный
+prevalent|распространённый
+proficient|опытный
+profound|глубокий
+prolific|плодовитый
+prone|склонный
+prudent|благоразумный
+rampant|безудержный
+reciprocate|отвечать взаимностью
+rectify|исправлять
+redundant|излишний
+refute|опровергать
+relentless|неустанный
+reminisce|вспоминать
+replenish|пополнять
+reprimand|выговор
+resilient|устойчивый, жизнестойкий
+retaliate|мстить
+revere|почитать
+rigorous|строгий
+robust|крепкий
+scrutinize|тщательно изучать
+serene|безмятежный
+skeptical|скептический
+solemn|торжественный
+sporadic|единичный
+spurious|ложный
+squander|растрачивать
+stagnant|застойный
+steadfast|стойкий
+stringent|строгий
+substantial|существенный
+succinct|сжатый
+superfluous|излишний
+susceptible|восприимчивый
+tangible|ощутимый
+tedious|утомительный
+tenacious|упорный
+tentative|предварительный
+thrive|процветать
+trepidation|трепет
+turbulent|бурный
+unanimous|единогласный
+undermine|подрывать
+unprecedented|беспрецедентный
+upheaval|переворот
+utmost|крайний
+vehement|яростный
+venerable|почтенный
+viable|жизнеспособный
+vigilant|бдительный
+vindicate|оправдывать
+volatile|изменчивый
+wary|настороженный
+whimsical|причудливый
+zealous|усердный

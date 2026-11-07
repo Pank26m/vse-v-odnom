@@ -318,9 +318,9 @@ interface LifeDao {
         WeightEntry::class, PiggyGoal::class, PiggyTx::class, AlarmEntity::class, WorldCity::class, WeatherCity::class,
         Lesson::class, SubjectAlias::class, CalEvent::class, MoodEntry::class, CartItem::class,
         TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
-        Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class,
+        Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class, Deck::class, Card::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -333,6 +333,7 @@ abstract class AppDb : RoomDatabase() {
     abstract fun todo(): TodoDao
     abstract fun money(): MoneyDao
     abstract fun map(): MapDao
+    abstract fun cards(): CardDao
 
     companion object {
         @Volatile private var inst: AppDb? = null
@@ -341,6 +342,16 @@ abstract class AppDb : RoomDatabase() {
         fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
 
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        /** v6 → v7: колоды и карточки для обучения. */
+        val M6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `deck` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `tint` INTEGER NOT NULL, `builtin` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `card` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `deckId` INTEGER NOT NULL, `front` TEXT NOT NULL, `back` TEXT NOT NULL, `note` TEXT NOT NULL, `box` INTEGER NOT NULL, `due` INTEGER NOT NULL, `right` INTEGER NOT NULL, `wrong` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_card_deckId` ON `card` (`deckId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_card_due` ON `card` (`due`)")
+            }
+        }
+
         /** v5 → v6: заметки — архив, корзина, вложения; даты — связь с контактом. */
         val M5_6 = object : androidx.room.migration.Migration(5, 6) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -438,7 +449,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6)
+                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7)
                 .build().also { inst = it }
         }
     }

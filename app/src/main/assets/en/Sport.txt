@@ -1,0 +1,48 @@
+athlete|спортсмен
+champion|чемпион
+championship|чемпионат
+tournament|турнир
+league|лига
+referee|судья (спорт)
+fan|болельщик
+coach|тренер
+team captain|капитан команды
+opponent|соперник
+draw|ничья
+defeat|поражение
+victory|победа
+score|счёт
+goalkeeper|вратарь
+penalty|пенальти
+basketball|баскетбол
+volleyball|волейбол
+tennis|теннис
+hockey|хоккей
+boxing|бокс
+wrestling|борьба
+skiing|лыжи
+skating|катание на коньках
+snowboarding|сноуборд
+surfing|сёрфинг
+diving|дайвинг
+cycling|велоспорт
+running|бег
+marathon|марафон
+sprint|спринт
+yoga|йога
+fitness|фитнес
+weightlifting|тяжёлая атлетика
+gymnastics|гимнастика
+racket|ракетка
+net|сетка
+court|корт, площадка
+pitch|поле (футбольное)
+track|беговая дорожка
+gym membership|абонемент в зал
+trainer|тренер, кроссовки
+sneakers|кроссовки
+medal|медаль
+cup|кубок
+record|рекорд
+injury|травма
+warm-up|разминка

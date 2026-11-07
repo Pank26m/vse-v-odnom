@@ -1,0 +1,89 @@
+joy|радость
+happiness|счастье
+sadness|грусть
+fear|страх
+surprise|удивление
+disgust|отвращение
+anger|гнев
+love|любовь
+hate|ненависть
+hope|надежда
+despair|отчаяние
+loneliness|одиночество
+boredom|скука
+envy|зависть
+jealousy|ревность
+shame|стыд
+guilt|вина
+pride|гордость
+gratitude|благодарность
+trust|доверие
+doubt|сомнение
+relief|облегчение
+regret|сожаление
+excitement|волнение (радостное)
+nervousness|нервозность
+calmness|спокойствие
+confidence|уверенность
+embarrassment|смущение
+disappointment|разочарование
+satisfaction|удовлетворение
+amused|позабавленный
+annoyed|раздражённый
+ashamed|пристыженный
+confused|растерянный
+delighted|восхищённый
+depressed|подавленный
+exhausted|измученный
+furious|разъярённый
+grateful|благодарный
+heartbroken|убитый горем
+hopeless|безнадёжный
+inspired|вдохновлённый
+irritated|раздражённый
+miserable|несчастный
+moody|переменчивого настроения
+optimistic|оптимистичный
+overjoyed|вне себя от радости
+puzzled|озадаченный
+relieved|испытавший облегчение
+scared|напуганный
+shocked|потрясённый
+stressed out|в стрессе
+terrified|в ужасе
+thankful|признательный
+thrilled|в восторге
+touched|тронутый
+upset|расстроенный
+calm down|успокойся
+cheer up|не унывай
+take care|береги себя
+never mind|ничего страшного
+no worries|не беспокойся
+good luck|удачи
+well done|молодец
+congratulations|поздравляю
+what a pity|как жаль
+I miss you|я скучаю по тебе
+I love you|я тебя люблю
+how are you|как дела
+I'm fine|у меня всё хорошо
+nice to meet you|приятно познакомиться
+see you later|увидимся
+have a nice day|хорошего дня
+excuse me|простите
+I don't know|я не знаю
+I agree|я согласен
+of course|конечно
+it depends|это зависит
+by the way|кстати
+in my opinion|по моему мнению
+as soon as possible|как можно скорее
+at least|по крайней мере
+at first|сначала
+in fact|на самом деле
+on purpose|нарочно
+for example|например
+in general|в общем
+on time|вовремя
+in time|вовремя (заранее)

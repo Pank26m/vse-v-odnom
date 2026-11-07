@@ -1,0 +1,621 @@
+abandon|покидать, бросать
+absorb|поглощать
+abuse|злоупотреблять
+accelerate|ускорять
+accommodate|размещать, вмещать
+accompany|сопровождать
+accumulate|накапливать
+accuse|обвинять
+acknowledge|признавать
+acquire|приобретать
+adapt|приспосабливаться
+adjust|настраивать
+adopt|усыновлять, принимать
+advocate|выступать за
+allocate|распределять
+alter|изменять
+amaze|изумлять
+analyse|анализировать
+anticipate|предвидеть
+approve|одобрять
+assess|оценивать
+assign|назначать
+assist|помогать
+assume|предполагать
+assure|уверять
+attain|достигать
+authorize|разрешать
+bargain|торговаться, выгодная покупка
+boost|повышать
+breed|разводить
+browse|просматривать
+calculate|рассчитывать
+cease|прекращать
+clarify|уточнять
+collapse|обрушиваться
+commit|совершать, обязываться
+compensate|компенсировать
+compile|составлять
+comply|соблюдать
+compose|сочинять
+comprise|включать в себя
+conceal|скрывать
+concern|касаться, беспокоить
+conclude|заключать
+conduct|проводить
+confess|признаваться
+confront|противостоять
+consult|консультироваться
+consume|потреблять
+contribute|вносить вклад
+convert|преобразовывать
+cooperate|сотрудничать
+cope|справляться
+correspond|соответствовать
+crawl|ползать
+cultivate|выращивать
+dare|осмеливаться
+decline|снижаться, отклонять
+dedicate|посвящать
+define|определять
+demonstrate|демонстрировать
+derive|происходить, получать
+detect|обнаруживать
+determine|определять
+devote|посвящать
+diagnose|ставить диагноз
+dismiss|увольнять, отклонять
+display|показывать
+dispose|избавляться
+distinguish|различать
+distribute|распределять
+disturb|беспокоить
+dominate|доминировать
+donate|жертвовать
+drag|тащить
+eliminate|устранять
+embrace|обнимать, принимать
+emerge|появляться
+emphasize|подчёркивать
+enable|позволять
+enforce|обеспечивать соблюдение
+engage|вовлекать
+enhance|улучшать
+ensure|обеспечивать
+equip|оснащать
+estimate|оценивать
+evaluate|оценивать
+evolve|эволюционировать
+exaggerate|преувеличивать
+exceed|превышать
+exclude|исключать
+execute|выполнять, казнить
+exhaust|истощать
+expose|подвергать, разоблачать
+extend|продлевать
+extract|извлекать
+facilitate|облегчать
+fade|блекнуть
+flee|убегать
+flourish|процветать
+forbid|запрещать
+foresee|предвидеть
+formulate|формулировать
+frustrate|расстраивать
+fulfil|выполнять
+generate|генерировать
+grant|предоставлять
+guarantee|гарантировать
+hesitate|колебаться
+highlight|выделять
+illustrate|иллюстрировать
+imply|подразумевать
+impose|навязывать
+inherit|наследовать
+initiate|начинать
+inspire|вдохновлять
+integrate|интегрировать
+interpret|толковать
+interrupt|прерывать
+invest|инвестировать
+isolate|изолировать
+justify|оправдывать
+maintain|поддерживать
+manipulate|манипулировать
+maximize|максимизировать
+merge|сливать
+migrate|мигрировать
+minimize|минимизировать
+modify|изменять
+monitor|контролировать
+motivate|мотивировать
+negotiate|вести переговоры
+neglect|пренебрегать
+nominate|выдвигать
+notify|уведомлять
+oblige|обязывать
+offend|обижать
+oppose|противостоять
+overcome|преодолевать
+overlook|упускать из виду
+overwhelm|ошеломлять
+pause|делать паузу
+penetrate|проникать
+perceive|воспринимать
+persist|упорствовать
+possess|обладать
+postpone|откладывать
+preserve|сохранять
+presume|предполагать
+proceed|продолжать
+proclaim|провозглашать
+prohibit|запрещать
+promote|продвигать
+propose|предлагать
+prosecute|преследовать в суде
+pursue|преследовать, добиваться
+quote|цитировать
+reassure|успокаивать
+rebel|бунтовать
+recall|вспоминать
+reckon|считать, полагать
+recruit|набирать
+refer|ссылаться
+reflect|отражать
+reform|реформировать
+regain|возвращать
+regulate|регулировать
+reinforce|усиливать
+relieve|облегчать
+remark|замечать
+render|делать, оказывать
+renew|обновлять
+resemble|быть похожим
+reside|проживать
+resign|уходить в отставку
+resist|сопротивляться
+resolve|разрешать
+restore|восстанавливать
+restrict|ограничивать
+resume|возобновлять
+retain|сохранять
+retrieve|извлекать
+reverse|поворачивать вспять
+revise|пересматривать
+reward|вознаграждать
+scan|сканировать
+secure|обеспечивать
+seek|искать
+seize|захватывать
+shift|сдвигать, смена
+simplify|упрощать
+specify|уточнять
+speculate|размышлять
+stimulate|стимулировать
+strengthen|укреплять
+submit|подавать
+substitute|заменять
+sum up|подводить итог
+summon|вызывать
+surrender|сдаваться
+sustain|поддерживать
+tackle|браться за
+terminate|прекращать
+tolerate|терпеть
+transform|преобразовывать
+undergo|подвергаться
+undertake|предпринимать
+unify|объединять
+utilize|использовать
+vanish|исчезать
+verify|проверять
+withdraw|снимать, отзывать
+witness|быть свидетелем
+yield|давать, уступать
+abuse|злоупотребление
+academy|академия
+accommodation|жильё
+achievement|достижение
+acquisition|приобретение
+addiction|зависимость
+adolescent|подросток
+agenda|повестка дня
+alliance|альянс
+ambition|амбиция
+analysis|анализ
+anxiety|тревога
+approach|подход
+approval|одобрение
+assessment|оценка
+asset|актив
+assumption|предположение
+authority|власть, авторитет
+awareness|осведомлённость
+bias|предвзятость
+breakthrough|прорыв
+burden|бремя
+campaign|кампания
+capacity|ёмкость, способность
+category|категория
+circumstance|обстоятельство
+civilization|цивилизация
+clue|подсказка, улика
+colleague|коллега
+commitment|обязательство
+compensation|компенсация
+competence|компетентность
+complaint|жалоба
+component|компонент
+compromise|компромисс
+concept|понятие
+conclusion|вывод
+conflict|конфликт
+consequence|последствие
+conservation|сохранение
+consideration|рассмотрение
+consumer|потребитель
+consumption|потребление
+context|контекст
+contribution|вклад
+convenience|удобство
+conviction|убеждение
+corruption|коррупция
+creature|существо
+criteria|критерии
+criticism|критика
+cuisine|кухня (национальная)
+curiosity|любопытство
+debate|дебаты
+decade|десятилетие
+deficit|дефицит
+democracy|демократия
+density|плотность
+dependence|зависимость
+deposit|депозит, залог
+desire|желание
+destination|место назначения
+determination|решимость
+dignity|достоинство
+dilemma|дилемма
+dimension|измерение
+diploma|диплом
+disability|инвалидность
+discipline|дисциплина
+discrimination|дискриминация
+dispute|спор
+diversity|разнообразие
+draft|черновик
+drought|засуха
+efficiency|эффективность
+emission|выброс
+emphasis|акцент
+empire|империя
+enterprise|предприятие
+enthusiasm|энтузиазм
+entity|организация, сущность
+equality|равенство
+era|эра
+essence|сущность
+estimate|оценка
+ethics|этика
+exception|исключение
+expansion|расширение
+expenditure|расходы
+expertise|опыт, компетенция
+exposure|воздействие
+facility|объект, удобство
+faith|вера
+fame|слава
+feature|особенность
+federation|федерация
+finance|финансы
+flaw|недостаток
+forecast|прогноз
+foundation|основание, фонд
+fraction|доля
+framework|структура, рамки
+fraud|мошенничество
+frustration|разочарование
+gender|пол (гендер)
+gesture|жест
+grief|горе
+guideline|руководство
+harassment|притеснение
+harm|вред
+hazard|опасность
+heritage|наследие
+hierarchy|иерархия
+hostility|враждебность
+hypothesis|гипотеза
+identity|личность
+illusion|иллюзия
+immigration|иммиграция
+implication|последствие
+incentive|стимул
+incident|инцидент
+indication|признак
+inequality|неравенство
+inflation|инфляция
+infrastructure|инфраструктура
+initiative|инициатива
+innovation|инновация
+insight|понимание
+inspiration|вдохновение
+instinct|инстинкт
+institution|учреждение
+integrity|честность
+interaction|взаимодействие
+interference|вмешательство
+interval|интервал
+intervention|вмешательство
+investment|инвестиция
+irony|ирония
+justice|справедливость
+landscape|пейзаж
+legacy|наследие
+legislation|законодательство
+liability|ответственность
+liberty|свобода
+literacy|грамотность
+literature|литература
+logic|логика
+loyalty|верность
+margin|поле, маржа
+masterpiece|шедевр
+maturity|зрелость
+mechanism|механизм
+merit|заслуга
+milestone|веха
+minority|меньшинство
+misery|страдание
+mission|миссия
+momentum|импульс
+morality|нравственность
+mortgage|ипотека
+motive|мотив
+myth|миф
+narrative|повествование
+negotiation|переговоры
+nonsense|чепуха
+norm|норма
+nutrition|питание
+objective|цель
+obligation|обязательство
+obstacle|препятствие
+outcome|результат
+output|выпуск, вывод
+outlook|перспектива
+panic|паника
+paradox|парадокс
+participant|участник
+passion|страсть
+pension|пенсия
+perception|восприятие
+perspective|перспектива, точка зрения
+phenomenon|явление
+philosophy|философия
+pioneer|первопроходец
+policy|политика (курс)
+portion|порция
+potential|потенциал
+precaution|мера предосторожности
+prejudice|предрассудок
+premises|помещение
+prescription|рецепт (врача)
+presence|присутствие
+principle|принцип
+privacy|конфиденциальность
+privilege|привилегия
+procedure|процедура
+proportion|пропорция
+prospect|перспектива
+protest|протест
+psychology|психология
+publicity|реклама, огласка
+qualification|квалификация
+questionnaire|анкета
+rebellion|восстание
+recession|спад
+recovery|восстановление
+reference|ссылка, рекомендация
+refugee|беженец
+regime|режим
+regulation|регулирование
+rehabilitation|реабилитация
+reluctance|нежелание
+remedy|средство
+removal|удаление
+replacement|замена
+representative|представитель
+requirement|требование
+reservation|бронирование
+resident|житель
+resignation|отставка
+resolution|решение, разрешение
+restriction|ограничение
+revenue|доход
+revolution|революция
+rhythm|ритм
+rival|соперник
+routine|распорядок
+sacrifice|жертва
+satisfaction|удовлетворение
+scandal|скандал
+scenario|сценарий
+scheme|схема
+scope|сфера
+sector|сектор
+sequence|последовательность
+shelter|убежище
+shortage|нехватка
+slavery|рабство
+species|вид (биол.)
+spectrum|спектр
+stability|стабильность
+stake|ставка, доля
+statistics|статистика
+status|статус
+stereotype|стереотип
+strategy|стратегия
+substance|вещество
+summit|вершина, саммит
+supplement|добавка
+surgery|операция (хирург.)
+surplus|избыток
+suspicion|подозрение
+sympathy|сочувствие
+symptom|симптом
+tendency|тенденция
+tension|напряжение
+territory|территория
+theme|тема
+theory|теория
+threat|угроза
+threshold|порог
+tolerance|терпимость
+tragedy|трагедия
+transaction|сделка
+transition|переход
+transparency|прозрачность
+trial|суд, испытание
+triumph|триумф
+uncertainty|неопределённость
+unemployment|безработица
+urge|побуждение
+validity|действительность
+venture|предприятие (рискованное)
+version|версия
+vision|видение, зрение
+welfare|благосостояние
+wisdom|мудрость
+absolute|абсолютный
+abstract|абстрактный
+absurd|абсурдный
+abundant|обильный
+academic|академический
+acceptable|приемлемый
+adequate|достаточный
+adverse|неблагоприятный
+alternative|альтернативный
+ambitious|амбициозный
+apparent|очевидный
+arbitrary|произвольный
+artificial|искусственный
+authentic|подлинный
+bizarre|причудливый
+blunt|тупой, прямолинейный
+bold|смелый
+casual|непринуждённый
+cautious|осторожный
+chronic|хронический
+coherent|связный
+compatible|совместимый
+compulsory|обязательный
+conscious|сознательный
+considerable|значительный
+consistent|последовательный
+controversial|спорный
+convenient|удобный
+crucial|решающий
+cynical|циничный
+delicate|деликатный
+deliberate|намеренный
+dense|плотный
+distinct|отчётливый
+dramatic|драматичный
+dull|скучный, тусклый
+eager|страстно желающий
+elaborate|сложный, детальный
+eligible|имеющий право
+eloquent|красноречивый
+evident|очевидный
+excessive|чрезмерный
+explicit|явный
+fierce|свирепый
+fragile|хрупкий
+genuine|подлинный
+gloomy|мрачный
+graceful|изящный
+hostile|враждебный
+humble|скромный
+identical|идентичный
+immense|огромный
+imminent|неминуемый
+inevitable|неизбежный
+initial|начальный
+intense|интенсивный
+intimate|близкий, интимный
+legitimate|законный
+liberal|либеральный
+literal|буквальный
+magnificent|великолепный
+marginal|незначительный
+mature|зрелый
+moderate|умеренный
+modest|скромный
+naive|наивный
+neat|аккуратный
+notable|примечательный
+numerous|многочисленный
+optimistic|оптимистичный
+outstanding|выдающийся
+overall|общий
+passive|пассивный
+peculiar|своеобразный
+pessimistic|пессимистичный
+plausible|правдоподобный
+precise|точный
+predictable|предсказуемый
+prominent|видный
+radical|радикальный
+rational|рациональный
+relevant|актуальный
+reluctant|неохотный
+remarkable|замечательный
+remote|отдалённый
+rigid|жёсткий
+ruthless|безжалостный
+scarce|скудный
+sceptical|скептический
+shallow|мелкий
+spontaneous|спонтанный
+stable|стабильный
+stubborn|упрямый
+subtle|тонкий (едва заметный)
+sufficient|достаточный
+superficial|поверхностный
+superior|превосходящий
+sustainable|устойчивый
+tense|напряжённый
+thorough|тщательный
+transparent|прозрачный
+trivial|тривиальный
+ultimate|окончательный
+universal|всеобщий
+vague|расплывчатый
+vast|обширный
+vivid|яркий
+vulnerable|уязвимый
+widespread|широко распространённый
+accordingly|соответственно
+admittedly|правда, надо признать
+allegedly|предположительно
+arguably|возможно, вероятно
+consequently|следовательно
+considerably|значительно
+deliberately|намеренно
+furthermore|кроме того
+hence|следовательно
+inevitably|неизбежно
+merely|просто, всего лишь
+nevertheless|тем не менее
+notably|особенно
+presumably|предположительно
+relatively|относительно
+roughly|примерно
+seemingly|по-видимому
+subsequently|впоследствии
+thereby|тем самым
+thus|таким образом
+virtually|практически
+whereas|тогда как

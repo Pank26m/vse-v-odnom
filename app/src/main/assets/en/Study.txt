@@ -1,0 +1,74 @@
+alphabet|алфавит
+grammar|грамматика
+vocabulary|словарный запас
+pronunciation|произношение
+spelling|правописание
+sentence|предложение
+paragraph|абзац
+essay|сочинение
+noun|существительное
+verb|глагол
+adjective|прилагательное
+adverb|наречие
+pronoun|местоимение
+preposition|предлог
+tense|время (грамм.)
+plural|множественное число
+singular|единственное число
+meaning|значение
+synonym|синоним
+opposite|противоположность
+translation|перевод
+native speaker|носитель языка
+fluent|свободно говорящий
+accent|акцент
+textbook|учебник
+notebook|тетрадь
+exercise book|рабочая тетрадь
+ruler|линейка
+eraser|ластик
+sharpener|точилка
+calculator|калькулятор
+timetable|расписание
+term|семестр
+semester|семестр
+lecture|лекция
+seminar|семинар
+lecturer|лектор
+professor|профессор
+dean|декан
+faculty|факультет
+campus|кампус
+dormitory|общежитие
+scholarship|стипендия
+tuition|плата за обучение
+degree|учёная степень
+bachelor|бакалавр
+master|магистр
+thesis|диссертация, дипломная
+research paper|научная статья
+assignment|задание
+coursework|курсовая работа
+deadline|срок сдачи
+grade|оценка
+mark|отметка
+pass|сдать (экзамен)
+fail|провалить
+cheat|списывать
+revise|повторять (перед экзаменом)
+memorize|запоминать
+take notes|конспектировать
+attend lectures|посещать лекции
+architecture|архитектура
+drawing|чертёж, рисунок
+design|дизайн
+construction|строительство
+geometry|геометрия
+algebra|алгебра
+equation|уравнение
+formula|формула
+geography|география
+economics|экономика
+art history|история искусства
+experiment|эксперимент
+laboratory work|лабораторная работа

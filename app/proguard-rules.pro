@@ -6,3 +6,12 @@
 -keep class org.apache.commons.compress.** { *; }
 -keep class org.apache.commons.io.** { *; }
 -dontwarn org.apache.commons.**
+# PDFBox (шрифты и ресурсы грузит по имени)
+-keep class com.tom_roush.** { *; }
+-dontwarn com.tom_roush.**
+-dontwarn com.gemalto.jp2.**
+-dontwarn org.bouncycastle.**
+# junrar
+-keep class com.github.junrar.** { *; }
+-dontwarn com.github.junrar.**
+-dontwarn org.slf4j.**

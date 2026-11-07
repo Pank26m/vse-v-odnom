@@ -74,6 +74,11 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("com.github.junrar:junrar:7.5.5")
+    implementation("org.apache.commons:commons-compress:1.21")
     implementation("io.github.junkfood02.youtubedl-android:library:0.17.4")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.4")
 

@@ -1,0 +1,584 @@
+the|определённый артикль
+a|неопределённый артикль
+be|быть
+have|иметь
+do|делать
+say|сказать
+go|идти
+get|получать
+make|делать, создавать
+know|знать
+think|думать
+take|брать
+see|видеть
+come|приходить
+want|хотеть
+look|смотреть
+use|использовать
+find|находить
+give|давать
+tell|рассказывать
+work|работать
+call|звонить, звать
+try|пытаться
+ask|спрашивать
+need|нуждаться
+feel|чувствовать
+become|становиться
+leave|уходить, оставлять
+put|класть
+mean|значить
+keep|держать, хранить
+let|позволять
+begin|начинать
+seem|казаться
+help|помогать
+talk|разговаривать
+turn|поворачивать
+start|начинать
+show|показывать
+hear|слышать
+play|играть
+run|бегать
+move|двигаться
+like|нравиться
+live|жить
+believe|верить
+hold|держать
+bring|приносить
+write|писать
+sit|сидеть
+stand|стоять
+lose|терять
+pay|платить
+meet|встречать
+learn|учиться
+change|менять
+lead|вести
+understand|понимать
+watch|смотреть, наблюдать
+follow|следовать
+stop|останавливаться
+read|читать
+spend|тратить
+grow|расти
+open|открывать
+walk|ходить пешком
+win|побеждать
+offer|предлагать
+remember|помнить
+love|любить
+buy|покупать
+wait|ждать
+die|умирать
+send|отправлять
+build|строить
+stay|оставаться
+fall|падать
+cut|резать
+reach|достигать
+kill|убивать
+sell|продавать
+eat|есть (кушать)
+drink|пить
+sleep|спать
+cook|готовить еду
+clean|убирать, чистый
+wash|мыть
+swim|плавать
+fly|летать
+drive|водить машину
+ride|ездить верхом, кататься
+sing|петь
+dance|танцевать
+draw|рисовать
+cry|плакать
+laugh|смеяться
+smile|улыбаться
+close|закрывать
+carry|нести
+catch|ловить
+throw|бросать
+jump|прыгать
+climb|карабкаться
+fix|чинить
+finish|заканчивать
+answer|отвечать
+travel|путешествовать
+visit|посещать
+study|изучать
+teach|преподавать
+speak|говорить
+listen|слушать
+wear|носить (одежду)
+forget|забывать
+hope|надеяться
+choose|выбирать
+arrive|прибывать
+return|возвращаться
+explain|объяснять
+agree|соглашаться
+enjoy|наслаждаться
+hate|ненавидеть
+miss|скучать, пропускать
+plan|планировать
+prefer|предпочитать
+rain|дождь
+snow|снег
+wind|ветер
+sun|солнце
+moon|луна
+star|звезда
+sky|небо
+cloud|облако
+weather|погода
+hot|жаркий
+cold|холодный
+warm|тёплый
+cool|прохладный
+day|день
+night|ночь
+morning|утро
+evening|вечер
+afternoon|день (после полудня)
+today|сегодня
+tomorrow|завтра
+yesterday|вчера
+week|неделя
+month|месяц
+year|год
+hour|час
+minute|минута
+second|секунда, второй
+time|время
+now|сейчас
+then|тогда
+soon|скоро
+late|поздний, поздно
+early|ранний, рано
+always|всегда
+never|никогда
+often|часто
+sometimes|иногда
+usually|обычно
+again|снова
+already|уже
+still|всё ещё
+yet|ещё, уже (в вопросах)
+just|только что, просто
+Monday|понедельник
+Tuesday|вторник
+Wednesday|среда
+Thursday|четверг
+Friday|пятница
+Saturday|суббота
+Sunday|воскресенье
+January|январь
+February|февраль
+March|март
+April|апрель
+May|май
+June|июнь
+July|июль
+August|август
+September|сентябрь
+October|октябрь
+November|ноябрь
+December|декабрь
+spring|весна
+summer|лето
+autumn|осень
+winter|зима
+one|один
+two|два
+three|три
+four|четыре
+five|пять
+six|шесть
+seven|семь
+eight|восемь
+nine|девять
+ten|десять
+eleven|одиннадцать
+twelve|двенадцать
+twenty|двадцать
+hundred|сто
+thousand|тысяча
+million|миллион
+first|первый
+third|третий
+last|последний
+next|следующий
+half|половина
+number|число, номер
+man|мужчина
+woman|женщина
+child|ребёнок
+boy|мальчик
+girl|девочка
+baby|младенец
+person|человек
+people|люди
+friend|друг
+family|семья
+mother|мать
+father|отец
+parent|родитель
+son|сын
+daughter|дочь
+brother|брат
+sister|сестра
+husband|муж
+wife|жена
+grandmother|бабушка
+grandfather|дедушка
+uncle|дядя
+aunt|тётя
+cousin|двоюродный брат/сестра
+neighbour|сосед
+teacher|учитель
+student|студент
+doctor|врач
+nurse|медсестра
+driver|водитель
+worker|рабочий
+boss|начальник
+name|имя
+age|возраст
+birthday|день рождения
+house|дом
+home|дом (родной), домой
+room|комната
+kitchen|кухня
+bedroom|спальня
+bathroom|ванная
+door|дверь
+window|окно
+wall|стена
+floor|пол, этаж
+roof|крыша
+garden|сад
+table|стол
+chair|стул
+bed|кровать
+sofa|диван
+lamp|лампа
+mirror|зеркало
+shower|душ
+key|ключ
+box|коробка
+bag|сумка
+cup|чашка
+plate|тарелка
+glass|стакан, стекло
+bottle|бутылка
+knife|нож
+fork|вилка
+spoon|ложка
+food|еда
+water|вода
+bread|хлеб
+milk|молоко
+tea|чай
+coffee|кофе
+juice|сок
+egg|яйцо
+cheese|сыр
+butter|масло (сливочное)
+meat|мясо
+chicken|курица
+fish|рыба
+rice|рис
+soup|суп
+salad|салат
+apple|яблоко
+banana|банан
+orange|апельсин
+potato|картофель
+tomato|помидор
+carrot|морковь
+sugar|сахар
+salt|соль
+cake|торт
+chocolate|шоколад
+ice cream|мороженое
+breakfast|завтрак
+lunch|обед
+dinner|ужин
+hungry|голодный
+thirsty|испытывающий жажду
+tasty|вкусный
+sweet|сладкий
+city|город
+town|городок
+village|деревня
+street|улица
+road|дорога
+shop|магазин
+market|рынок
+bank|банк
+school|школа
+hospital|больница
+park|парк
+station|станция, вокзал
+airport|аэропорт
+hotel|гостиница
+restaurant|ресторан
+cafe|кафе
+church|церковь
+museum|музей
+cinema|кинотеатр
+library|библиотека
+office|офис
+bridge|мост
+river|река
+sea|море
+lake|озеро
+mountain|гора
+forest|лес
+tree|дерево
+flower|цветок
+grass|трава
+field|поле
+beach|пляж
+island|остров
+country|страна
+world|мир
+car|машина
+bus|автобус
+train|поезд
+plane|самолёт
+bike|велосипед
+boat|лодка
+ship|корабль
+taxi|такси
+ticket|билет
+map|карта
+dog|собака
+cat|кошка
+bird|птица
+horse|лошадь
+cow|корова
+pig|свинья
+sheep|овца
+mouse|мышь
+rabbit|кролик
+bear|медведь
+wolf|волк
+fox|лиса
+lion|лев
+tiger|тигр
+elephant|слон
+monkey|обезьяна
+snake|змея
+head|голова
+face|лицо
+eye|глаз
+ear|ухо
+nose|нос
+mouth|рот
+tooth|зуб
+hair|волосы
+neck|шея
+arm|рука (от плеча)
+hand|кисть руки
+finger|палец
+leg|нога
+foot|ступня
+back|спина, назад
+heart|сердце
+body|тело
+clothes|одежда
+shirt|рубашка
+T-shirt|футболка
+dress|платье
+skirt|юбка
+trousers|брюки
+jeans|джинсы
+jacket|куртка
+coat|пальто
+hat|шляпа
+shoes|обувь
+socks|носки
+red|красный
+blue|синий
+green|зелёный
+yellow|жёлтый
+black|чёрный
+white|белый
+grey|серый
+brown|коричневый
+pink|розовый
+purple|фиолетовый
+colour|цвет
+big|большой
+small|маленький
+long|длинный
+short|короткий
+tall|высокий (о человеке)
+high|высокий
+low|низкий
+new|новый
+old|старый
+young|молодой
+good|хороший
+bad|плохой
+nice|приятный
+beautiful|красивый
+ugly|уродливый
+happy|счастливый
+sad|грустный
+angry|злой
+tired|уставший
+ill|больной
+fine|прекрасный, в порядке
+easy|лёгкий (простой)
+difficult|трудный
+cheap|дешёвый
+expensive|дорогой
+fast|быстрый
+slow|медленный
+full|полный
+empty|пустой
+heavy|тяжёлый
+light|лёгкий, свет
+dark|тёмный
+right|правый, правильный
+left|левый
+true|истинный
+wrong|неправильный
+same|тот же самый
+different|разный
+important|важный
+interesting|интересный
+boring|скучный
+funny|смешной
+quiet|тихий
+loud|громкий
+rich|богатый
+poor|бедный
+strong|сильный
+weak|слабый
+busy|занятой
+free|свободный, бесплатный
+ready|готовый
+favourite|любимый
+great|великий, отличный
+small talk|светская беседа
+yes|да
+no|нет
+please|пожалуйста (просьба)
+thank you|спасибо
+sorry|извините
+hello|привет, здравствуйте
+goodbye|до свидания
+here|здесь
+there|там
+where|где
+when|когда
+why|почему
+what|что
+who|кто
+which|который
+how|как
+how much|сколько (неисчисл.)
+how many|сколько (исчисл.)
+this|этот
+that|тот
+these|эти
+those|те
+I|я
+you|ты, вы
+he|он
+she|она
+it|оно, это
+we|мы
+they|они
+my|мой
+your|твой, ваш
+his|его
+her|её
+our|наш
+their|их
+all|все, весь
+some|некоторые, немного
+any|любой, какой-нибудь
+every|каждый
+many|много (исчисл.)
+much|много (неисчисл.)
+more|больше
+most|наибольший
+few|мало (исчисл.)
+little|маленький, мало
+very|очень
+too|тоже, слишком
+also|также
+only|только
+and|и
+or|или
+but|но
+because|потому что
+if|если
+so|так, поэтому
+with|с
+without|без
+for|для
+from|из, от
+to|к, в
+in|в
+on|на
+at|у, в (место/время)
+under|под
+over|над
+near|рядом
+behind|позади
+between|между
+before|до, перед
+after|после
+up|вверх
+down|вниз
+out|наружу
+into|в (внутрь)
+about|о, около
+money|деньги
+price|цена
+job|работа
+book|книга
+pen|ручка
+pencil|карандаш
+paper|бумага
+letter|письмо, буква
+word|слово
+story|история, рассказ
+question|вопрос
+lesson|урок
+homework|домашнее задание
+class|класс, занятие
+test|тест
+phone|телефон
+computer|компьютер
+picture|картина, снимок
+photo|фотография
+music|музыка
+song|песня
+film|фильм
+game|игра
+sport|спорт
+football|футбол
+ball|мяч
+toy|игрушка
+party|вечеринка
+holiday|праздник, отпуск
+present|подарок, настоящий
+news|новости
+problem|проблема
+idea|идея
+thing|вещь
+place|место
+way|путь, способ
+part|часть
+end|конец
+side|сторона
+top|верх
+bottom|низ, дно
+middle|середина

@@ -30,6 +30,7 @@ private val UTILS = listOf(
     Util("battery", "Батарея", "Ток, мощность зарядки, температура, циклы, износ", Icons.Rounded.BatteryChargingFull, Tints.Mint),
     Util("repair", "Тесты телефона", "Экран, тач, динамики, микрофон, камеры, кнопки, датчики — с отчётом", Icons.Rounded.Build, Tints.Peach),
     Util("wifi", "Wi-Fi сканер", "Сети вокруг, сигнал, каналы, защита", Icons.Rounded.Wifi, Tints.Sky),
+    Util("archive", "Архивы", "Открыть и распаковать zip, rar, tar, gz; создать zip", Icons.Rounded.FolderZip, Tints.Butter),
 )
 
 @Composable
@@ -42,6 +43,7 @@ fun UtilsScreen(onBack: () -> Unit) {
         "battery" -> BatteryScreen(close)
         "repair" -> RepairTestScreen(close)
         "wifi" -> WifiScreen(close)
+        "archive" -> com.pank.vsevodnom.ui.files.ArchiveScreen(close)
         else -> ScreenScaffold("Утилиты", onBack) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(UTILS) { u ->

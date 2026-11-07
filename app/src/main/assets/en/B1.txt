@@ -1,0 +1,751 @@
+achieve|достигать
+act|действовать
+admire|восхищаться
+admit|признавать
+advise|советовать
+afford|позволить себе (по деньгам)
+aim|целиться, стремиться
+announce|объявлять
+apologize|извиняться
+apply|подавать заявку, применять
+appreciate|ценить
+argue|спорить
+arrest|арестовывать
+attach|прикреплять
+attack|атаковать
+attempt|пытаться, попытка
+attend|посещать
+attract|привлекать
+beat|бить, побеждать
+beg|умолять
+behave|вести себя
+belong|принадлежать
+bend|сгибать
+bite|кусать
+blame|винить
+blow|дуть
+boil|кипятить
+bother|беспокоить
+bounce|отскакивать
+bury|хоронить, закапывать
+calculate|вычислять
+cancel|отменять
+capture|захватывать
+cause|вызывать, причина
+challenge|бросать вызов, вызов
+charge|заряжать, взимать плату
+chase|гнаться
+cheat|обманывать
+cheer|подбадривать
+chew|жевать
+claim|заявлять, требовать
+combine|сочетать
+communicate|общаться
+compete|соревноваться
+concentrate|сосредотачиваться
+confirm|подтверждать
+confuse|путать
+connect|соединять
+consider|рассматривать, считать
+consist|состоять
+contact|связываться
+contain|содержать
+control|контролировать
+convince|убеждать
+create|создавать
+crash|разбиться, авария
+criticize|критиковать
+damage|повреждать, ущерб
+deal|иметь дело, сделка
+defend|защищать
+delay|задерживать, задержка
+demand|требовать
+deny|отрицать
+depend|зависеть
+deserve|заслуживать
+design|проектировать, дизайн
+develop|развивать
+dig|копать
+disagree|не соглашаться
+disappear|исчезать
+divide|делить
+download|скачивать
+drown|тонуть
+educate|обучать
+elect|избирать
+employ|нанимать
+encourage|поощрять
+escape|сбегать
+establish|устанавливать, основывать
+examine|исследовать
+exchange|обменивать
+exist|существовать
+expand|расширять
+experiment|экспериментировать
+express|выражать
+fasten|застёгивать
+fetch|приносить
+float|плавать (на поверхности)
+force|заставлять, сила
+form|формировать
+found|основывать
+freeze|замерзать
+frighten|пугать
+gain|получать, приобретать
+gather|собирать
+glue|клеить
+greet|приветствовать
+grab|хватать
+guard|охранять
+handle|справляться, ручка
+heal|исцелять
+hire|нанимать
+identify|опознавать
+ignore|игнорировать
+imagine|представлять
+impress|впечатлять
+increase|увеличивать
+indicate|указывать
+inform|сообщать
+injure|ранить
+insist|настаивать
+install|устанавливать
+intend|намереваться
+introduce|представлять, вводить
+invent|изобретать
+investigate|расследовать
+involve|вовлекать
+judge|судить, судья
+label|маркировать, ярлык
+lack|не хватать, нехватка
+land|приземляться, земля
+last|длиться
+lay|класть
+limit|ограничивать
+link|связывать, ссылка
+load|загружать
+manage|справляться, управлять
+measure|измерять
+mention|упоминать
+melt|таять
+murder|убивать, убийство
+nod|кивать
+obey|подчиняться
+observe|наблюдать
+obtain|получать
+occur|происходить
+operate|управлять, оперировать
+organize|организовывать
+owe|быть должным
+participate|участвовать
+perform|выступать, выполнять
+permit|разрешать
+persuade|убеждать
+point|указывать, точка
+pour|наливать
+practise|практиковаться
+pray|молиться
+predict|предсказывать
+prepare|готовить
+pretend|притворяться
+prevent|предотвращать
+print|печатать
+produce|производить
+promise|обещать
+pronounce|произносить
+protect|защищать
+prove|доказывать
+provide|обеспечивать
+publish|публиковать
+punish|наказывать
+qualify|получать квалификацию
+quit|бросать, уходить
+raise|поднимать
+react|реагировать
+realize|осознавать
+receive|получать
+recognize|узнавать
+recommend|рекомендовать
+record|записывать
+recover|выздоравливать
+reduce|уменьшать
+refuse|отказываться
+regret|сожалеть
+reject|отклонять
+relax|расслабляться
+release|выпускать
+rely|полагаться
+remain|оставаться
+remind|напоминать
+remove|удалять
+replace|заменять
+report|сообщать, доклад
+represent|представлять
+request|просить, запрос
+require|требовать
+rescue|спасать
+respect|уважать
+respond|отвечать
+retire|уходить на пенсию
+reveal|раскрывать
+rise|подниматься
+risk|рисковать, риск
+rob|грабить
+roll|катить
+rush|торопиться
+satisfy|удовлетворять
+scare|пугать
+score|забивать, счёт
+scream|кричать
+select|выбирать
+separate|разделять, отдельный
+serve|обслуживать
+settle|поселяться, улаживать
+shake|трясти
+shine|сиять
+shoot|стрелять
+sink|тонуть, раковина
+skip|пропускать
+slide|скользить
+smash|разбивать вдребезги
+sneeze|чихать
+spill|проливать
+spread|распространять
+squeeze|сжимать
+stick|приклеивать, палка
+store|хранить, магазин
+stretch|растягивать
+strike|ударять, бастовать
+succeed|преуспевать
+suffer|страдать
+supply|снабжать
+support|поддерживать
+suppose|предполагать
+surround|окружать
+survive|выживать
+suspect|подозревать
+swallow|глотать
+swing|качаться
+tear|рвать, слеза
+tend|иметь тенденцию
+threaten|угрожать
+tie|связывать
+tour|путешествовать
+track|отслеживать
+trade|торговать
+treat|обращаться, лечить
+trick|обманывать, трюк
+upset|расстраивать
+vote|голосовать
+warn|предупреждать
+waste|тратить впустую
+weigh|весить
+whisper|шептать
+wonder|интересоваться, чудо
+wound|ранить, рана
+ability|способность
+access|доступ
+account|счёт, учётная запись
+action|действие
+activity|деятельность
+advantage|преимущество
+adventure|приключение
+advertisement|реклама
+agency|агентство
+agreement|соглашение
+aim|цель
+amount|количество
+anger|гнев
+announcement|объявление
+appearance|внешность
+application|заявление, приложение
+appointment|встреча, приём
+argument|спор, довод
+arrival|прибытие
+atmosphere|атмосфера
+attitude|отношение
+author|автор
+average|среднее
+award|награда
+background|фон, происхождение
+balance|баланс
+behaviour|поведение
+benefit|польза
+bin|мусорное ведро
+biology|биология
+bit|кусочек
+blood pressure|давление
+boat trip|прогулка на лодке
+bomb|бомба
+boyfriend|парень
+brand|бренд
+breath|дыхание
+budget|бюджет
+bull|бык
+burger|бургер
+career|карьера
+case|случай, дело
+cell|клетка
+century|век
+ceremony|церемония
+chain|цепь
+character|характер, персонаж
+charity|благотворительность
+chemistry|химия
+choice|выбор
+citizen|гражданин
+coach|тренер
+collection|коллекция
+comedy|комедия
+comment|комментарий
+community|сообщество
+company|компания
+condition|состояние, условие
+confidence|уверенность
+congratulations|поздравления
+connection|связь
+contract|контракт
+contrast|контраст
+cooker|плита
+couple|пара
+courage|смелость
+court|суд
+crime|преступление
+criminal|преступник
+crisis|кризис
+crowd|толпа
+currency|валюта
+damage|ущерб
+danger|опасность
+data|данные
+deadline|крайний срок
+death|смерть
+debt|долг
+decision|решение
+degree|степень, градус
+delivery|доставка
+demand|спрос
+depression|депрессия
+description|описание
+detail|деталь
+development|развитие
+device|устройство
+difference|разница
+difficulty|трудность
+director|режиссёр, директор
+disadvantage|недостаток
+disaster|бедствие
+discount|скидка
+discussion|обсуждение
+disease|болезнь
+duty|обязанность
+economy|экономика
+edge|край
+education|образование
+effect|эффект
+effort|усилие
+election|выборы
+electricity|электричество
+emergency|чрезвычайная ситуация
+emotion|эмоция
+employee|сотрудник
+employer|работодатель
+energy|энергия
+environment|окружающая среда
+equipment|оборудование
+error|ошибка
+escape|побег
+evidence|доказательство
+exhibition|выставка
+expert|эксперт
+explanation|объяснение
+expression|выражение
+fact|факт
+failure|неудача
+fault|вина, неисправность
+fee|плата
+feeling|чувство
+fiction|художественная литература
+figure|фигура, цифра
+file|файл
+finger|палец
+flavour|вкус
+flood|наводнение
+focus|фокус
+fortune|удача, состояние
+freedom|свобода
+fuel|топливо
+fun|веселье
+function|функция
+generation|поколение
+genius|гений
+ghost|привидение
+girlfriend|девушка
+goods|товары
+grade|оценка
+graduate|выпускник
+growth|рост
+guilt|вина
+habit|привычка
+height|высота, рост
+hunger|голод
+image|изображение
+impression|впечатление
+income|доход
+independence|независимость
+industry|промышленность
+injury|травма
+instruction|инструкция
+insurance|страховка
+intelligence|интеллект
+interest|интерес
+invention|изобретение
+item|предмет, пункт
+journalist|журналист
+judgement|суждение
+knowledge|знание
+laboratory|лаборатория
+leader|лидер
+level|уровень
+licence|лицензия, права
+lifestyle|образ жизни
+link|ссылка, связь
+loan|заём
+location|местоположение
+loss|потеря
+luck|удача
+majority|большинство
+material|материал
+mathematics|математика
+memory|память, воспоминание
+method|метод
+mood|настроение
+mystery|тайна
+nation|нация
+neighbourhood|район
+network|сеть
+nightmare|кошмар
+notice|объявление
+novel|роман
+object|объект
+occasion|случай, повод
+offer|предложение
+officer|офицер, сотрудник
+operation|операция
+opportunity|возможность
+option|вариант
+organization|организация
+owner|владелец
+packet|пакет, пачка
+partner|партнёр
+patience|терпение
+payment|оплата
+performance|выступление
+period|период
+permission|разрешение
+personality|личность
+pet|домашнее животное
+photographer|фотограф
+physics|физика
+pity|жалость
+pleasure|удовольствие
+politics|политика
+pollution|загрязнение
+position|положение, должность
+poverty|бедность
+power|сила, власть
+prediction|прогноз
+preparation|подготовка
+pressure|давление
+pride|гордость
+priority|приоритет
+prison|тюрьма
+process|процесс
+profit|прибыль
+progress|прогресс
+promise|обещание
+proof|доказательство
+property|собственность
+protection|защита
+purpose|цель
+quality|качество
+quantity|количество
+range|диапазон
+rate|ставка, темп
+reaction|реакция
+reality|реальность
+reception|приёмная
+relationship|отношения
+religion|религия
+reply|ответ
+reputation|репутация
+research|исследование
+resource|ресурс
+response|ответ, реакция
+responsibility|ответственность
+risk|риск
+route|маршрут
+salesman|продавец
+sample|образец
+schedule|расписание
+search|поиск
+section|раздел
+security|безопасность
+sense|чувство, смысл
+series|сериал, серия
+service|услуга, сервис
+shade|тень
+shock|шок
+signature|подпись
+silence|тишина
+situation|ситуация
+skill|навык
+society|общество
+software|программное обеспечение
+solution|решение
+source|источник
+speech|речь
+spirit|дух
+staff|персонал
+standard|стандарт
+statement|заявление
+statue|статуя
+strength|сила
+stress|стресс
+structure|структура
+style|стиль
+suggestion|предложение
+summary|краткое изложение
+survey|опрос
+system|система
+talent|талант
+target|цель, мишень
+task|задача
+taxes|налоги
+tool|инструмент
+topic|тема
+tradition|традиция
+treatment|лечение
+trend|тенденция
+trouble|неприятность
+truth|правда
+union|союз
+unit|единица
+value|ценность
+variety|разнообразие
+victim|жертва
+victory|победа
+violence|насилие
+volume|громкость, объём
+volunteer|волонтёр
+wealth|богатство
+weapon|оружие
+weight|вес
+youth|молодёжь, юность
+accurate|точный
+active|активный
+additional|дополнительный
+afraid|боящийся
+aggressive|агрессивный
+alive|живой
+annoyed|раздражённый
+anxious|тревожный
+appropriate|подходящий
+attractive|привлекательный
+available|доступный
+aware|осведомлённый
+basic|основной
+brilliant|блестящий
+capable|способный
+cheerful|весёлый
+classic|классический
+complex|сложный
+confident|уверенный
+confused|сбитый с толку
+constant|постоянный
+creative|творческий
+cruel|жестокий
+curious|любопытный
+current|текущий
+daily|ежедневный
+decent|приличный
+desperate|отчаянный
+digital|цифровой
+direct|прямой
+disappointed|разочарованный
+efficient|эффективный
+elderly|пожилой
+embarrassed|смущённый
+emotional|эмоциональный
+enormous|огромный
+entire|целый
+environmental|экологический
+equal|равный
+essential|необходимый
+evil|злой
+exact|точный
+extra|дополнительный
+extreme|крайний
+fair|справедливый
+false|ложный
+familiar|знакомый
+fantastic|фантастический
+fascinating|увлекательный
+financial|финансовый
+flexible|гибкий
+formal|официальный
+fortunate|удачливый
+frequent|частый
+generous|щедрый
+gentle|нежный
+global|глобальный
+grateful|благодарный
+guilty|виноватый
+handsome|красивый (о мужчине)
+harmful|вредный
+helpless|беспомощный
+hopeful|полный надежд
+human|человеческий
+ideal|идеальный
+illegal|незаконный
+impatient|нетерпеливый
+impossible|невозможный
+impressive|впечатляющий
+independent|независимый
+individual|индивидуальный
+informal|неофициальный
+innocent|невиновный
+intelligent|умный
+jealous|ревнивый
+legal|законный
+likely|вероятный
+logical|логичный
+loose|свободный, свисающий
+mad|сумасшедший
+main|главный
+major|основной
+mental|психический
+minor|незначительный
+mysterious|таинственный
+negative|отрицательный
+obvious|очевидный
+official|официальный
+ordinary|обычный
+original|оригинальный
+painful|болезненный
+peaceful|мирный
+personal|личный
+physical|физический
+pleasant|приятный
+positive|положительный
+powerful|мощный
+practical|практичный
+precious|драгоценный
+present|присутствующий
+previous|предыдущий
+professional|профессиональный
+proper|надлежащий
+rare|редкий
+raw|сырой
+reasonable|разумный
+recent|недавний
+regular|регулярный
+relevant|уместный
+reliable|надёжный
+responsible|ответственный
+rough|грубый
+royal|королевский
+rude|грубый (невежливый)
+satisfied|удовлетворённый
+secure|защищённый
+selfish|эгоистичный
+sensible|благоразумный
+sensitive|чувствительный
+severe|суровый
+significant|значительный
+silent|молчаливый
+similar|похожий
+sincere|искренний
+smooth|гладкий
+social|социальный
+solid|твёрдый
+specific|конкретный
+stressed|напряжённый
+strict|строгий
+stupid|глупый
+successful|успешный
+sudden|внезапный
+suitable|подходящий
+talented|талантливый
+temporary|временный
+tight|тесный
+tiny|крошечный
+tough|жёсткий, трудный
+unexpected|неожиданный
+unique|уникальный
+upset|расстроенный
+urgent|срочный
+valuable|ценный
+various|различный
+violent|жестокий
+visible|видимый
+vital|жизненно важный
+weird|странный
+willing|готовый (охотно)
+worth|стоящий
+accidentally|случайно
+afterwards|впоследствии
+anyway|в любом случае
+apparently|по-видимому
+approximately|приблизительно
+basically|в основном
+briefly|кратко
+directly|прямо
+easily|легко
+effectively|эффективно
+entirely|полностью
+eventually|в конце концов
+fairly|довольно
+fortunately|к счастью
+generally|в целом
+gradually|постепенно
+highly|высоко, очень
+honestly|честно
+increasingly|всё больше
+indeed|действительно
+largely|в основном
+lately|в последнее время
+mostly|главным образом
+naturally|естественно
+necessarily|обязательно
+normally|обычно
+obviously|очевидно
+originally|изначально
+otherwise|иначе
+particularly|особенно
+personally|лично
+possibly|возможно
+previously|ранее
+properly|должным образом
+rarely|редко
+recently|недавно
+regularly|регулярно
+seriously|серьёзно
+simply|просто
+slightly|слегка
+specially|специально
+surprisingly|удивительно
+therefore|поэтому
+totally|полностью
+truly|по-настоящему
+typically|как правило
+whatever|что бы ни
+wherever|где бы ни
+whenever|когда бы ни
+however|однако
+moreover|более того
+despite|несмотря на
+beyond|за пределами
+within|в пределах
+beside|рядом с
+throughout|на протяжении

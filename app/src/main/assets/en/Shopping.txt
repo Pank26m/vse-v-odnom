@@ -1,0 +1,71 @@
+shopping list|список покупок
+shopping cart|тележка
+basket|корзина
+checkout|касса
+cashier|кассир
+change|сдача
+discount code|промокод
+sale|распродажа
+bargain|выгодная покупка
+refund|возврат денег
+exchange|обмен
+warranty|гарантия
+size chart|таблица размеров
+fitting room|примерочная
+try on|примерять
+fit well|хорошо сидеть
+too tight|слишком тесный
+too loose|слишком свободный
+in stock|в наличии
+out of stock|нет в наличии
+order online|заказать онлайн
+delivery fee|стоимость доставки
+pick-up point|пункт выдачи
+parcel|посылка
+courier|курьер
+tracking number|трек-номер
+credit card|кредитная карта
+debit card|дебетовая карта
+contactless payment|бесконтактная оплата
+PIN code|ПИН-код
+receipt|чек
+price tag|ценник
+brand new|совершенно новый
+second-hand|подержанный
+handmade|ручной работы
+leather|кожа (материал)
+silk|шёлк
+denim|джинсовая ткань
+hoodie|худи
+sweatshirt|толстовка
+blouse|блузка
+suit|костюм
+waistcoat|жилет
+shorts|шорты
+pyjamas|пижама
+underwear|нижнее бельё
+boots|ботинки, сапоги
+sandals|сандалии
+slippers|тапочки
+heels|туфли на каблуке
+gloves|перчатки
+mittens|варежки
+earrings|серьги
+necklace|ожерелье
+bracelet|браслет
+perfume|духи
+makeup|макияж
+lipstick|помада
+handbag|сумочка
+wallet|кошелёк
+savings|сбережения
+expenses|расходы
+income|доход
+loan|кредит
+interest rate|процентная ставка
+bank account|банковский счёт
+transfer|перевод (денег)
+withdraw cash|снять наличные
+coins|монеты
+banknote|купюра
+afford|позволить себе

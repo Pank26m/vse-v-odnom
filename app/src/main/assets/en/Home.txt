@@ -1,0 +1,61 @@
+hallway|прихожая
+living room|гостиная
+dining room|столовая
+attic|чердак
+basement|подвал
+garage|гараж
+stairs|лестница
+landlord|арендодатель
+tenant|жилец
+rent|арендная плата
+utility bills|коммунальные платежи
+heating|отопление
+air conditioner|кондиционер
+radiator|батарея (отопления)
+fireplace|камин
+curtains|шторы
+blinds|жалюзи
+wardrobe|шкаф для одежды
+closet|встроенный шкаф
+bookshelf|книжная полка
+armchair|кресло
+coffee table|журнальный столик
+carpet|ковёр
+rug|коврик
+vacuum cleaner|пылесос
+washing machine|стиральная машина
+dishwasher|посудомойка
+dryer|сушилка
+broom|веник
+mop|швабра
+bucket|ведро
+sponge|губка
+laundry|стирка, бельё
+iron|утюг
+hanger|вешалка
+light bulb|лампочка
+switch|выключатель
+tap|кран
+sink|раковина
+bath|ванна
+toilet paper|туалетная бумага
+doorbell|дверной звонок
+lock|замок (дверной)
+neighbourhood|район
+backyard|задний двор
+fence|забор
+lawn|газон
+tool kit|набор инструментов
+hammer|молоток
+screwdriver|отвёртка
+nail|гвоздь
+screw|шуруп
+drill|дрель
+ladder|стремянка
+paint|краска
+repairman|мастер
+move house|переезжать
+furnished|меблированный
+cozy|уютный
+spacious|просторный
+crowded|переполненный

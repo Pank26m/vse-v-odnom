@@ -1,0 +1,50 @@
+appearance|внешность
+attractive|привлекательный
+bald|лысый
+blond|светловолосый
+dark-haired|темноволосый
+freckles|веснушки
+wrinkles|морщины
+moustache|усы
+overweight|с лишним весом
+skinny|тощий
+muscular|мускулистый
+good-looking|симпатичный
+middle-aged|средних лет
+teenager|подросток
+toddler|малыш
+twins|близнецы
+relative|родственник
+ancestor|предок
+nephew|племянник
+niece|племянница
+stepmother|мачеха
+stepfather|отчим
+in-laws|родственники супруга
+fiancé|жених
+bride|невеста
+groom|жених (на свадьбе)
+widow|вдова
+orphan|сирота
+classmate|одноклассник
+roommate|сосед по комнате
+acquaintance|знакомый
+best friend|лучший друг
+character trait|черта характера
+ambitious|целеустремлённый
+arrogant|высокомерный
+bossy|властный
+caring|заботливый
+cheerful|жизнерадостный
+easy-going|лёгкий в общении
+hard-working|трудолюбивый
+mean|подлый, жадный
+modest|скромный
+outgoing|общительный
+patient|терпеливый
+reliable|надёжный
+sociable|общительный
+talkative|разговорчивый
+thoughtful|заботливый, вдумчивый
+trustworthy|заслуживающий доверия
+two-faced|двуличный

@@ -285,3 +285,48 @@ interface MapDao {
     @Upsert suspend fun upsertTrack(t: Track): Long
     @Delete suspend fun deleteTrack(t: Track)
 }
+
+// ================= Карточки для обучения (v7) =================
+
+/** Колода. builtin — ключ встроенной колоды (например «en:A1»), у своих пусто. */
+@Entity(tableName = "deck")
+data class Deck(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val tint: Int = 0,
+    val builtin: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** Карточка: лицо/оборот и интервальное повторение по Лейтнеру (box 0…5, due — когда показать снова). */
+@Entity(tableName = "card", indices = [Index("deckId"), Index("due")])
+data class Card(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val deckId: Long,
+    val front: String,
+    val back: String,
+    val note: String = "",
+    val box: Int = 0,
+    val due: Long = 0,
+    val right: Int = 0,
+    val wrong: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface CardDao {
+    @Query("SELECT * FROM deck ORDER BY builtin = '', createdAt") fun decks(): Flow<List<Deck>>
+    @Query("SELECT * FROM deck") suspend fun decksOnce(): List<Deck>
+    @Upsert suspend fun upsertDeck(d: Deck): Long
+    @Delete suspend fun deleteDeck(d: Deck)
+    @Query("DELETE FROM card WHERE deckId = :deck") suspend fun clearDeck(deck: Long)
+    @Query("SELECT * FROM card WHERE deckId = :deck ORDER BY createdAt") fun cards(deck: Long): Flow<List<Card>>
+    @Query("SELECT * FROM card WHERE deckId = :deck AND due <= :now ORDER BY box, due LIMIT :limit") suspend fun dueCards(deck: Long, now: Long, limit: Int): List<Card>
+    @Query("SELECT deckId, COUNT(*) AS total, SUM(CASE WHEN due <= :now THEN 1 ELSE 0 END) AS due, SUM(CASE WHEN box >= 4 THEN 1 ELSE 0 END) AS learned, SUM(CASE WHEN right + wrong > 0 THEN 1 ELSE 0 END) AS seen FROM card GROUP BY deckId")
+    fun stats(now: Long): Flow<List<DeckStat>>
+    @Upsert suspend fun upsertCard(c: Card): Long
+    @Insert suspend fun insertCards(c: List<Card>)
+    @Delete suspend fun deleteCard(c: Card)
+}
+
+data class DeckStat(val deckId: Long, val total: Int, val due: Int, val learned: Int, val seen: Int)

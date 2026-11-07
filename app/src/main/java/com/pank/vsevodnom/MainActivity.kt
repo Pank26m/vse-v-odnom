@@ -137,6 +137,13 @@ class MainActivity : FragmentActivity() {
                     composable("health") { HealthScreen(back, onOpenMap = { nav.navigate("map") }) }
                     composable("downloads") { DownloadsScreen(back) }
                     composable("map") { com.pank.vsevodnom.ui.map.MapScreen(back) }
+                    composable("commands") { com.pank.vsevodnom.ui.commands.CommandsScreen(back) }
+                    composable("music") { com.pank.vsevodnom.ui.music.MusicScreen(back) }
+                    composable("codes") { com.pank.vsevodnom.ui.codes.CodesScreen(back) }
+                    composable("pdf") { com.pank.vsevodnom.ui.files.PdfScreen(back) }
+                    composable("archive") { com.pank.vsevodnom.ui.files.ArchiveScreen(back) }
+                    composable("cards") { com.pank.vsevodnom.ui.learn.CardsScreen(back) }
+                    composable("english") { com.pank.vsevodnom.ui.learn.EnglishScreen(back) }
                 }
                 }
                 if (barVisible) androidx.compose.material3.NavigationBar(containerColor = com.pank.vsevodnom.ui.theme.Pal.Card) {
@@ -172,6 +179,13 @@ class MainActivity : FragmentActivity() {
         if (i?.action == Intent.ACTION_SEND) {
             i.getStringExtra(Intent.EXTRA_TEXT)?.let(::extractUrl)?.let { SharedLink.url = it; return "downloads" }
         }
+        // ярлык команды с рабочего стола: выполняем и остаёмся на главной
+        i?.getStringExtra("command")?.let { id ->
+            com.pank.vsevodnom.data.Commands.all(this).firstOrNull { it.id == id }?.let { c -> com.pank.vsevodnom.data.AppScope.io.launch { com.pank.vsevodnom.data.Commands.run(applicationContext, c) } }
+            i.removeExtra("command")
+            return null
+        }
+        i?.getStringExtra("route")?.let { r -> if (r in setOf("music", "codes", "pdf", "cards", "english", "commands", "games", "calc", "recorder", "home", "weather", "health", "clock/0")) return r }
         return when (i?.getStringExtra("route")) {
             "downloads" -> "downloads"
             "passwords" -> "passwords"

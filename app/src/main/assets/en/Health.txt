@@ -1,0 +1,80 @@
+appointment|запись (к врачу)
+clinic|поликлиника
+pharmacy|аптека
+pill|таблетка
+tablet|таблетка
+painkiller|обезболивающее
+antibiotic|антибиотик
+vaccine|вакцина
+injection|укол
+bandage|бинт
+plaster|пластырь
+thermometer|градусник
+blood test|анализ крови
+X-ray|рентген
+diagnosis|диагноз
+treatment|лечение
+recovery|выздоровление
+symptom|симптом
+cold|простуда
+sore throat|больное горло
+runny nose|насморк
+cough|кашель
+toothache|зубная боль
+stomachache|боль в животе
+backache|боль в спине
+allergy|аллергия
+rash|сыпь
+bruise|синяк
+cut|порез
+burn|ожог
+sprain|растяжение
+fracture|перелом
+dizzy|с головокружением
+nausea|тошнота
+vomit|рвать (тошнить)
+infection|инфекция
+virus infection|вирусная инфекция
+blood pressure|кровяное давление
+heart attack|сердечный приступ
+stroke|инсульт
+diabetes|диабет
+surgeon|хирург
+therapist|терапевт
+ambulance|скорая помощь
+emergency room|приёмный покой
+first aid|первая помощь
+wheelchair|инвалидное кресло
+crutches|костыли
+pregnant|беременная
+lungs|лёгкие
+liver|печень
+kidney|почка
+muscle|мышца
+skeleton|скелет
+spine|позвоночник
+wrist|запястье
+ankle|лодыжка
+elbow|локоть
+hip|бедро
+forehead|лоб
+cheek|щека
+chin|подбородок
+eyelash|ресница
+nail|ноготь
+sweat|пот
+breathe deeply|глубоко дышать
+heartbeat|сердцебиение
+pulse|пульс
+calorie|калория
+protein|белок
+vitamin|витамин
+workout|тренировка
+stretching|растяжка
+sleep schedule|режим сна
+insomnia|бессонница
+mental health|психическое здоровье
+stress relief|снятие стресса
+hygiene|гигиена
+toothpaste|зубная паста
+shampoo|шампунь

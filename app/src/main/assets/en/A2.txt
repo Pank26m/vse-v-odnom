@@ -1,0 +1,637 @@
+accept|принимать
+add|добавлять
+allow|разрешать
+appear|появляться
+arrange|устраивать, договариваться
+avoid|избегать
+bake|печь
+borrow|брать взаймы
+lend|давать взаймы
+break|ломать
+breathe|дышать
+brush|чистить щёткой
+burn|гореть, жечь
+call back|перезвонить
+care|заботиться
+celebrate|праздновать
+check|проверять
+collect|собирать
+compare|сравнивать
+complain|жаловаться
+continue|продолжать
+copy|копировать
+cost|стоить
+count|считать
+cover|покрывать
+cross|пересекать
+decide|решать
+deliver|доставлять
+describe|описывать
+destroy|разрушать
+discover|открывать (находить)
+discuss|обсуждать
+dream|мечтать, сон
+drop|ронять
+earn|зарабатывать
+enter|входить
+exercise|упражняться, упражнение
+expect|ожидать
+fail|потерпеть неудачу
+feed|кормить
+fight|драться, бороться
+fill|наполнять
+fit|подходить по размеру
+fold|складывать
+forgive|прощать
+guess|угадывать
+hang|вешать
+happen|случаться
+hide|прятать
+hit|ударять
+hurry|спешить
+hurt|причинять боль
+improve|улучшать
+include|включать
+invite|приглашать
+join|присоединяться
+kick|пинать
+kiss|целовать
+knock|стучать
+lie|лежать, лгать
+lift|поднимать
+lock|запирать
+marry|жениться, выходить замуж
+mind|возражать
+mix|смешивать
+notice|замечать
+order|заказывать
+own|владеть, собственный
+pack|упаковывать
+paint|красить, рисовать красками
+pass|проходить, передавать
+pick|выбирать, собирать
+pull|тянуть
+push|толкать
+rent|арендовать
+repair|ремонтировать
+repeat|повторять
+reply|отвечать
+rest|отдыхать
+ring|звонить
+save|спасать, экономить
+search|искать
+share|делиться
+shout|кричать
+shut|закрывать
+sign|подписывать, знак
+smell|пахнуть, запах
+solve|решать (задачу)
+sound|звучать, звук
+spell|произносить по буквам
+steal|красть
+suggest|предлагать
+surprise|удивлять, сюрприз
+taste|пробовать на вкус
+thank|благодарить
+touch|трогать
+train|тренироваться
+translate|переводить
+trust|доверять
+type|печатать
+wake up|просыпаться
+worry|волноваться
+wrap|заворачивать
+yell|орать
+accident|авария
+address|адрес
+adult|взрослый
+advice|совет
+age group|возрастная группа
+air|воздух
+alarm|тревога, будильник
+animal|животное
+apartment|квартира
+area|район, область
+army|армия
+article|статья
+artist|художник
+assistant|помощник
+attention|внимание
+audience|публика
+backpack|рюкзак
+balcony|балкон
+band|музыкальная группа
+bathtub|ванна
+battery|батарейка
+beard|борода
+bell|колокольчик, звонок
+belt|ремень
+bill|счёт
+biscuit|печенье
+blanket|одеяло
+blood|кровь
+board|доска
+bone|кость
+border|граница
+boss|начальник
+bowl|миска
+brain|мозг
+branch|ветка
+bread roll|булочка
+brick|кирпич
+building|здание
+bush|куст
+businessman|бизнесмен
+button|кнопка, пуговица
+camera|фотоаппарат
+camp|лагерь
+candle|свеча
+cap|кепка
+capital|столица
+card|карточка, открытка
+carpet|ковёр
+cartoon|мультфильм
+cash|наличные
+castle|замок
+ceiling|потолок
+centre|центр
+chance|шанс
+channel|канал
+chef|шеф-повар
+chemist|аптека, химик
+chess|шахматы
+chest|грудь, сундук
+chips|картофель фри
+cinema ticket|билет в кино
+circle|круг
+classroom|класс (комната)
+climate|климат
+clock|часы (настенные)
+club|клуб
+coast|побережье
+coin|монета
+college|колледж
+competition|соревнование
+concert|концерт
+conversation|разговор
+corner|угол
+costume|костюм
+cotton|хлопок
+cough|кашель
+course|курс
+crowd|толпа
+culture|культура
+customer|покупатель
+cushion|подушка (декоративная)
+dentist|стоматолог
+department|отдел
+desert|пустыня
+desk|письменный стол
+dialogue|диалог
+diary|дневник
+dictionary|словарь
+diet|диета
+direction|направление
+dish|блюдо
+distance|расстояние
+document|документ
+dollar|доллар
+drawer|ящик (стола)
+dust|пыль
+earth|земля
+email|электронное письмо
+engine|двигатель
+engineer|инженер
+entrance|вход
+envelope|конверт
+event|событие
+exam|экзамен
+example|пример
+exit|выход
+experience|опыт
+eyebrow|бровь
+factory|фабрика
+fan|вентилятор, фанат
+farm|ферма
+fashion|мода
+fear|страх
+festival|фестиваль
+fever|жар, лихорадка
+fire|огонь, пожар
+flat|квартира, плоский
+flight|рейс, полёт
+flu|грипп
+fog|туман
+fridge|холодильник
+fruit|фрукты
+furniture|мебель
+future|будущее
+gas|газ, бензин
+gate|ворота
+gift|подарок
+goal|цель, гол
+gold|золото
+government|правительство
+guest|гость
+guide|гид, путеводитель
+guitar|гитара
+gym|спортзал
+headache|головная боль
+health|здоровье
+heat|жара
+helmet|шлем
+hero|герой
+hill|холм
+history|история (наука)
+hobby|хобби
+hole|дыра
+honey|мёд
+hope|надежда
+ice|лёд
+illness|болезнь
+information|информация
+insect|насекомое
+instrument|инструмент
+internet|интернет
+interview|интервью, собеседование
+invitation|приглашение
+iron|железо, утюг
+jam|варенье, пробка
+jewellery|украшения
+journey|поездка
+kid|ребёнок
+king|король
+knee|колено
+lady|дама
+language|язык
+laptop|ноутбук
+law|закон
+leaf|лист
+lift|лифт
+line|линия, очередь
+lip|губа
+list|список
+machine|машина, механизм
+magazine|журнал
+mail|почта
+manager|менеджер
+match|матч, спичка
+meal|приём пищи
+medicine|лекарство
+meeting|встреча
+member|член, участник
+menu|меню
+message|сообщение
+metal|металл
+middle|середина
+mind|ум, разум
+mistake|ошибка
+mobile|мобильный
+model|модель
+moment|момент
+motorbike|мотоцикл
+mountain bike|горный велосипед
+movie|фильм
+mushroom|гриб
+musician|музыкант
+nature|природа
+newspaper|газета
+noise|шум
+note|записка, заметка
+nut|орех
+ocean|океан
+oil|масло, нефть
+onion|лук
+opinion|мнение
+pain|боль
+pair|пара
+palace|дворец
+pants|брюки, трусы
+passenger|пассажир
+passport|паспорт
+path|тропинка
+patient|пациент, терпеливый
+pea|горошина
+peace|мир (покой)
+pepper|перец
+piece|кусок
+pillow|подушка
+pilot|пилот
+planet|планета
+plant|растение
+plastic|пластик
+platform|платформа
+player|игрок
+pocket|карман
+poem|стихотворение
+police|полиция
+pool|бассейн
+population|население
+post office|почта (отделение)
+postcard|открытка
+pound|фунт
+practice|практика
+prize|приз
+product|продукт, товар
+programme|программа
+project|проект
+pupil|ученик
+purse|кошелёк
+queen|королева
+queue|очередь
+race|гонка, раса
+radio|радио
+railway|железная дорога
+reason|причина
+receipt|чек
+recipe|рецепт
+result|результат
+review|отзыв, обзор
+ring|кольцо
+rock|скала, камень
+role|роль
+rubbish|мусор
+rule|правило
+safety|безопасность
+sailor|моряк
+salary|зарплата
+sandwich|бутерброд
+sauce|соус
+scarf|шарф
+science|наука
+scientist|учёный
+screen|экран
+season|время года, сезон
+seat|сиденье, место
+secret|секрет
+shape|форма
+shelf|полка
+shop assistant|продавец
+shopping|покупки
+shoulder|плечо
+sight|зрение, достопримечательность
+signal|сигнал
+silver|серебро
+singer|певец
+size|размер
+skin|кожа
+sky|небо
+smoke|дым
+snack|перекус
+soap|мыло
+soldier|солдат
+space|космос, пространство
+speed|скорость
+square|площадь, квадрат
+stadium|стадион
+stairs|лестница
+stamp|марка
+step|шаг, ступенька
+stomach|желудок
+stone|камень
+storm|буря
+stranger|незнакомец
+subject|предмет
+success|успех
+suitcase|чемодан
+supermarket|супермаркет
+surname|фамилия
+sweater|свитер
+sweets|конфеты
+swimming pool|бассейн
+symbol|символ
+team|команда
+technology|технология
+temperature|температура
+tent|палатка
+theatre|театр
+thief|вор
+throat|горло
+thunder|гром
+tidy|аккуратный
+tie|галстук
+tip|чаевые, совет
+toilet|туалет
+tongue|язык (орган)
+tooth brush|зубная щётка
+tour|экскурсия
+tourist|турист
+towel|полотенце
+tower|башня
+traffic|движение (транспорт)
+traffic lights|светофор
+trip|поездка
+truck|грузовик
+umbrella|зонт
+uniform|форма (одежда)
+university|университет
+vacation|отпуск
+vegetable|овощ
+video|видео
+view|вид
+village|деревня
+visitor|посетитель
+voice|голос
+waiter|официант
+wallet|бумажник
+war|война
+watch|наручные часы
+wave|волна
+website|сайт
+wedding|свадьба
+weekend|выходные
+wheel|колесо
+wood|дерево (материал), лес
+wool|шерсть
+writer|писатель
+zoo|зоопарк
+able|способный
+afraid|испуганный
+alone|один, одинокий
+amazing|удивительный
+ancient|древний
+asleep|спящий
+awake|бодрствующий
+awful|ужасный
+bored|скучающий
+brave|храбрый
+bright|яркий
+broken|сломанный
+calm|спокойный
+careful|осторожный
+careless|небрежный
+central|центральный
+certain|уверенный, определённый
+clever|умный
+cloudy|облачный
+comfortable|удобный
+common|общий, распространённый
+correct|правильный
+crazy|сумасшедший
+curly|кудрявый
+dangerous|опасный
+dead|мёртвый
+deep|глубокий
+delicious|очень вкусный
+dirty|грязный
+dry|сухой
+excellent|отличный
+excited|взволнованный
+exciting|захватывающий
+famous|знаменитый
+fat|толстый
+fit|в форме
+foggy|туманный
+foreign|иностранный
+friendly|дружелюбный
+frightened|напуганный
+fresh|свежий
+fun|весёлый, веселье
+glad|довольный
+golden|золотой
+healthy|здоровый
+helpful|полезный
+honest|честный
+horrible|ужасный
+huge|огромный
+ill|больной
+international|международный
+kind|добрый, вид
+large|большой
+lazy|ленивый
+local|местный
+lonely|одинокий
+lovely|прелестный
+lucky|везучий
+married|женатый, замужняя
+modern|современный
+narrow|узкий
+national|национальный
+natural|естественный
+nervous|нервный
+noisy|шумный
+normal|нормальный
+open|открытый
+perfect|идеальный
+pleased|довольный
+polite|вежливый
+popular|популярный
+possible|возможный
+pretty|симпатичный
+private|частный
+proud|гордый
+public|общественный
+quick|быстрый
+rainy|дождливый
+real|настоящий
+relaxed|расслабленный
+safe|безопасный
+salty|солёный
+scary|страшный
+serious|серьёзный
+sharp|острый
+shy|застенчивый
+sick|больной
+silly|глупый
+simple|простой
+single|одиночный, холостой
+slim|стройный
+smart|умный
+soft|мягкий
+sour|кислый
+special|особенный
+spicy|острый (о еде)
+square|квадратный
+straight|прямой
+strange|странный
+sunny|солнечный
+sure|уверенный
+surprised|удивлённый
+terrible|ужасный
+thick|толстый
+thin|тонкий, худой
+traditional|традиционный
+typical|типичный
+unhappy|несчастный
+unusual|необычный
+useful|полезный
+warm-hearted|сердечный
+wet|мокрый
+whole|целый
+wide|широкий
+wild|дикий
+windy|ветреный
+wise|мудрый
+wonderful|замечательный
+worried|обеспокоенный
+abroad|за границей
+actually|на самом деле
+almost|почти
+anywhere|где угодно
+away|прочь
+badly|плохо
+below|ниже
+carefully|осторожно
+certainly|конечно
+clearly|ясно
+completely|полностью
+especially|особенно
+even|даже
+ever|когда-либо
+everywhere|везде
+exactly|точно
+finally|наконец
+hardly|едва
+immediately|немедленно
+inside|внутри
+instead|вместо
+later|позже
+maybe|может быть
+nearly|почти
+nowhere|нигде
+outside|снаружи
+perhaps|возможно
+probably|вероятно
+quickly|быстро
+quite|довольно
+rather|скорее, довольно
+really|действительно
+slowly|медленно
+somewhere|где-то
+suddenly|внезапно
+together|вместе
+twice|дважды
+unfortunately|к сожалению
+well|хорошо
+across|через
+against|против
+along|вдоль
+among|среди
+around|вокруг
+during|во время
+except|кроме
+opposite|напротив
+through|сквозь
+towards|по направлению к
+until|до (о времени)
+although|хотя
+unless|если не
+while|пока, в то время как
+whether|ли
+anybody|кто-нибудь
+everybody|все
+nobody|никто
+somebody|кто-то
+anything|что-нибудь
+everything|всё
+nothing|ничто
+something|что-то
+another|другой, ещё один
+both|оба
+each|каждый
+either|любой из двух
+neither|ни один из двух
+enough|достаточно
+less|меньше
+own|собственный
+such|такой

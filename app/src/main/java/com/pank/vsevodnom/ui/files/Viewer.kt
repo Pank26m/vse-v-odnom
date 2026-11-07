@@ -269,7 +269,7 @@ private fun zipEntries(ctx: Context, uri: Uri, want: (String) -> Boolean): Map<S
 }
 
 /** DOCX: текст абзацев из word/document.xml. Форматирование и картинки не показываем. */
-private fun docxText(ctx: Context, uri: Uri): String {
+internal fun docxText(ctx: Context, uri: Uri): String {
     val xml = zipEntries(ctx, uri) { it == "word/document.xml" }["word/document.xml"] ?: return "Пустой документ"
     val p = Xml.newPullParser(); p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
     p.setInput(xml.inputStream(), "UTF-8")
@@ -325,7 +325,7 @@ private fun xlsText(ctx: Context, uri: Uri): String {
 }
 
 /** XLSX: первые листы, общие строки и числа. */
-private fun xlsxText(ctx: Context, uri: Uri): String {
+internal fun xlsxText(ctx: Context, uri: Uri): String {
     val e = zipEntries(ctx, uri) { it == "xl/sharedStrings.xml" || it.startsWith("xl/worksheets/sheet") || it == "xl/workbook.xml" }
     val shared = ArrayList<String>()
     e["xl/sharedStrings.xml"]?.let { b ->

@@ -1,0 +1,284 @@
+accomplish|выполнять, достигать
+activate|активировать
+adore|обожать
+advance|продвигаться
+alert|предупреждать
+amuse|забавлять
+annoy|раздражать
+apply for|подавать заявку на
+approach|приближаться
+assemble|собирать
+associate|связывать, ассоциировать
+await|ожидать
+bathe|купаться
+blink|моргать
+boast|хвастаться
+bow|кланяться
+brag|хвастаться
+broadcast|транслировать
+browse the web|бродить по сети
+cancel an order|отменить заказ
+carve|вырезать
+chat|болтать
+chop|рубить
+clap|хлопать
+clarify a point|уточнить момент
+command|командовать
+comfort|утешать
+commute|ездить на работу
+conquer|завоёвывать
+construct|строить
+correct|исправлять
+crack|трескаться
+crush|давить
+dash|мчаться
+decorate|украшать
+deposit money|положить деньги
+dive|нырять
+drift|дрейфовать
+dust|вытирать пыль
+emigrate|эмигрировать
+entertain|развлекать
+erase|стирать
+explode|взрываться
+explore|исследовать
+fade away|угасать
+faint|падать в обморок
+fancy|хотеть, нравиться
+fear|бояться
+flash|вспыхивать
+flow|течь
+fry an egg|пожарить яйцо
+gaze|пристально смотреть
+giggle|хихикать
+glance|бросить взгляд
+glow|светиться
+grin|ухмыляться
+groan|стонать
+grumble|ворчать
+hang around|слоняться
+haunt|преследовать
+hug|обнимать
+hum|напевать
+hunt|охотиться
+illuminate|освещать
+import|импортировать
+export|экспортировать
+inspect|осматривать
+interfere|вмешиваться
+iron clothes|гладить одежду
+jog|бегать трусцой
+juggle|жонглировать
+kneel|становиться на колени
+knit|вязать
+leak|протекать
+lean|опираться
+leap|прыгать
+lick|лизать
+lie down|ложиться
+mark|отмечать
+mend|чинить
+moan|стонать, ныть
+mow|косить
+nap|вздремнуть
+nurse|ухаживать
+overhear|подслушать
+overtake|обгонять
+peel|чистить
+pinch|щипать
+plant|сажать
+plug in|подключать
+polish|полировать
+pop|лопаться
+pose|позировать
+postpone|отложить
+pronounce|произносить
+pump|качать
+punch|ударять кулаком
+quarrel|ссориться
+rattle|греметь
+recycle|перерабатывать
+refresh|освежать
+rehearse|репетировать
+reload|перезагружать
+remind of|напоминать о
+rinse|полоскать
+roar|реветь
+rot|гнить
+rub|тереть
+sail|плыть под парусом
+scatter|разбрасывать
+scratch|царапать
+scrub|скрести
+sew|шить
+shave|бриться
+shiver|дрожать
+shrink|сжиматься
+sigh|вздыхать
+sip|потягивать
+sketch|делать набросок
+skate|кататься на коньках
+ski|кататься на лыжах
+slam|хлопать (дверью)
+slap|шлёпать
+slip|поскользнуться
+sneak|красться
+snore|храпеть
+soak|замачивать
+sob|рыдать
+spin|вращаться
+spit|плевать
+splash|брызгать
+stare|пристально смотреть
+starve|голодать
+stir|мешать
+stroke|гладить
+stumble|спотыкаться
+swear|клясться, ругаться
+sweep|подметать
+tap|постукивать
+tease|дразнить
+tickle|щекотать
+tidy up|прибраться
+toss|подбрасывать
+trap|ловить в ловушку
+tremble|дрожать
+trim|подстригать
+unpack|распаковывать
+unlock|отпирать
+vanish into|исчезнуть в
+wander|бродить
+wave|махать
+weep|плакать
+whistle|свистеть
+wink|подмигивать
+wipe|вытирать
+wobble|шататься
+yawn|зевать
+zip|застёгивать молнию
+absence|отсутствие
+accent mark|ударение (знак)
+admission|приём, вход
+afterlife|загробная жизнь
+alarm clock|будильник
+amusement park|парк развлечений
+anniversary|годовщина
+apron|фартук
+arrow|стрелка
+ash|пепел
+award ceremony|церемония награждения
+axe|топор
+barrel|бочка
+basin|таз
+beam|луч
+bench|скамейка
+blade|лезвие
+blessing|благословение
+blister|мозоль
+bonfire|костёр
+bouquet|букет
+bracket|скобка
+brochure|брошюра
+bubble|пузырь
+bucket list|список мечт
+bulb|лампочка, луковица
+bundle|связка
+cage|клетка (для животных)
+canal|канал
+canvas|холст
+cardboard|картон
+carriage|повозка
+chalk|мел
+champagne|шампанское
+chapter|глава
+chimney|дымоход
+clay|глина
+cliff edge|край обрыва
+clown|клоун
+compass|компас
+crown|корона
+crumb|крошка
+cupboard|шкаф (кухонный)
+dawn|рассвет
+dusk|сумерки
+dwarf|гном
+fairy tale|сказка
+fireworks|фейерверк
+flag|флаг
+flashlight|фонарик
+fog light|противотуманная фара
+frame|рамка
+fur coat|шуба
+gap|промежуток
+giant|великан
+glue|клей
+gossip|сплетня
+grave|могила
+greenhouse|теплица
+hammock|гамак
+handkerchief|носовой платок
+harbour|гавань
+haystack|стог сена
+hedge|живая изгородь
+hook|крючок
+horn|рог, гудок
+hut|хижина
+jar|банка
+jigsaw|пазл
+kite|воздушный змей
+knot|узел
+lantern|фонарь
+lid|крышка
+lighthouse|маяк
+magnet|магнит
+mask|маска
+maze|лабиринт
+mermaid|русалка
+mill|мельница
+needle|иголка
+nest egg|сбережения на будущее
+outfit|наряд
+oven mitt|прихватка
+paw|лапа
+pebble|галька
+pile|куча
+pin|булавка
+pipe|труба
+pitch|смола, подача
+plot|сюжет, участок
+puddle|лужа
+puzzle|головоломка
+rag|тряпка
+rope|верёвка
+rug|коврик
+saddle|седло
+sandcastle|замок из песка
+scissors|ножницы
+shell|ракушка
+shovel|лопата
+sledge|санки
+snowflake|снежинка
+snowman|снеговик
+spark|искра
+sponge cake|бисквит
+stool|табурет
+straw|соломинка
+string|нитка, струна
+sword|меч
+thread|нить
+thumb|большой палец
+tide|прилив
+torch|факел, фонарик
+treasure|сокровище
+trunk|ствол, багажник
+tunnel|туннель
+twig|веточка
+vase|ваза
+vest|майка, жилет
+wardrobe door|дверца шкафа
+wheelbarrow|тачка
+wire|провод
+witch|ведьма
+wizard|волшебник
+yard|двор
+zipper|молния (застёжка)

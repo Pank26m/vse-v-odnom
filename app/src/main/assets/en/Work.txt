@@ -1,0 +1,92 @@
+applicant|кандидат
+application form|анкета
+CV|резюме
+cover letter|сопроводительное письмо
+job interview|собеседование
+vacancy|вакансия
+position|должность
+promotion|повышение
+raise|прибавка
+bonus|премия
+overtime|сверхурочные
+shift|смена
+part-time|неполный рабочий день
+full-time|полный рабочий день
+freelancer|фрилансер
+self-employed|самозанятый
+contract|контракт
+deadline|срок
+meeting room|переговорная
+presentation|презентация
+report|отчёт
+spreadsheet|таблица
+invoice|счёт-фактура
+client|клиент
+supplier|поставщик
+partner|партнёр
+competitor|конкурент
+headquarters|штаб-квартира
+branch|филиал
+department|отдел
+manager|менеджер
+director|директор
+CEO|генеральный директор
+colleague|коллега
+team leader|руководитель группы
+intern|стажёр
+internship|стажировка
+trainee|стажёр
+experience|опыт
+skills|навыки
+qualification|квалификация
+salary|зарплата
+wage|заработная плата (почасовая)
+tax|налог
+sick leave|больничный
+annual leave|ежегодный отпуск
+maternity leave|декретный отпуск
+retirement|выход на пенсию
+pension|пенсия
+resign|увольняться
+fire|увольнять
+hire|нанимать
+recruit|набирать сотрудников
+negotiate|договариваться
+sign a contract|подписать контракт
+make a profit|получать прибыль
+loss|убыток
+budget|бюджет
+revenue|выручка
+market share|доля рынка
+customer service|служба поддержки
+feedback|обратная связь
+goal|цель
+task|задача
+priority|приоритет
+workload|нагрузка
+schedule|график
+agenda|повестка
+minutes|протокол (встречи)
+conference|конференция
+business trip|командировка
+office supplies|канцтовары
+stapler|степлер
+folder|папка
+whiteboard|маркерная доска
+printer|принтер
+coworking|коворкинг
+remote work|удалённая работа
+startup|стартап
+entrepreneur|предприниматель
+investor|инвестор
+shareholder|акционер
+stock|акция, запас
+brand|бренд
+marketing|маркетинг
+advertising|реклама
+sales|продажи
+purchase|покупка
+delivery|доставка
+warehouse|склад
+logistics|логистика
+quality control|контроль качества

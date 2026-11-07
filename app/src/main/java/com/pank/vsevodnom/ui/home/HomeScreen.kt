@@ -76,6 +76,12 @@ val TILES = listOf(
     Tile("Диктофон", Icons.Rounded.Mic, Tints.Rose, "recorder"),
     Tile("Загрузки", Icons.Rounded.Download, Tints.Peach, "downloads"),
     Tile("Утилиты", Icons.Rounded.Build, Tints.Butter, "utils"),
+    Tile("Команды", Icons.Rounded.Bolt, Tints.Lilac, "commands"),
+    Tile("Музыка", Icons.Rounded.MusicNote, Tints.Rose, "music"),
+    Tile("Коды", Icons.Rounded.QrCode2, Tints.Sky, "codes"),
+    Tile("PDF", Icons.Rounded.PictureAsPdf, Tints.Rose, "pdf"),
+    Tile("Карточки", Icons.Rounded.Style, Tints.Mint, "cards"),
+    Tile("Английский", Icons.Rounded.Translate, Tints.Sky, "english"),
 )
 
 /** Какие плитки показывать на главной — выбирает пользователь. */

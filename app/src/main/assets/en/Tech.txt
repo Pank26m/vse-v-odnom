@@ -1,0 +1,100 @@
+app|приложение
+update|обновление, обновлять
+upgrade|улучшение
+password|пароль
+username|имя пользователя
+login|вход
+account settings|настройки аккаунта
+browser|браузер
+search engine|поисковик
+link|ссылка
+attachment|вложение
+inbox|входящие
+spam|спам
+folder|папка
+desktop|рабочий стол
+keyboard|клавиатура
+mouse|мышь (комп.)
+monitor|монитор
+printer|принтер
+scanner|сканер
+charger|зарядное устройство
+cable|кабель
+plug|вилка, штепсель
+socket|розетка
+headphones|наушники
+speaker|динамик
+microphone|микрофон
+storage|хранилище
+memory card|карта памяти
+backup|резервная копия
+cloud storage|облачное хранилище
+server|сервер
+database|база данных
+code|код
+coding|программирование
+programmer|программист
+developer|разработчик
+bug|ошибка (в программе)
+crash|сбой
+virus|вирус
+hacker|хакер
+encryption|шифрование
+privacy settings|настройки приватности
+notification|уведомление
+screenshot|снимок экрана
+touchscreen|сенсорный экран
+wireless|беспроводной
+bluetooth|блютус
+wi-fi|вай-фай
+signal strength|уровень сигнала
+battery life|время работы батареи
+power bank|внешний аккумулятор
+operating system|операционная система
+smartphone|смартфон
+tablet|планшет
+gadget|гаджет
+device|устройство
+online|онлайн
+offline|офлайн
+post|публикация
+profile|профиль
+follower|подписчик
+subscribe|подписываться
+like button|кнопка «нравится»
+comment section|раздел комментариев
+stream|трансляция
+podcast|подкаст
+emoji|эмодзи
+chat|чат
+video call|видеозвонок
+upload|загружать (на сервер)
+install|устанавливать
+delete|удалять
+save as|сохранить как
+undo|отменить
+redo|повторить
+paste|вставить
+cut and paste|вырезать и вставить
+select|выделить
+zoom in|увеличить
+zoom out|уменьшить
+scroll|прокручивать
+swipe|смахивать
+tap|нажимать (на экран)
+drag|перетаскивать
+click|щёлкать
+double-click|двойной щелчок
+shortcut|ярлык, сочетание клавиш
+settings|настройки
+feature|функция
+interface|интерфейс
+user|пользователь
+artificial intelligence|искусственный интеллект
+robot|робот
+algorithm|алгоритм
+pixel|пиксель
+resolution|разрешение (экрана)
+bandwidth|пропускная способность
+router|роутер
+network error|ошибка сети

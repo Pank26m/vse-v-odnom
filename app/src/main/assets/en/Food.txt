@@ -1,0 +1,94 @@
+grocery|продукты (бакалея)
+ingredient|ингредиент
+flour|мука
+yeast|дрожжи
+oil|растительное масло
+vinegar|уксус
+garlic|чеснок
+cucumber|огурец
+cabbage|капуста
+beetroot|свёкла
+pumpkin|тыква
+corn|кукуруза
+beans|фасоль
+peas|горох
+lettuce|салат-латук
+spinach|шпинат
+broccoli|брокколи
+pear|груша
+peach|персик
+plum|слива
+cherry|вишня
+strawberry|клубника
+raspberry|малина
+grapes|виноград
+watermelon|арбуз
+melon|дыня
+lemon|лимон
+pineapple|ананас
+coconut|кокос
+almond|миндаль
+walnut|грецкий орех
+peanut|арахис
+beef|говядина
+pork|свинина
+lamb|баранина
+turkey|индейка
+sausage|колбаса, сосиска
+ham|ветчина
+bacon|бекон
+seafood|морепродукты
+shrimp|креветка
+salmon|лосось
+tuna|тунец
+yogurt|йогурт
+sour cream|сметана
+cottage cheese|творог
+cream|сливки
+pancake|блин
+porridge|каша
+cereal|хлопья
+noodles|лапша
+pasta|макароны
+pizza|пицца
+pie|пирог
+bun|булочка
+cookie|печенье
+dessert|десерт
+jelly|желе
+candy|конфета
+snack bar|батончик
+lemonade|лимонад
+mineral water|минеральная вода
+wine|вино
+beer|пиво
+fry|жарить
+boil|варить
+grill|жарить на гриле
+roast|запекать
+steam|готовить на пару
+chop|рубить
+slice|нарезать ломтиками
+peel|чистить (кожуру)
+stir|помешивать
+grate|тереть на тёрке
+frying pan|сковорода
+saucepan|кастрюля
+oven|духовка
+microwave|микроволновка
+kettle|чайник
+blender|блендер
+cutting board|разделочная доска
+napkin|салфетка
+waiter tip|чаевые официанту
+bill please|счёт, пожалуйста
+vegetarian|вегетарианец
+vegan|веган
+raw food|сырая еда
+spicy food|острая еда
+bitter|горький
+juicy|сочный
+crispy|хрустящий
+fresh bread|свежий хлеб
+stale|чёрствый
+leftovers|остатки еды

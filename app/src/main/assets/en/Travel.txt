@@ -1,0 +1,81 @@
+arrivals|прилёт (табло)
+departures|вылет (табло)
+boarding pass|посадочный талон
+gate number|номер выхода
+check-in desk|стойка регистрации
+luggage|багаж
+baggage claim|выдача багажа
+hand luggage|ручная кладь
+carry-on|ручная кладь
+customs|таможня
+passport control|паспортный контроль
+visa|виза
+one-way ticket|билет в одну сторону
+return ticket|билет туда и обратно
+round trip|поездка туда и обратно
+reservation|бронь
+booking|бронирование
+single room|одноместный номер
+double room|двухместный номер
+reception desk|стойка администратора
+room service|обслуживание номеров
+check out time|время выезда
+hostel|хостел
+guesthouse|гостевой дом
+sightseeing|осмотр достопримечательностей
+landmark|достопримечательность
+souvenir|сувенир
+travel agency|турагентство
+guidebook|путеводитель
+itinerary|маршрут
+destination|пункт назначения
+backpacker|путешественник с рюкзаком
+cruise|круиз
+voyage|морское путешествие
+delay|задержка
+cancellation|отмена
+layover|пересадка
+connecting flight|стыковочный рейс
+jet lag|смена часовых поясов
+seat belt|ремень безопасности
+aisle seat|место у прохода
+window seat|место у окна
+crew|экипаж
+flight attendant|бортпроводник
+take-off|взлёт
+landing|посадка
+runway|взлётная полоса
+timetable|расписание
+platform number|номер платформы
+carriage|вагон
+underground|метро
+subway|метро
+tram|трамвай
+ferry|паром
+car rental|прокат машин
+petrol station|заправка
+parking lot|парковка
+traffic jam|пробка
+highway|шоссе
+crossroads|перекрёсток
+roundabout|круговое движение
+pedestrian|пешеход
+sidewalk|тротуар
+directions|указания пути
+turn left|поверни налево
+turn right|поверни направо
+go straight|иди прямо
+lost|потерявшийся
+exchange rate|обменный курс
+currency exchange|обмен валюты
+ATM|банкомат
+tip|чаевые
+travel insurance|туристическая страховка
+sunscreen|солнцезащитный крем
+sunglasses|солнечные очки
+swimsuit|купальник
+camping|кемпинг
+sleeping bag|спальник
+hiking|поход
+trail|тропа
+viewpoint|смотровая площадка

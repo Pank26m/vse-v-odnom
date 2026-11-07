@@ -1,0 +1,54 @@
+downtown|центр города
+suburb|пригород
+district|район
+block|квартал
+avenue|проспект
+lane|переулок
+square|площадь
+fountain|фонтан
+monument|памятник
+skyscraper|небоскрёб
+apartment block|многоквартирный дом
+shopping centre|торговый центр
+department store|универмаг
+bakery|пекарня
+butcher's|мясная лавка
+hairdresser|парикмахер
+barber|барбер
+laundry service|прачечная
+dry cleaner's|химчистка
+pharmacy store|аптека
+gas station|заправка
+car wash|автомойка
+police station|полицейский участок
+fire station|пожарная часть
+town hall|мэрия
+embassy|посольство
+court house|здание суда
+bus stop|остановка
+taxi rank|стоянка такси
+crosswalk|пешеходный переход
+traffic sign|дорожный знак
+speed limit|ограничение скорости
+parking ticket|штраф за парковку
+playground|детская площадка
+stadium|стадион
+gallery|галерея
+theatre|театр
+opera house|оперный театр
+nightclub|ночной клуб
+bar|бар
+pub|паб
+food court|фуд-корт
+vending machine|автомат (торговый)
+elevator|лифт
+escalator|эскалатор
+entrance hall|вестибюль
+garbage|мусор
+trash can|урна
+homeless|бездомный
+resident|житель
+citizen|гражданин
+mayor|мэр
+rush hour|час пик
+noise pollution|шумовое загрязнение
