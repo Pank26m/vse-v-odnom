@@ -19,7 +19,7 @@ gh release download "$REL" -p catalog.json -D work --clobber 2>/dev/null || echo
 ASSETS=$(gh release view "$REL" --json assets -q '.assets[].name' 2>/dev/null || true)
 have() { grep -qx "$1" <<<"$ASSETS" || grep -q "^$1\.part" <<<"$ASSETS"; }
 # версия способа сборки частей: если поднять — часть пересоберётся (рельеф v1 был испорчен багом границы)
-declare -A PART_VER=([map]=2 [dem]=2 [contours]=2 [search]=1)   # map v1 — без моря на крупных масштабах
+declare -A PART_VER=([map]=2 [dem]=2 [contours]=3 [search]=1)   # contours v2 — tippecanoe терял линии   # map v1 — без моря на крупных масштабах
 outdated() { python3 -c "import json,sys; c=next((c for c in json.load(open('work/catalog.json'))['countries'] if c['id']==sys.argv[1]),{}); sys.exit(0 if c.get(sys.argv[2]+'_ver',1) < int(sys.argv[3]) else 1)" "$1" "$2" "${PART_VER[$2]}"; }
 forced() { [ "${FORCE:-}" = "$1" ] || [ "${FORCE:-}" = all ]; }
 
@@ -125,21 +125,22 @@ PY
     rm -f work/named.osm.pbf
   fi
 
-  if needs dem || needs contours; then
+  if needs dem; then
     log "$ID: рельеф"
     rm -rf work/tif
-    if python3 dem.py "$OUT/$ID.json" "$OUT/$ID-dem.mbtiles" work/tif 11 11 >> "$REPORT" 2>&1; then
-      log "$ID: рельеф $(du -h $OUT/$ID-dem.mbtiles | cut -f1)"; needs dem && BUILT+=(dem)
-      if needs contours; then
-        log "$ID: линии высот"
-        gdalbuildvrt -q work/dem.vrt work/tif/*.tif && gdal_contour -q -a ele -i 20 work/dem.vrt work/contours.gpkg \
-         && ogr2ogr -f GeoJSONSeq -t_srs EPSG:4326 /vsistdout/ work/contours.gpkg | python3 contours_prep.py > work/contours.geojsonl \
-         && tippecanoe -q -o "$OUT/$ID-contours.mbtiles" -l contour -Z9 -z14 --force --no-tile-size-limit --simplification=4 \
-              -n "Линии высот" -A "Mapzen Terrain Tiles" work/contours.geojsonl \
-         && { log "$ID: линии высот $(du -h $OUT/$ID-contours.mbtiles | cut -f1)"; BUILT+=(contours); } || log "ОШИБКА: линии высот"
-      fi
+    if python3 dem.py "$OUT/$ID.json" "$OUT/$ID-dem.mbtiles" work/tif 11 99 >> "$REPORT" 2>&1; then
+      log "$ID: рельеф $(du -h $OUT/$ID-dem.mbtiles | cut -f1)"; BUILT+=(dem)
     else log "ОШИБКА: рельеф"; fi
-    rm -rf work/tif work/contours.* work/dem.vrt
+    rm -rf work/tif
+  fi
+  if needs contours; then
+    log "$ID: линии высот"
+    DEMF="$OUT/$ID-dem.mbtiles"
+    [ -f "$DEMF" ] || { gh release download "$REL" -p "$ID-dem.mbtiles" -D work --clobber && DEMF="work/$ID-dem.mbtiles"; }
+    if python3 contours_tiles.py "$DEMF" "$OUT/$ID-contours.mbtiles" >> work/contours.log 2>&1; then
+      log "$ID: линии высот $(du -h $OUT/$ID-contours.mbtiles | cut -f1)"; BUILT+=(contours)
+    else log "ОШИБКА: линии высот"; tail -20 work/contours.log >> "$REPORT"; fi
+    rm -f "work/$ID-dem.mbtiles"
   fi
   rm -rf work/*.osm.pbf work/tmp
 

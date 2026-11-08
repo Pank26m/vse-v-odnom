@@ -205,7 +205,7 @@ object MapStyle {
         files.forEach { (c, v) ->
             if (o.contours && "contours" in v) {
                 sources.put("ct_$c", JSONObject().put("type", "vector").put("url", "mbtiles://" + v["contours"]))
-                layers.put(JSONObject("""{"id":"ct@$c","type":"line","source":"ct_$c","source-layer":"contour","minzoom":10,
+                layers.put(JSONObject("""{"id":"ct@$c","type":"line","source":"ct_$c","source-layer":"contour","minzoom":11,
                     "paint":{"line-color":"#a4865f","line-opacity":["case",["==",["get","major"],1],0.55,0.3],
                     "line-width":["case",["==",["get","major"],1],0.9,0.5]}}"""))
                 layers.put(JSONObject("""{"id":"ctl@$c","type":"symbol","source":"ct_$c","source-layer":"contour","minzoom":12,"filter":["==",["get","major"],1],
