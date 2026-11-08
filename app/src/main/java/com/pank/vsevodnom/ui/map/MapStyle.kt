@@ -46,7 +46,7 @@ object MapStyle {
         "health" to PoiGroup("Больницы, поликлиники, аптеки", 0xFFE53935.toInt(), "medical-cross", listOf("hospital", "pharmacy", "dentist", "doctors", "clinic", "veterinary", "chemist")),
         "edu" to PoiGroup("Вузы, колледжи, школы", 0xFF43A047.toInt(), "school", listOf("school", "college", "university", "kindergarten", "library")),
         "ski" to PoiGroup("Горнолыжные трассы и подъёмники", 0xFF6D4C41.toInt(), "mountain", listOf("aerialway", "skiing")),
-        "rail" to PoiGroup("ЖД-транспорт и метро", 0xFF78909C.toInt(), "train", listOf("railway", "subway", "station", "entrance")),
+        "rail" to PoiGroup("ЖД-транспорт и метро", 0xFF78909C.toInt(), "train", listOf("railway", "subway", "station", "entrance", "subway_entrance")),
         "arts" to PoiGroup("Кино, театры, арт-центры", 0xFFFB8C00.toInt(), "movie", listOf("cinema", "theatre", "art_gallery", "music", "arts_centre", "nightclub")),
         "museum" to PoiGroup("Музеи, памятники, церкви", 0xFF26A69A.toInt(), "building-castle", listOf("museum", "monument", "castle", "attraction", "place_of_worship", "memorial", "historic", "ruins")),
         "housenumbers" to PoiGroup("Номера и названия зданий", 0xFF6D4C41.toInt(), "home", emptyList()),
@@ -64,9 +64,15 @@ object MapStyle {
         "sport" to PoiGroup("Спорткомплексы и бассейны", 0xFFFF7043.toInt(), "barbell", listOf("stadium", "swimming", "sports_centre", "fitness_centre", "pitch", "golf", "swimming_pool")),
         "mall" to PoiGroup("ТЦ, супермаркеты, магазины", 0xFF42A5F5.toInt(), "shopping-cart", listOf("grocery", "supermarket", "convenience", "mall", "marketplace", "department_store")),
         "car" to PoiGroup("АЗС и автосервисы", 0xFF5C6BC0.toInt(), "gas-station", listOf("fuel", "car", "car_repair", "car_wash", "charging_station", "bicycle", "bicycle_rental", "motorcycle")),
-        "park" to PoiGroup("Парки, площадки, смотровые", 0xFF66BB6A.toInt(), "trees", listOf("park", "garden", "playground", "zoo", "viewpoint", "picnic_site", "dog_park")),
+        "park" to PoiGroup("Парки, площадки, смотровые", 0xFF66BB6A.toInt(), "trees", listOf("park", "garden", "playground", "zoo", "viewpoint", "picnic_site", "dog_park", "pitch")),
         "parking" to PoiGroup("Парковки", 0xFF5C6BC0.toInt(), "parking", listOf("parking", "bicycle_parking", "motorcycle_parking")),
-        "other" to PoiGroup("Остальное (туалеты, урны, доступность…)", 0xFF90A4AE.toInt(), "map-pin", emptyList()),
+        "service" to PoiGroup("Ворота, шлагбаумы, урны, площадки, навесы", 0xFF4F5966.toInt(), "fence",
+            listOf("gate", "lift_gate", "bollard", "cycle_barrier", "stile", "kissing_gate", "sally_port", "toll_booth", "border_control", "waste_basket", "recycling",
+                "shelter", "toilets", "drinking_water", "water_point", "fountain", "information", "bench", "bbq", "picnic_table", "chess", "telephone", "vending_machine", "clock")),
+        "office" to PoiGroup("Офисы и госучреждения", 0xFF5C6BC0.toInt(), "briefcase", listOf("office")),
+        "lines" to PoiGroup("Заборы и стены", 0xFF8D8A95.toInt(), "fence", emptyList()),
+        "routes" to PoiGroup("Пешие маршруты и тропы", 0xFFD9534F.toInt(), "trekking", emptyList()),
+        "other" to PoiGroup("Остальное", 0xFF90A4AE.toInt(), "map-pin", emptyList()),
     )
     val DEFAULT_HIDDEN = setOf("parking", "other", "stopnames")
 
@@ -128,11 +134,41 @@ object MapStyle {
         "mobile_phone" to "phone", "shoe" to "shoe", "gift" to "gift", "books" to "book", "pet" to "paw", "optician" to "eyeglass", "alcohol_shop" to "bottle",
         "laundry" to "wash-machine", "playground" to "mood-kid", "zoo" to "paw", "viewpoint" to "telescope", "dog_park" to "dog", "toilets" to "toilet-paper",
         "waste_basket" to "trash", "drinking_water" to "droplet", "information" to "help-circle", "post" to "package", "grocery" to "shopping-cart",
-        "fuel" to "gas-station", "school" to "school", "college" to "school", "university" to "school", "kindergarten" to "mood-kid", "hospital" to "first-aid-kit",
+        "fuel" to "gas-station", "subway_entrance" to "train", "parcel_locker" to "package", "office" to "briefcase", "school" to "school", "college" to "school", "university" to "school", "kindergarten" to "mood-kid", "hospital" to "first-aid-kit",
     )
     fun groupOf(cls: String): PoiGroup = POI_GROUPS.values.firstOrNull { cls in it.classes } ?: POI_GROUPS["other"]!!
 
+    /**
+     * «Сервисные» объекты — без цветного кружка, одной тёмной иконкой с белой обводкой (как в Guru): ворота, шлагбаумы,
+     * урны, площадки, навесы, питьевая вода… Ключ — subclass (у почтового ящика class = post).
+     */
+    val SERVICE_ICON = mapOf(
+        "gate" to "door", "kissing_gate" to "door", "sally_port" to "building-arch", "lift_gate" to "barrier-block", "bollard" to "barrier-block",
+        "cycle_barrier" to "barrier-block", "stile" to "ladder", "toll_booth" to "cash", "border_control" to "shield", "waste_basket" to "trash",
+        "recycling" to "recycle", "shelter" to "umbrella", "toilets" to "toilet-paper", "drinking_water" to "droplet", "water_point" to "droplet",
+        "fountain" to "fountain", "information" to "info-circle", "map" to "info-circle", "board" to "info-circle", "guidepost" to "sign-right",
+        "bench" to "chair-director", "bbq" to "grill", "picnic_table" to "grill", "picnic_site" to "grill", "playground" to "mood-kid", "chess" to "puzzle",
+        "telephone" to "phone", "post_box" to "mailbox", "vending_machine" to "shopping-cart", "clock" to "clock", "bicycle_parking" to "bike",
+    )
+    /** Подклассы, у которых своя картинка (иначе картинка по class). */
+    val SUBCLASS_ICONS: List<String> get() = (SERVICE_ICON.keys + listOf("viewpoint", "parcel_locker", "subway_entrance")).distinct()
+
+    /** Важность значка при расстановке (меньше — ставится раньше): больницы, аптеки, госорганы и транспорт — первыми, мелочь — последней. */
+    val SORT_KEY: JSONArray get() = JSONArray().put("case")
+        .put(JSONArray("""["match",["get","subclass"],["government","diplomatic","clinic","hospital"],true,false]""")).put(0)
+        .put(JSONArray("""["match",["get","subclass"],${JSONArray(SERVICE_ICON.keys.toList())},true,false]""")).put(9)
+        .put(JSONArray().put("match").put(JSONArray("[\"get\",\"class\"]"))
+            .put(JSONArray(listOf("hospital", "pharmacy", "police", "fire_station", "town_hall", "embassy", "courthouse", "doctors", "dentist", "veterinary"))).put(0)
+            .put(JSONArray(listOf("railway", "subway", "bus", "tram", "ferry_terminal", "airport", "fuel", "charging_station"))).put(1)
+            .put(JSONArray(listOf("post", "bank", "atm", "school", "college", "university", "kindergarten", "library", "museum", "place_of_worship", "grocery", "mall"))).put(2)
+            .put(JSONArray(listOf("lodging", "attraction", "monument", "castle", "theatre", "cinema", "park", "zoo", "stadium", "sports_centre", "viewpoint"))).put(3)
+            .put(JSONArray(listOf("restaurant", "cafe", "fast_food", "bar", "pub", "beer", "bakery", "ice_cream"))).put(5)
+            .put(JSONArray(listOf("parking", "bicycle_parking"))).put(8)
+            .put(6))
+
     const val HATCH_MIN_ZOOM = 5.5
+    /** С этого зума — онлайн-мир (OpenFreeMap). Тайлы z5 у него по 0,5–0,6 МБ и долго разбираются — их не берём. */
+    const val WORLD_MIN_ZOOM = 6.0
     /** Окончание id слоёв онлайн-мира (OpenFreeMap). */
     const val WORLD_SUFFIX = "@w"
 
@@ -227,7 +263,7 @@ object MapStyle {
 
     /** Что лежит на телефоне: пути к файлам. id страны → (вид части → путь). */
     class Input(val layersJson: String, val worldRelief: String, val worldLabels: String?, val files: Map<String, Map<String, String>>, val shapes: List<JSONObject>,
-                val metro: Map<String, String> = emptyMap(), val entrances: Map<String, String> = emptyMap())
+                val metro: Map<String, String> = emptyMap(), val entrances: Map<String, String> = emptyMap(), val lines: Map<String, String> = emptyMap())
 
     fun build(ctx: Context, o: Opts): String {
         val inst = OfflineMaps.installed(ctx)
@@ -235,7 +271,8 @@ object MapStyle {
         val input = Input(layerCache.getOrPut(o.variant) { ctx.assets.open("map/${o.variant.key}.json").bufferedReader().use { it.readText() } },
             OfflineMaps.worldRelief(ctx).absolutePath, OfflineMaps.worldLabels(ctx)?.absolutePath, files, OfflineMaps.shapes(ctx).map { it.second },
             inst.keys.mapNotNull { id -> OfflineMaps.metroFile(ctx, id).takeIf { it.exists() }?.let { id to it.readText() } }.toMap(),
-            inst.keys.mapNotNull { id -> OfflineMaps.entrancesFile(ctx, id).takeIf { it.exists() && it.length() > 0 }?.let { id to it.absolutePath } }.toMap())
+            inst.keys.mapNotNull { id -> OfflineMaps.entrancesFile(ctx, id).takeIf { it.exists() && it.length() > 0 }?.let { id to it.absolutePath } }.toMap(),
+            inst.keys.mapNotNull { id -> OfflineMaps.linesFile(ctx, id).takeIf { it.exists() && it.length() > 0 }?.let { id to it.absolutePath } }.toMap())
         return compose(input, o)
     }
 
@@ -288,6 +325,10 @@ object MapStyle {
             if (hasWorld && n.optString("source-layer") == "place" && n.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) n.put("minzoom", HATCH_MIN_ZOOM)
             // на мелких зумах в тайлах страны лежит океан Natural Earth для всего мира — давал синие прямоугольники поверх рельефа
             if (l.getString("type") != "symbol" && n.optDouble("minzoom", 0.0) < 6.0) n.put("minzoom", 6.0)
+            if (n.optString("source-layer") == "boundary") {
+                val f = n.optJSONArray("filter")
+                n.put("filter", JSONArray().put("all").put(JSONArray("""["!=",["get","maritime"],1]""")).apply { if (f != null) put(f) })
+            }
             // фильтр значков
             if (n.optString("source-layer") == "poi") {
                 if (o.hiddenPoi.isNotEmpty()) {
@@ -296,10 +337,12 @@ object MapStyle {
                     val hidden = POI_GROUPS.filterKeys { it in o.hiddenPoi }.values.flatMap { it.classes }
                     val shown = POI_GROUPS.filterKeys { it !in o.hiddenPoi }.values.flatMap { it.classes }
                     // выражения (не старый синтаксис): ["match", класс, [список], да, нет]
-                    fun match(list: List<String>, yes: Boolean) = if (list.isEmpty()) JSONArray().put("literal").put(!yes).let { JSONArray().put("==").put(1).put(if (yes) 0 else 1) }
+                    // Только выражения! Простое ["==",1,1] MapLibre принимал за старый синтаксис фильтра, и тогда весь фильтр
+                    // (с ["get",…]) ломался — пропадали ВСЕ значки, стоило скрыть метро, подписи или подъезды (0.23).
+                    fun match(list: List<String>, yes: Boolean): JSONArray? = if (list.isEmpty()) (if (yes) JSONArray("[\"literal\",false]") else null)
                         else JSONArray().put("match").put(JSONArray("[\"get\",\"class\"]")).put(JSONArray(list.distinct())).put(yes).put(!yes)
-                    all.put(if ("other" in o.hiddenPoi) match(shown, true) else match(hidden, false))
-                    n.put("filter", all)
+                    (if ("other" in o.hiddenPoi) match(shown, true) else match(hidden, false))?.let { all.put(it) }
+                    if (all.length() > 1) n.put("filter", all)
                 }
                 // свой слой метро уже рисует станции — значок станции из тайлов был бы второй точкой
                 if (o.metro && input.metro.isNotEmpty()) {
@@ -310,8 +353,10 @@ object MapStyle {
                 }
                 // единый стиль значков: цветной кружок группы с белой иконкой (картинки рисует экран карты по запросу «p:класс»)
                 n.optJSONObject("layout")?.let { lay ->
-                    lay.put("icon-image", JSONArray("""["concat","p:",["get","class"]]"""))
+                    lay.put("icon-image", JSONArray().put("match").put(JSONArray("[\"get\",\"subclass\"]")).put(JSONArray(SUBCLASS_ICONS))
+                        .put(JSONArray("""["concat","p:",["get","subclass"]]""")).put(JSONArray("""["concat","p:",["get","class"]]""")))
                     lay.put("icon-size", 1.0); lay.put("text-size", 11); lay.put("text-offset", JSONArray("[0,1.1]"))
+                    lay.put("symbol-sort-key", SORT_KEY)
                     if (l.getString("id") == "poi_transit" && !o.stopNames) lay.put("text-field", "")
                     // названия у значков: можно скрыть; у входов в метро название станции не пишем (их по 4–6 на станцию)
                     else if ("l_poitext" in o.hiddenPoi) lay.put("text-field", "")
@@ -338,12 +383,25 @@ object MapStyle {
             sources.put("wl", JSONObject().put("type", "vector").put("url", "mbtiles://" + wl))
             @Suppress("UNUSED_PARAMETER") fun twice(base: JSONObject, extraFilter: JSONArray?) {
                 // грубые границы Natural Earth — только издалека: вблизи они шли нечётким контуром рядом с точной границей
-                layers.put(JSONObject(base.toString()).apply { put("maxzoom", HATCH_MIN_ZOOM) })
+                layers.put(JSONObject(base.toString()).apply { put("maxzoom", WORLD_MIN_ZOOM) })
             }
             twice(JSONObject("""{"id":"wl-b4","type":"line","source":"wl","source-layer":"boundary","minzoom":3.5,"filter":["==",["get","admin_level"],4],
                 "paint":{"line-color":"#8d8a95","line-width":0.6,"line-dasharray":[3,2],"line-opacity":0.6}}"""), JSONArray("""["==",["get","admin_level"],4]"""))
             twice(JSONObject("""{"id":"wl-b2","type":"line","source":"wl","source-layer":"boundary","filter":["==",["get","admin_level"],2],
                 "paint":{"line-color":"#7d6f86","line-width":["interpolate",["linear"],["zoom"],1,0.6,6,1.6],"line-opacity":0.85}}"""), JSONArray("""["==",["get","admin_level"],2]"""))
+        }
+
+        // заборы (вблизи) и пешие маршруты (в «Пешком» и «Велосипед»)
+        val showRoutes = "routes" !in o.hiddenPoi && o.variant != Variant.CAR
+        if (o.online == null) input.lines.forEach { (c, path) ->
+            if ("lines" in o.hiddenPoi && !showRoutes) return@forEach
+            sources.put("lines_$c", JSONObject().put("type", "vector").put("url", "mbtiles://$path"))
+            if ("lines" !in o.hiddenPoi) layers.put(JSONObject("""{"id":"fence@$c","type":"line","source":"lines_$c","source-layer":"barrier","minzoom":15,
+                "paint":{"line-color":["match",["get","kind"],"hedge","#8fb47a","#a39d93"],"line-width":["interpolate",["linear"],["zoom"],15,0.5,17,1.1,19,2],
+                "line-opacity":["interpolate",["linear"],["zoom"],15,0.4,16.5,0.9]}}"""))
+            if (showRoutes) layers.put(JSONObject("""{"id":"route@$c","type":"line","source":"lines_$c","source-layer":"route","minzoom":11,
+                "layout":{"line-cap":"round","line-join":"round"},
+                "paint":{"line-color":["to-color",["get","colour"],"#d9534f"],"line-width":["interpolate",["linear"],["zoom"],11,1.5,15,3.5],"line-opacity":0.7,"line-dasharray":[2,1.5]}}"""))
         }
 
         val symbolsAt = layers.length()      // отсюда — подписи и значки стран; подписи онлайн-мира встают прямо под ними
@@ -360,6 +418,11 @@ object MapStyle {
                 layers.put(JSONObject("""{"id":"entr@$c","type":"symbol","source":"entr_$c","source-layer":"entrance","minzoom":17,
                     "layout":{"text-field":["coalesce",["get","ref"],"⇥"],"text-font":["Noto Sans Bold"],"text-size":10,"text-padding":1,"text-allow-overlap":false},
                     "paint":{"text-color":"#ffffff","text-halo-color":"#8d6e63","text-halo-width":3}}"""))
+            }
+            if (showRoutes) input.lines.forEach { (c, _) ->
+                layers.put(JSONObject("""{"id":"route-n@$c","type":"symbol","source":"lines_$c","source-layer":"route","minzoom":12.5,
+                    "layout":{"symbol-placement":"line","text-field":["get","name"],"text-font":["Noto Sans Bold"],"text-size":11,"symbol-spacing":350,"text-max-angle":35},
+                    "paint":{"text-color":["to-color",["get","colour"],"#b03a36"],"text-halo-color":"#ffffff","text-halo-width":1.6}}"""))
             }
             // метро: линии цветом линий, станции кружками
             if (o.metro) input.metro.forEach { (c, gj) ->
@@ -404,13 +467,15 @@ object MapStyle {
             val out = JSONArray()
             for (i in 0 until worldOnlineAt) out.put(layers.get(i))
             // вблизи рельеф мира уходит под светлый фон — дальше рисует онлайн-карта (без интернета — только то, что в кэше)
-            out.put(JSONObject("""{"id":"bg-world","type":"background","minzoom":5.5,"paint":{"background-color":"#f3f1ec","background-opacity":["interpolate",["linear"],["zoom"],5.5,0,6.5,1]}}"""))
-            nonSymbol.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) it.put("minzoom", HATCH_MIN_ZOOM) }) }
+            // рельеф мира остаётся виден под онлайн-картой до z8: пока тайлы не пришли (или их нет в кэше без интернета) —
+            // видно рельеф, а не белую пустоту
+            out.put(JSONObject("""{"id":"bg-world","type":"background","minzoom":6.5,"paint":{"background-color":"#f3f1ec","background-opacity":["interpolate",["linear"],["zoom"],6.5,0,8,1]}}"""))
+            nonSymbol.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < WORLD_MIN_ZOOM) it.put("minzoom", WORLD_MIN_ZOOM) }) }
             for (i in worldOnlineAt until symbolsAt) out.put(layers.get(i))
             // подписи онлайн-мира — над заливками страны, но под её подписями: у границы одинаковые надписи гасят друг друга
             // при расстановке (наши ставятся первыми). Без фильтра within — он проверял каждую подпись по границе в 3000 точек
             // и тормозил зум. Когда экран целиком внутри страны, экран карты выключает онлайн-мир (WORLD_SUFFIX).
-            symbol.filter { it.getString("id") !in hiddenLabels }.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) it.put("minzoom", HATCH_MIN_ZOOM) }) }
+            symbol.filter { it.getString("id") !in hiddenLabels }.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < WORLD_MIN_ZOOM) it.put("minzoom", WORLD_MIN_ZOOM) }) }
             for (i in symbolsAt until layers.length()) out.put(layers.get(i))
             out
         } else layers

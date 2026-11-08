@@ -29,6 +29,37 @@ object OfflineSearch {
 
     fun available(ctx: Context) = OfflineMaps.installed(ctx).filterValues { "search" in it.second }.keys
 
+    /**
+     * «Похожие рядом»: места того же вида (amenity:cafe и т. п. — по subclass из тайлов) вокруг точки: сперва в 3 км,
+     * если мало — в 10 км; не больше [limit], ближние первыми.
+     */
+    suspend fun similar(ctx: Context, values: List<String>, lat: Double, lon: Double, limit: Int = 30): List<GeoHit> = withContext(Dispatchers.IO) {
+        val vals = values.filter { it.isNotBlank() }.distinct()
+        if (vals.isEmpty()) return@withContext emptyList()
+        val k = cos(Math.toRadians(lat))
+        fun dist(a: Double, b: Double) = hypot((a - lat) * 111.0, (b - lon) * 111.0 * k)
+        var out = emptyList<Pair<Double, GeoHit>>()
+        for (km in listOf(3.0, 10.0)) {
+            val dLat = km / 111.0; val dLon = km / (111.0 * k)
+            val rows = ArrayList<Pair<Double, GeoHit>>()
+            for (id in available(ctx)) {
+                val d = db(ctx, id) ?: continue
+                val like = vals.joinToString(" OR ") { "kind LIKE ?" }
+                d.rawQuery("SELECT name, kind, lat, lon, place FROM f WHERE ($like) AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? LIMIT 800",
+                    (vals.map { "%:$it" } + listOf(lat - dLat, lat + dLat, lon - dLon, lon + dLon).map { it.toString() }).toTypedArray()).use { c ->
+                    while (c.moveToNext()) {
+                        val la = c.getDouble(2); val lo = c.getDouble(3); val dd = dist(la, lo)
+                        if (dd < 0.02 || dd > km) continue     // само место не показываем
+                        rows += dd to GeoHit(c.getString(0), listOf(MapNames.kind(c.getString(1)), c.getString(4)).filter { it.isNotBlank() }.joinToString(" · "), la, lo, c.getString(1))
+                    }
+                }
+            }
+            out = rows
+            if (rows.size >= 6) break
+        }
+        out.sortedBy { it.first }.distinctBy { it.second.name + it.second.lat.toFloat() }.take(limit).map { it.second }
+    }
+
     suspend fun search(ctx: Context, q: String, nearLat: Double, nearLon: Double, limit: Int = 40): List<GeoHit> = withContext(Dispatchers.IO) {
         val words = norm(q)
         if (words.isEmpty()) return@withContext emptyList()
@@ -123,6 +154,20 @@ object MapNames {
         "railway" to "Вокзал", "bus" to "Остановка", "airport" to "Аэропорт", "zoo" to "Зоопарк", "castle" to "Замок", "hairdresser" to "Парикмахерская",
         "car" to "Автосервис", "atm" to "Банкомат", "veterinary" to "Ветклиника", "fitness_centre" to "Фитнес", "swimming" to "Бассейн", "toilets" to "Туалет",
         "city" to "Город", "town" to "Город", "village" to "Село", "hamlet" to "Посёлок", "suburb" to "Район", "neighbourhood" to "Микрорайон",
+        "gate" to "Ворота / калитка", "lift_gate" to "Шлагбаум", "bollard" to "Столбики", "cycle_barrier" to "Барьер", "stile" to "Перелаз", "kissing_gate" to "Калитка",
+        "sally_port" to "Арка-проезд", "toll_booth" to "Пункт оплаты", "border_control" to "Пограничный пункт", "waste_basket" to "Урна", "recycling" to "Сбор вторсырья",
+        "shelter" to "Навес / беседка", "drinking_water" to "Питьевая вода", "water_point" to "Вода", "fountain" to "Фонтан", "information" to "Информация",
+        "map" to "Карта-схема", "board" to "Инфостенд", "guidepost" to "Указатель", "bench" to "Лавочка", "bbq" to "Мангал", "picnic_table" to "Столик для пикника",
+        "picnic_site" to "Место для пикника", "chess" to "Шахматы", "telephone" to "Телефон", "post_box" to "Почтовый ящик", "vending_machine" to "Автомат",
+        "clock" to "Часы", "bicycle_parking" to "Велопарковка", "viewpoint" to "Смотровая площадка", "parcel_locker" to "Почтомат", "post_office" to "Почта",
+        "subway_entrance" to "Вход в метро", "subway" to "Станция метро", "pitch" to "Спортплощадка", "soccer" to "Футбольное поле", "tennis" to "Теннисный корт",
+        "basketball" to "Баскетбольная площадка", "multi" to "Спортплощадка", "garden" to "Сад", "artwork" to "Арт-объект", "company" to "Офис",
+        "government" to "Госучреждение", "diplomatic" to "Посольство", "clinic" to "Клиника", "supermarket" to "Супермаркет", "convenience" to "Магазин у дома",
+        "kindergarten" to "Детский сад", "university" to "Университет", "swimming_pool" to "Бассейн", "camp_site" to "Кемпинг", "bus_stop" to "Остановка",
+        "tram_stop" to "Трамвайная остановка", "memorial" to "Мемориал", "kiosk" to "Киоск", "office" to "Офис", "pub" to "Паб", "hotel" to "Гостиница",
+        "hostel" to "Хостел", "guest_house" to "Гостевой дом", "dormitory" to "Общежитие", "community_centre" to "Дом культуры", "courthouse" to "Суд",
+        "christian" to "Храм", "muslim" to "Мечеть", "jewish" to "Синагога", "charging_station" to "Зарядка электромобилей", "car_wash" to "Автомойка",
+        "car_repair" to "Автосервис", "car_parts" to "Автозапчасти", "clothes" to "Одежда", "beauty" to "Салон красоты", "florist" to "Цветы",
     )
     fun kind(k: String): String = M[k] ?: CLASS[k.substringBefore(':')] ?: ""
     fun omt(cls: String?, sub: String?): String = (sub?.let { OMT[it] } ?: cls?.let { OMT[it] } ?: sub?.replace('_', ' ') ?: cls?.replace('_', ' ') ?: "").replaceFirstChar { it.uppercase() }

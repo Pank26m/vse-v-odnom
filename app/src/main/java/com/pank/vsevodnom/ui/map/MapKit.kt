@@ -36,7 +36,12 @@ object MapKit {
         MapLibre.getInstance(ctx.applicationContext)
         if (!httpSet) runCatching {
             // онлайн-слои из .ms: часть серверов (Google и др.) не отдаёт тайлы без «браузерного» User-Agent
-            val client = okhttp3.OkHttpClient.Builder().addInterceptor { ch ->
+            // свой клиент: 20 запросов к серверу одновременно (у OkHttp по умолчанию 5 — тайлы онлайн-мира шли очередью
+            // и куски карты долго оставались пустыми), таймауты подлиннее для мобильной сети
+            val disp = okhttp3.Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 20 }
+            val client = okhttp3.OkHttpClient.Builder().dispatcher(disp)
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .addInterceptor { ch ->
                 val r = ch.request()
                 val h = r.url.host
                 ch.proceed(if (h.endsWith("google.com") || h.endsWith("googleapis.com") || h.contains("khms") || h.contains("yandex"))
@@ -193,7 +198,7 @@ internal fun nearNorth(bearing: Double, deg: Double = 10.0): Boolean {
  * Масштаб одним пальцем: коснуться, отпустить и сразу коснуться снова, затем вести вниз (ближе) или вверх (дальше), пока палец на экране.
  * Сделан сам — не зависит от настроек жестов MapLibre. Обычный двойной тап (без ведения) по-прежнему приближает.
  */
-internal class QuickZoom(private val view: MapView, private val density: Float, private val map: () -> MapLibreMap?, private val keepCenter: () -> Boolean) : android.view.View.OnTouchListener {
+internal class QuickZoom(private val view: MapView, private val density: Float, private val map: () -> MapLibreMap?) : android.view.View.OnTouchListener {
     var active = false; private set
     private var lastUpT = 0L; private var lastUpX = 0f; private var lastUpY = 0f
     private var armed = false; private var downX = 0f; private var downY = 0f; private var downT = 0L; private var lastY = 0f; private var fx = 0; private var fy = 0
@@ -215,9 +220,10 @@ internal class QuickZoom(private val view: MapView, private val density: Float, 
                 }
                 if (active) {
                     val m = map() ?: return true
-                    val dz = (e.y - lastY) / (190 * density).toDouble()      // ~190dp на один уровень
+                    val dz = (e.y - lastY) / (110 * density).toDouble()      // ~110dp на один уровень (было 190 — для длинного зума не хватало экрана)
                     lastY = e.y
-                    if (dz != 0.0) m.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(zoomAround(m, dz, if (keepCenter()) null else android.graphics.PointF(fx.toFloat(), fy.toFloat()), view.width / 2f, view.height / 2f)))
+                    // всегда вокруг центра экрана, а не точки касания
+                    if (dz != 0.0) m.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(zoomAround(m, dz, null, view.width / 2f, view.height / 2f)))
                     return true
                 }
             }
@@ -267,6 +273,9 @@ internal class WorldToggle {
         val dx = (b.longitudeEast - b.longitudeWest) * 0.15; val dy = (b.latitudeNorth - b.latitudeSouth) * 0.15   // запас — мир успевает появиться до края
         val show = !MapStyle.viewInside(rings, b.longitudeWest - dx, b.latitudeSouth - dy, b.longitudeEast + dx, b.latitudeNorth + dy)
         if (show == shown) return
+        // включаем сразу, а выключаем только когда карта остановилась: каждое переключение заставляет MapLibre
+        // заново разбирать тайлы, и при переключениях на ходу куски мира пустели
+        if (!show && !force) return
         shown = show
         val vis = org.maplibre.android.style.layers.PropertyFactory.visibility(if (show) org.maplibre.android.style.layers.Property.VISIBLE else org.maplibre.android.style.layers.Property.NONE)
         st.layers.forEach { l -> if (l.id.endsWith(MapStyle.WORLD_SUFFIX)) l.setProperties(vis) }

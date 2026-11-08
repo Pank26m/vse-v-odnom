@@ -107,6 +107,8 @@ class MainActivity : FragmentActivity() {
                 val go: (String) -> Unit = { r0 ->
                     val r = if (r0 == "calendar") "todo" else r0
                     when {
+                        // уже на карте: не пересоздаём экран (раньше камера сбрасывалась на север) — только вернуть кнопки после «Рамки»
+                        r == "map" && route == "map" -> com.pank.vsevodnom.ui.map.MapUi.reselect++
                         r == "home" -> nav.popBackStack("home", false)
                         r in tabRoutes -> nav.navigate(r) { popUpTo("home"); launchSingleTop = true }
                         else -> nav.navigate(r)

@@ -114,8 +114,9 @@ internal fun TrackStatsContent(t: Track) {
                 Group("Расстояние", listOf(MapPrefs.dist(ctx, s.dist) to "Всего", MapPrefs.dist(ctx, s.upDist) to "Вверх", MapPrefs.dist(ctx, s.downDist) to "Вниз"))
                 if (s.totalMs > 0) Group("Длительность", listOf(hms(s.totalMs) to "Общее время", hms(s.movingMs) to "В движении", hms(s.totalMs - s.movingMs) to "На месте"))
                 if (s.totalMs > 0) Group("Скорость, ${MapPrefs.speed(ctx, 0f).second}", listOf("%.1f".format(s.avg) to "Средняя", "%.1f".format(s.movingAvg) to "В движении", "%.1f".format(s.max) to "Максимум"))
-                if (!s.minAlt.isNaN()) Group("Высота, м", listOf("%.0f".format(s.minAlt) to "Минимум", "%.0f".format(s.maxAlt) to "Максимум", "%.0f / %.0f".format(s.ascent, s.descent) to "Подъём / спуск"))
-                if (s.minAlt.isNaN() && s.totalMs == 0L) Text("Это построенный маршрут без записи — высоты и скорости появятся у записанных треков (REC).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                if (!s.minAlt.isNaN()) Group(if (Dem.fromDem(t)) "Высота (по рельефу), м" else "Высота (GPS), м", listOf("%.0f".format(s.minAlt) to "Минимум", "%.0f".format(s.maxAlt) to "Максимум", "%.0f / %.0f".format(s.ascent, s.descent) to "Подъём / спуск"))
+                if (s.minAlt.isNaN()) Text("Высот нет: для этого места не скачан рельеф (Настройки → Загрузка карт → Рельеф).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                if (s.totalMs == 0L && !s.minAlt.isNaN()) Text("Построенный маршрут: высоты взяты из рельефа местности, время в пути — оценка.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
             }
             if (s.alt.any { !it.isNaN() }) Chart("Высота", s.cum, s.alt, "м", Color(0xFF2E9FB8))
             if (s.speed.any { !it.isNaN() }) Chart("Скорость", s.cum, s.speed, MapPrefs.speed(ctx, 0f).second, Color(0xFFE09A1B))

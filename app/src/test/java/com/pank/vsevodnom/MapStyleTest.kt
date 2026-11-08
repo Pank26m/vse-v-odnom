@@ -17,7 +17,23 @@ class MapStyleTest {
         File("src/main/assets/map/$v.json").readText(), "/data/world-z4.mbtiles", if (countries) "/data/world-labels.mbtiles" else null,
         if (countries) mapOf("ukraine" to mapOf("map" to "/m/ukraine.mbtiles", "dem" to "/m/ukraine-dem.mbtiles", "contours" to "/m/ukraine-contours.mbtiles")) else emptyMap(),
         if (countries) listOf(shape) else emptyList(),
-        metro = System.getenv("UA_METRO")?.takeIf { countries }?.let { mapOf("ukraine" to File(it).readText()) } ?: emptyMap())
+        metro = System.getenv("UA_METRO")?.takeIf { countries }?.let { mapOf("ukraine" to File(it).readText()) } ?: emptyMap(),
+        lines = if (countries) mapOf("ukraine" to "/m/ukraine-lines.mbtiles") else emptyMap())
+
+    /** Как MapLibre решает, выражение ли фильтр (isExpressionFilter из style-spec). Старый синтаксис внутри «all» ломает весь фильтр. */
+    private fun isExpr(f: Any?): Boolean {
+        if (f == true || f == false) return true
+        val a = f as? org.json.JSONArray ?: return false
+        if (a.length() == 0) return false
+        return when (a.opt(0)) {
+            "has" -> a.length() >= 2 && a.opt(1) != "\$id" && a.opt(1) != "\$type"
+            "in" -> a.length() >= 3 && (a.opt(1) !is String || a.opt(2) is org.json.JSONArray)
+            "!in", "!has", "none" -> false
+            "==", "!=", ">", ">=", "<", "<=" -> a.length() != 3 || a.opt(1) is org.json.JSONArray || a.opt(2) is org.json.JSONArray
+            "any", "all" -> (1 until a.length()).all { isExpr(a.opt(it)) || a.opt(it) is Boolean }
+            else -> true
+        }
+    }
 
     @Test fun styles() {
         val out = File("build/map-style").apply { mkdirs() }
@@ -61,5 +77,59 @@ class MapStyleTest {
             {"type":"Feature","geometry":{"type":"LineString","coordinates":[[30,50],[30.1,50.1]]},"properties":{"kind":"line"}}]}"""
         val out = JSONObject(MapStyle.dedupeStations(gj)).getJSONArray("features")
         assertEquals(4, out.length())   // линия + Іподром (одна) + две разные «Вокзальні»
+    }
+
+    /** 0.23: скрыть метро, подписи или подъезды — пропадали ВСЕ значки (в фильтр попадало ["==",1,1] — старый синтаксис). */
+    @Test fun poiFilterStaysExpression() {
+        val cases = listOf(setOf("metro"), setOf("l_street", "l_water"), setOf("entrances"), setOf("l_poitext"), emptySet(), MapStyle.DEFAULT_HIDDEN, setOf("other", "food"), setOf("metro", "other"))
+        for (h in cases) for (v in MapStyle.Variant.entries) {
+            val st = JSONObject(MapStyle.compose(input(v.key, true), MapStyle.Opts(variant = v, hiddenPoi = h, metro = "metro" !in h)))
+            val ls = st.getJSONArray("layers")
+            for (i in 0 until ls.length()) {
+                val l = ls.getJSONObject(i)
+                if (l.has("filter")) assertTrue("${l.getString("id")} при скрытых $h: фильтр не выражение ${l.get("filter")}", isExpr(l.get("filter")))
+            }
+            val poi = (0 until ls.length()).map { ls.getJSONObject(it) }.filter { it.optString("source-layer") == "poi" }
+            assertTrue(poi.isNotEmpty())
+            poi.forEach { assertTrue(it.getJSONObject("layout").has("symbol-sort-key")) }
+        }
+        // морские границы не рисуются, заборы и тропы есть
+        val st = JSONObject(MapStyle.compose(input("foot", true), MapStyle.Opts(variant = MapStyle.Variant.FOOT)))
+        val ls = (0 until st.getJSONArray("layers").length()).map { st.getJSONArray("layers").getJSONObject(it) }
+        ls.filter { it.optString("source-layer") == "boundary" && it.optString("source") != "wl" }.forEach { assertTrue(it.get("filter").toString().contains("maritime")) }
+        assertTrue(ls.any { it.getString("id") == "fence@ukraine" } && ls.any { it.getString("id") == "route@ukraine" } && ls.any { it.getString("id") == "route-n@ukraine" })
+        val car = JSONObject(MapStyle.compose(input("car", true), MapStyle.Opts()))
+        val carIds = (0 until car.getJSONArray("layers").length()).map { car.getJSONArray("layers").getJSONObject(it).getString("id") }
+        assertTrue(carIds.contains("fence@ukraine") && !carIds.contains("route@ukraine"))
+        File("build/map-style").also { it.mkdirs() }.resolve("foot-lines.json").writeText(st.toString(1))
+    }
+
+    @Test fun openingHours() {
+        val oh = com.pank.vsevodnom.data.OpeningHours
+        val w = oh.parse("Mo-Fr 08:00-21:00; Sa-Su 09:00-19:00")!!
+        assertEquals(listOf(480..1260), w[0]); assertEquals(listOf(540..1140), w[6])
+        assertEquals("Открыто · до 21:00", oh.status(w, 2, 12 * 60).text)
+        assertEquals("Скоро закроется · в 21:00", oh.status(w, 2, 20 * 60 + 30).text)
+        assertEquals("Скоро откроется · в 08:00", oh.status(w, 2, 7 * 60 + 15).text)
+        assertTrue(oh.status(w, 4, 22 * 60).text.startsWith("Закрыто · откроется завтра в 09:00"))
+        val off = oh.parse("Mo-Sa 10:00-20:00; Su off")!!
+        assertTrue(off[6].isEmpty()); assertEquals("Выходной", oh.dayText(off[6]))
+        assertEquals("Круглосуточно", oh.dayText(oh.parse("24/7")!![3]))
+        val night = oh.parse("Mo-Su 18:00-02:00")!!
+        assertTrue(oh.status(night, 3, 60).open)      // после полуночи — ещё открыто (хвост вчерашнего)
+        val lunch = oh.parse("Mo-Fr 09:00-13:00,14:00-18:00")!!
+        assertEquals(2, lunch[1].size); assertTrue(!oh.status(lunch, 1, 13 * 60 + 30).open)
+        assertEquals(null, oh.parse("by appointment"))
+    }
+
+    @Test fun demMath() {
+        val d = com.pank.vsevodnom.data.Dem
+        // Terrarium: 0 м = (128, 0, 0)
+        assertEquals(0.0, d.terrarium((128 shl 16)), 0.01)
+        assertEquals(256.0 + 10, d.terrarium((129 shl 16) or (10 shl 8)), 0.01)
+        // Киев на z11: тайл 1197/690
+        val p = d.pixel(50.45, 30.52, 11)
+        assertEquals(1197.0, p[0], 0.0); assertEquals(690.0, p[1], 0.0)
+        assertTrue(p[2] in 0.0..256.0 && p[3] in 0.0..256.0)
     }
 }

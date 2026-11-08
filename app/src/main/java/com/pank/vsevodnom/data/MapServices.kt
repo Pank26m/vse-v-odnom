@@ -26,6 +26,8 @@ object ApiKeys {
     /** Предел запросов в день по сервису (google / tomtom). */
     fun limit(ctx: Context, svc: String) = p(ctx).getInt("limit_$svc", if (svc == "google") 150 else 1500)
     fun setLimit(ctx: Context, svc: String, n: Int) = p(ctx).edit().putInt("limit_$svc", n).apply()
+    /** Израсходовано 90% дневного лимита — дальше сведения только по кнопке. */
+    fun nearlyOut(ctx: Context, svc: String) = used(ctx, svc) >= limit(ctx, svc) * 0.9
     fun used(ctx: Context, svc: String): Int {
         val today = LocalDate.now().toString()
         return if (p(ctx).getString("day_$svc", "") == today) p(ctx).getInt("used_$svc", 0) else 0
@@ -98,18 +100,37 @@ object GooglePlaces {
     private const val DETAIL_FIELDS = "id,displayName,formattedAddress,location,rating,userRatingCount,priceLevel,primaryTypeDisplayName," +
         "nationalPhoneNumber,websiteUri,googleMapsUri,currentOpeningHours,regularOpeningHours,reviews,photos"
 
+    /**
+     * Повторно не платим: по правилам Google хранить можно только id места (без срока) — его и запоминаем для объектов
+     * карты (prefs «g_ids»), а сами сведения и фото держим в памяти, пока приложение открыто.
+     */
+    private val mem = object : LinkedHashMap<String, Details>(32, 0.75f, true) { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Details>?) = size > 60 }
+    private val photoMem = object : LinkedHashMap<String, android.graphics.Bitmap>(32, 0.75f, true) { override fun removeEldestEntry(e: MutableMap.MutableEntry<String, android.graphics.Bitmap>?) = size > 40 }
+    private fun idKey(name: String, lat: Double, lon: Double) = "%s|%.4f|%.4f".format(Locale.US, name.lowercase(), lat, lon)
+    fun knownId(ctx: Context, name: String, lat: Double, lon: Double): String? =
+        ctx.getSharedPreferences("map", Context.MODE_PRIVATE).getString("g_ids", null)?.let { runCatching { JSONObject(it).optString(idKey(name, lat, lon)).ifBlank { null } }.getOrNull() }
+    private fun rememberId(ctx: Context, name: String, lat: Double, lon: Double, id: String) {
+        val p = ctx.getSharedPreferences("map", Context.MODE_PRIVATE)
+        val o = runCatching { JSONObject(p.getString("g_ids", "{}")!!) }.getOrDefault(JSONObject())
+        if (o.length() > 3000) o.keys().asSequence().take(500).toList().forEach { o.remove(it) }
+        p.edit().putString("g_ids", o.put(idKey(name, lat, lon), id).toString()).apply()
+    }
+    fun cached(id: String?): Details? = id?.let { synchronized(mem) { mem[it] } }
+    fun cachedPhoto(name: String): android.graphics.Bitmap? = synchronized(photoMem) { photoMem[name] }
+
     suspend fun details(ctx: Context, id: String): Details = withContext(Dispatchers.IO) {
-        parse(req(ctx, "https://places.googleapis.com/v1/places/$id?languageCode=ru", DETAIL_FIELDS, null))
+        cached(id) ?: parse(req(ctx, "https://places.googleapis.com/v1/places/$id?languageCode=ru", DETAIL_FIELDS, null)).also { d -> synchronized(mem) { mem[id] = d } }
     }
 
     /** Найти место Google по названию рядом с точкой и сразу взять сведения (2 запроса). */
     suspend fun near(ctx: Context, name: String, lat: Double, lon: Double): Details? = withContext(Dispatchers.IO) {
+        knownId(ctx, name, lat, lon)?.let { return@withContext details(ctx, it) }
         val body = JSONObject().put("textQuery", name).put("languageCode", "ru").put("pageSize", 1)
             .put("locationBias", JSONObject().put("circle", JSONObject().put("center", JSONObject().put("latitude", lat).put("longitude", lon)).put("radius", 300.0)))
         val o = req(ctx, "https://places.googleapis.com/v1/places:searchText", "places.id,places.location", body).optJSONArray("places")?.optJSONObject(0) ?: return@withContext null
         val loc = o.getJSONObject("location")
         val r = FloatArray(1); android.location.Location.distanceBetween(lat, lon, loc.getDouble("latitude"), loc.getDouble("longitude"), r)
-        if (r[0] > 400) null else details(ctx, o.getString("id"))
+        if (r[0] > 400) null else { rememberId(ctx, name, lat, lon, o.getString("id")); details(ctx, o.getString("id")) }
     }
 
     private fun parse(o: JSONObject): Details {
@@ -133,6 +154,7 @@ object GooglePlaces {
 
     /** Фото — тоже платный запрос, поэтому грузим по одному и только по просьбе (листание). */
     suspend fun photo(ctx: Context, name: String, maxPx: Int = 800): android.graphics.Bitmap? = withContext(Dispatchers.IO) {
+        cachedPhoto(name)?.let { return@withContext it }
         val key = ApiKeys.google(ctx)
         if (key.isBlank() || !ApiKeys.take(ctx, "google")) return@withContext null
         runCatching {
@@ -140,7 +162,7 @@ object GooglePlaces {
             c.setRequestProperty("X-Android-Package", ctx.packageName); c.setRequestProperty("X-Android-Cert", ApiKeys.certSha1(ctx))
             c.connectTimeout = 10_000; c.readTimeout = 20_000
             c.inputStream.use { android.graphics.BitmapFactory.decodeStream(it) }
-        }.getOrNull()
+        }.getOrNull()?.also { b -> synchronized(photoMem) { photoMem[name] = b } }
     }
 }
 

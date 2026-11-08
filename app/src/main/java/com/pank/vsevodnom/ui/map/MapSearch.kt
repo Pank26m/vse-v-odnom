@@ -3,6 +3,8 @@ package com.pank.vsevodnom.ui.map
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -91,18 +93,38 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
                     if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Icons.Rounded.Close, "Очистить") }
                 }
             }
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (hasGoogle) Chip("Google", !offline && google, { if (canOnline) { offline = false; google = true } })
-                Chip(if (hasGoogle) "OSM" else "Онлайн", !offline && !google, { if (canOnline) { offline = false; google = false } })
-                Chip("Офлайн поиск", offline, { offline = true })
-                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            // источник поиска — плитки во всю ширину
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                @Composable fun Src(ic: androidx.compose.ui.graphics.vector.ImageVector, t: String, sub: String, sel: Boolean, enabled: Boolean, onClick: () -> Unit) =
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (sel) Pal.Sky else Pal.Card)
+                        .clickable(enabled = enabled, onClick = onClick).padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(ic, null, tint = if (sel) Pal.SkyInk else if (enabled) Pal.Ink else Pal.Muted, modifier = Modifier.size(22.dp))
+                        Text(t, style = MaterialTheme.typography.labelLarge, color = if (sel) Pal.SkyInk else if (enabled) Pal.Ink else Pal.Muted)
+                        Text(sub, style = MaterialTheme.typography.labelSmall, color = Pal.Muted, maxLines = 1)
+                    }
+                if (hasGoogle) Src(Icons.Rounded.TravelExplore, "Google", "заведения", !offline && google, canOnline) { offline = false; google = true }
+                Src(Icons.Rounded.Public, if (hasGoogle) "OSM" else "Онлайн", "адреса", !offline && !google, canOnline) { offline = false; google = false }
+                Src(Icons.Rounded.CloudOff, "Офлайн", "без сети", offline, true) { offline = true }
             }
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
             if (!canOnline) Text(if (!Net.online) "Нет интернета — ищу по скачанным картам" else "Онлайн-поиск выключен в настройках", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(16.dp, 6.dp))
             error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk, modifier = Modifier.padding(16.dp, 6.dp)) }
             LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (q.isBlank()) {
-                    MapPrefs.home(ctx)?.let { h -> item { HitRow(Icons.Rounded.Home, "Дом", h.sub) { onPick(GeoHit("Дом", h.sub, h.lat, h.lon, "home")) } } }
-                    MapPrefs.work(ctx)?.let { w -> item { HitRow(Icons.Rounded.Work, "Работа", w.sub) { onPick(GeoHit("Работа", w.sub, w.lat, w.lon, "work")) } } }
+                    // избранное плитками, как в маршруте: дом, работа и все свои
+                    val favTiles = listOfNotNull(MapPrefs.home(ctx)?.let { Triple(Icons.Rounded.Home, "Дом", it) }, MapPrefs.work(ctx)?.let { Triple(Icons.Rounded.Work, "Работа", it) }) +
+                        MapPrefs.favs(ctx).map { Triple(Icons.Rounded.Star, it.name, it) }
+                    if (favTiles.isNotEmpty()) item {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            favTiles.forEach { (ic, n, sp) ->
+                                Column(Modifier.width(118.dp).height(84.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Card).clickable { onPick(GeoHit(n, sp.sub, sp.lat, sp.lon, "fav")) }.padding(10.dp)) {
+                                    Icon(ic, null, tint = Pal.SkyInk)
+                                    Text(n, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                                    Text(sp.sub.ifBlank { "избранное" }, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
                     if (history.isNotEmpty()) { item { SectionLabel("Искал") }; items(history) { h -> HitRow(Icons.Rounded.History, h, null) { q = h; if (!offline) scope.launch { run(true) } } } }
                     val rec = MapPrefs.recents(ctx)
                     if (rec.isNotEmpty()) { item { SectionLabel("Недавние места") }; items(rec) { r -> HitRow(Icons.Rounded.Place, r.name, r.sub) { onPick(GeoHit(r.name, r.sub, r.lat, r.lon)) } } }

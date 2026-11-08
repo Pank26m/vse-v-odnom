@@ -112,7 +112,7 @@ while IFS='|' read -r ID NAME PATHS RELID <&3; do
     if ! have "$f" || forced "$ID" || outdated "$ID" "$part"; then NEED+=("$part"); fi
   done
   # подъезды и метро собираются из выгрузки — если их ещё нет в каталоге, выгрузку тоже качаем
-  { have "$ID-entrances.mbtiles" && have "$ID-metro.json"; } || NEED+=(extra)
+  { have "$ID-entrances.mbtiles" && have "$ID-metro.json" && have "$ID-lines.mbtiles"; } || NEED+=(extra)
   if [ ${#NEED[@]} -eq 0 ]; then log "$ID: всё собрано"; routing_part "$ID"; continue; fi
   log "$ID ($NAME): нужно ${NEED[*]}"
   needs() { [[ " ${NEED[*]} " == *" $1 "* ]]; }
@@ -163,6 +163,12 @@ PY
   if [ -n "$PBF" ]; then
     osmium tags-filter "$PBF" r/route=subway,light_rail n/station=subway -o work/metro.osm.pbf --overwrite 2>>work/osmium.log \
       && python3 metro.py work/metro.osm.pbf "$OUT/$ID-metro.json" >> "$REPORT" 2>&1 && log "$ID: метро $(du -h "$OUT/$ID-metro.json" | cut -f1)" || log "ОШИБКА: метро"
+  fi
+
+  # заборы и пешие маршруты (в схеме OpenMapTiles их нет)
+  if [ -n "$PBF" ]; then
+    osmium tags-filter "$PBF" w/barrier=fence,wall,city_wall,hedge,retaining_wall r/route=hiking,foot,nordic_walking -o work/lines.osm.pbf --overwrite 2>>work/osmium.log \
+      && python3 lines.py work/lines.osm.pbf "$OUT/$ID-lines.mbtiles" >> "$REPORT" 2>&1 && log "$ID: заборы и тропы $(du -h "$OUT/$ID-lines.mbtiles" | cut -f1)" || log "ОШИБКА: заборы и тропы"
   fi
 
   BUILT=()
@@ -231,6 +237,7 @@ meta = json.load(open(f"out/{cid}.json"))
 entry = dict(old); entry.update({"id": cid, "name": name, "bbox": meta["bbox"], "shape": f"{cid}.json"})
 if os.path.exists(f"out/{cid}-metro.json"): entry["metro"] = f"{cid}-metro.json"
 if os.path.exists(f"out/{cid}-entrances.mbtiles"): entry["entrances"] = f"{cid}-entrances.mbtiles"
+if os.path.exists(f"out/{cid}-lines.mbtiles"): entry["lines"] = f"{cid}-lines.mbtiles"
 for k in names:
     if k in built: entry[k] = files(names[k]); entry[k + "_built"] = datetime.date.today().isoformat(); entry[k + "_ver"] = VER[k]
     else: entry.setdefault(k, [])

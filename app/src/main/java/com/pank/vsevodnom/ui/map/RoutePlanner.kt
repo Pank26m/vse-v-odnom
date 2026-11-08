@@ -21,6 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +50,11 @@ object RoutePlan {
     var error by mutableStateOf<String?>(null)
     var rev by mutableIntStateOf(0)      // растёт при изменении точек — повод перестроить
     var editTrack by mutableStateOf<Track?>(null)   // правим сохранённый маршрут — «Сохранить» обновит его
+    var climb by mutableStateOf<Pair<Double, Double>?>(null)   // подъём / спуск по рельефу, м
+    var collapsed by mutableStateOf(false)          // панель свёрнута — видно карту, точки ставятся долгим нажатием
+
+    /** Переставить точку (перетаскивание за ручку): старт, остановки и финиш меняются местами свободно. */
+    fun move(from: Int, to: Int) { if (from == to || from !in points.indices || to !in points.indices) return; points.add(to, points.removeAt(from)) }
 
     /** Открыть сохранённый маршрут/трек для правки: точки из meta или начало и конец трека. */
     fun load(t: Track) {
@@ -58,7 +67,7 @@ object RoutePlan {
     }
 
     fun open(ctx: android.content.Context) { if (!active) { points.clear(); points.add(null); points.add(null); route = null; error = null; mode = MapPrefs.navMode(ctx) }; active = true }
-    fun close() { active = false; editTrack = null; points.clear(); points.add(null); points.add(null); route = null; error = null; rev++ }
+    fun close() { active = false; editTrack = null; points.clear(); points.add(null); points.add(null); route = null; error = null; climb = null; collapsed = false; rev++ }
     fun setTo(s: MapPrefs.Spot) { points[points.size - 1] = s; rev++ }
     fun setFrom(s: MapPrefs.Spot?) { points[0] = s; rev++ }
     fun addStop(s: MapPrefs.Spot) { if (points.last() == null) points[points.size - 1] = s else points.add(points.size - 1, s); rev++ }
@@ -114,29 +123,39 @@ private fun saveRouteAsTrack(ctx: android.content.Context, into: Track?) {
     val meta = org.json.JSONObject().put("mode", RoutePlan.mode).put("way", org.json.JSONArray(way.map { org.json.JSONObject().put("name", it.name).put("lat", it.lat).put("lon", it.lon) })).toString()
     val name = "Маршрут: " + RoutePlan.points.filterNotNull().joinToString(" → ") { it.name }.ifBlank { "без названия" }
     AppScope.io.launch {
+        val pts = Dem.fill(ctx, r.points)?.takeIf { !Dem.hasAlt(r.points) } ?: r.points
+        val meta2 = if (pts !== r.points) org.json.JSONObject(meta).put("alt", "dem").toString() else meta
         val dao = AppDb.get(ctx).map()
         val folder = dao.foldersNow().firstOrNull { it.name == "Маршруты" && it.parentId == null }?.id ?: dao.upsertFolder(MapFolder(name = "Маршруты"))
         val now = System.currentTimeMillis()
-        if (into != null) dao.upsertTrack(into.copy(distanceM = r.meters, points = Osm.encode(r.points), meta = meta))
-        else dao.upsertTrack(Track(name = name.take(120), startedAt = now, endedAt = now, distanceM = r.meters, points = Osm.encode(r.points), folderId = folder, meta = meta))
+        if (into != null) dao.upsertTrack(withDesc(into.copy(distanceM = r.meters, points = Osm.encode(pts), meta = meta2), trackDesc(into).orEmpty()))
+        else dao.upsertTrack(Track(name = name.take(120), startedAt = now, endedAt = now, distanceM = r.meters, points = Osm.encode(pts), folderId = folder, meta = meta2))
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(ctx, if (into != null) "Трек обновлён" else "Сохранено в коллекции «Маршруты»", Toast.LENGTH_SHORT).show() }
     }
 }
 
-/** Нижняя панель плана: итог (км · время · прибытие · ▶) и список точек с остановками. */
+/** Нижняя панель плана: итог (км · время · подъём · ▶), точки (перетаскиваются за ручку) и остановки. Сворачивается стрелкой. */
 @Composable
 internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Unit, onPickMap: (Int) -> Unit, onSearch: (Int) -> Unit) {
     val ctx = LocalContext.current
     val r = RoutePlan.route
-    var expanded by remember { mutableStateOf(true) }
+    val expanded = !RoutePlan.collapsed
     val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
-    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 8.dp).shadow(10.dp, RoundedCornerShape(22.dp)).clip(RoundedCornerShape(22.dp)).background(Pal.Card)) {
-        Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp).width(40.dp).height(4.dp).clip(CircleShape).background(Pal.Line).clickable { expanded = !expanded })
-        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(start = 18.dp, end = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var dragIdx by remember { mutableIntStateOf(-1) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val rowH = 58.dp
+    val rowPx = with(density) { rowH.toPx() }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 8.dp).shadow(10.dp, RoundedCornerShape(22.dp)).clip(RoundedCornerShape(22.dp)).background(Pal.Card)
+        .clickable(interactionSource = null, indication = null) {}) {
+        Box(Modifier.fillMaxWidth().clickable { RoutePlan.collapsed = !RoutePlan.collapsed }.padding(top = 6.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(Pal.Line))
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 10.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             when {
                 RoutePlan.busy -> { CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp); Text("  Строю маршрут…", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f)) }
                 r != null -> {
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f).clickable(interactionSource = null, indication = null) { RoutePlan.collapsed = !RoutePlan.collapsed }) {
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(MapPrefs.dist(ctx, r.meters), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                             if (r.source != "line") {
@@ -144,23 +163,45 @@ internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Uni
                                 Text("   " + LocalTime.now().plusSeconds(r.seconds.toLong()).format(DateTimeFormatter.ofPattern("HH:mm")), fontSize = 18.sp, color = Pal.Muted)
                             }
                         }
-                        Text(RoutePlan.sourceName(r) + if (r.delay >= 60) " · пробки +" + fmtDur((r.delay * 1000).toLong()) else "", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                        Text(listOfNotNull(RoutePlan.sourceName(r), RoutePlan.climb?.let { (a, d) -> "↑ %.0f м  ↓ %.0f м".format(a, d) }).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                     }
-                    val canGo = RoutePlan.mode == "car" || (RoutePlan.points.first() == null && r.source != "line" && r.steps.isNotEmpty())
+                    if (RoutePlan.mode == "car") RoutePlan.dest?.let { d ->
+                        Box(Modifier.padding(end = 8.dp).size(40.dp).clip(CircleShape).background(Color(0xFFDDF4FB)).clickable { waze(ctx, d.lat, d.lon) }, contentAlignment = Alignment.Center) {
+                            Text("W", color = Color(0xFF1B7A99), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    }
+                    val canGo = RoutePlan.points.first() == null && r.source != "line" && r.steps.isNotEmpty()
                     Box(Modifier.size(52.dp).clip(CircleShape).background(if (canGo) Color(0xFF3E6FA8) else Pal.Line).clickable {
-                        if (RoutePlan.mode == "car") RoutePlan.dest?.let { d -> Toast.makeText(ctx, "На машине ведёт Waze", Toast.LENGTH_SHORT).show(); waze(ctx, d.lat, d.lon) }
-                        else if (canGo) onGo() else Toast.makeText(ctx, if (r.source == "line") "Навигация — по дорогам: выбери авто, вело или пешком" else "Навигация ведёт от моего места — убери «Откуда»", Toast.LENGTH_LONG).show()
+                        if (canGo) onGo() else Toast.makeText(ctx, if (r.source == "line") "Навигация — по дорогам: выбери авто, вело или пешком" else "Навигация ведёт от моего места — поставь «Откуда» = моё положение", Toast.LENGTH_LONG).show()
                     }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PlayArrow, "Поехали", tint = Color.White, modifier = Modifier.size(30.dp)) }
                 }
                 RoutePlan.error != null -> Text(RoutePlan.error!!, style = MaterialTheme.typography.bodyMedium, color = Pal.RoseInk, modifier = Modifier.weight(1f))
-                else -> Text("Маршрут", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                else -> Text(if (expanded) "Маршрут" else "Маршрут — зажми карту, чтобы поставить точку", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             }
+            IconButton({ RoutePlan.collapsed = !RoutePlan.collapsed }) { Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess, if (expanded) "Свернуть" else "Развернуть", tint = Pal.Muted) }
         }
-        if (expanded) Column(Modifier.fillMaxWidth().heightIn(max = (screenH * 0.42f).dp).verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+        if (expanded) Column(Modifier.fillMaxWidth().heightIn(max = (screenH * 0.42f).dp).verticalScroll(rememberScrollState(), enabled = dragIdx < 0).padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
             RoutePlan.points.forEachIndexed { i, sp ->
                 val last = i == RoutePlan.points.size - 1
-                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Bg).clickable { onSearch(i) }.padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
+                val dragging = i == dragIdx
+                Row(Modifier.fillMaxWidth().height(rowH).zIndex(if (dragging) 1f else 0f).graphicsLayer { translationY = if (dragging) dragY else 0f }
+                    .padding(vertical = 3.dp).then(if (dragging) Modifier.shadow(8.dp, RoundedCornerShape(14.dp)) else Modifier)
+                    .clip(RoundedCornerShape(14.dp)).background(Pal.Bg).clickable { onSearch(i) }.padding(end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(30.dp).fillMaxHeight().pointerInput(RoutePlan.points.size) {
+                        detectDragGestures(
+                            onDragStart = { dragIdx = i; dragY = 0f },
+                            onDragEnd = { if (dragIdx >= 0) RoutePlan.rev++; dragIdx = -1; dragY = 0f },
+                            onDragCancel = { if (dragIdx >= 0) RoutePlan.rev++; dragIdx = -1; dragY = 0f },
+                        ) { ch, d ->
+                            ch.consume()
+                            if (dragIdx < 0) return@detectDragGestures
+                            dragY += d.y
+                            if (dragY > rowPx / 2 && dragIdx < RoutePlan.points.lastIndex) { RoutePlan.move(dragIdx, dragIdx + 1); dragIdx++; dragY -= rowPx }
+                            else if (dragY < -rowPx / 2 && dragIdx > 0) { RoutePlan.move(dragIdx, dragIdx - 1); dragIdx--; dragY += rowPx }
+                        }
+                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.DragIndicator, "Перетащить", tint = Pal.Muted, modifier = Modifier.size(20.dp)) }
                     when {
                         i == 0 -> Box(Modifier.size(22.dp).clip(CircleShape).background(Color(0xFF3E6FA8)))
                         last -> Box(Modifier.size(22.dp).clip(CircleShape).background(Color(0xFFE5484D)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SportsScore, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
