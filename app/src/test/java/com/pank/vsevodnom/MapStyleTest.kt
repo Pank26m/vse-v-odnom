@@ -43,4 +43,23 @@ class MapStyleTest {
         assertTrue(!MapStyle.viewInside(emptyList(), 30.40, 50.40, 30.65, 50.52))
         assertTrue(com.pank.vsevodnom.ui.map.nearNorth(354.0) && com.pank.vsevodnom.ui.map.nearNorth(4.0) && !com.pank.vsevodnom.ui.map.nearNorth(25.0) && !com.pank.vsevodnom.ui.map.nearNorth(0.0))
     }
+
+    @Test fun labelsAndMetro() {
+        val hidden = MapStyle.DEFAULT_HIDDEN + setOf("l_street", "l_city", "l_poitext")
+        val st = JSONObject(MapStyle.compose(input("bike", true), MapStyle.Opts(hiddenPoi = hidden)))
+        val ids = (0 until st.getJSONArray("layers").length()).map { st.getJSONArray("layers").getJSONObject(it).getString("id") }
+        assertTrue(ids.none { it.startsWith("road_label") || it.startsWith("place_city") || it.startsWith("wl-city") })
+        assertTrue(ids.any { it.startsWith("place_town") })
+        assertTrue(ids.none { it == "land" })                 // маски страны больше нет
+        assertTrue(ids.none { it == "wl-b2-o" || it == "wl-b4-o" })   // грубые границы — только издалека
+        File("build/map-style").also { it.mkdirs() }.resolve("labels-hidden.json").writeText(st.toString(1))
+        val gj = """{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[30.469092,50.376487]},"properties":{"kind":"station","name":"Іподром"}},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[30.469167,50.376714]},"properties":{"kind":"station","name":"Іподром"}},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[35.0,48.47]},"properties":{"kind":"station","name":"Вокзальна"}},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[30.48,50.44]},"properties":{"kind":"station","name":"Вокзальна"}},
+            {"type":"Feature","geometry":{"type":"LineString","coordinates":[[30,50],[30.1,50.1]]},"properties":{"kind":"line"}}]}"""
+        val out = JSONObject(MapStyle.dedupeStations(gj)).getJSONArray("features")
+        assertEquals(4, out.length())   // линия + Іподром (одна) + две разные «Вокзальні»
+    }
 }

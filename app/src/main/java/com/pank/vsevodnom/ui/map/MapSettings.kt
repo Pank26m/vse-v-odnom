@@ -406,6 +406,20 @@ private fun FilterPage(onChanged: () -> Unit, onBack: () -> Unit) {
                 if (i < MapStyle.POI_GROUPS.size - 1) HorizontalDivider(color = Pal.Line, modifier = Modifier.padding(start = 60.dp))
             }
         }
+        Text("Подписи на карте", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pal.Card)) {
+            MapStyle.LABEL_GROUPS.entries.forEachIndexed { i, (k, g) ->
+                val on = k !in hidden
+                Row(Modifier.fillMaxWidth().clickable { save(if (on) hidden + k else hidden - k) }.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape).background(androidx.compose.ui.graphics.Color(0xFF7D8597)), contentAlignment = Alignment.Center) {
+                        com.pank.vsevodnom.ui.money.TablerIcons.vector(ctx, g.icon)?.let { Icon(it, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp)) }
+                    }
+                    Text(g.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(horizontal = 14.dp))
+                    if (on) Icon(Icons.Rounded.Check, "Показано", tint = Pal.SkyInk)
+                }
+                if (i < MapStyle.LABEL_GROUPS.size - 1) HorizontalDivider(color = Pal.Line, modifier = Modifier.padding(start = 60.dp))
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton("Показать всё", { save(emptySet()) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
             PillButton("Как было", { save(MapStyle.DEFAULT_HIDDEN) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)

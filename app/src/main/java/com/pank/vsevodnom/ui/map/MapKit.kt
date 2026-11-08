@@ -130,6 +130,8 @@ class SmoothCompass(ctx: Context) : org.maplibre.android.location.CompassEngine,
     private val sensor = sm.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
     private val wm = ctx.getSystemService(android.view.WindowManager::class.java)
     private val listeners = java.util.concurrent.CopyOnWriteArrayList<org.maplibre.android.location.CompassListener>()
+    /** Точный режим (карта крутится по компасу): шаг 0,7°. Иначе — 3°: дрожь руки не перерисовывает карту 30 раз в секунду. */
+    @Volatile var fine = false
     private var heading = 0f; private var sent = Float.NaN; private var acc = android.hardware.SensorManager.SENSOR_STATUS_ACCURACY_HIGH
     private val r = FloatArray(9); private val rr = FloatArray(9); private val o = FloatArray(3)
 
@@ -157,7 +159,7 @@ class SmoothCompass(ctx: Context) : org.maplibre.android.location.CompassEngine,
         val h = ((Math.toDegrees(o[0].toDouble()) + 360) % 360).toFloat()
         var d = h - heading; if (d > 180) d -= 360; if (d < -180) d += 360
         heading = (heading + d * 0.65f + 360) % 360           // лёгкое сглаживание дрожи, без «льда»
-        if (sent.isNaN() || kotlin.math.abs(((heading - sent + 540) % 360) - 180) >= 0.7f) { sent = heading; listeners.forEach { it.onCompassChanged(heading) } }
+        if (sent.isNaN() || kotlin.math.abs(((heading - sent + 540) % 360) - 180) >= (if (fine) 0.7f else 3f)) { sent = heading; listeners.forEach { it.onCompassChanged(heading) } }
     }
 }
 
@@ -215,8 +217,7 @@ internal class QuickZoom(private val view: MapView, private val density: Float, 
                     val m = map() ?: return true
                     val dz = (e.y - lastY) / (190 * density).toDouble()      // ~190dp на один уровень
                     lastY = e.y
-                    if (dz != 0.0) m.moveCamera(if (keepCenter()) org.maplibre.android.camera.CameraUpdateFactory.zoomBy(dz)
-                        else org.maplibre.android.camera.CameraUpdateFactory.zoomBy(dz, android.graphics.Point(fx, fy)))
+                    if (dz != 0.0) m.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(zoomAround(m, dz, if (keepCenter()) null else android.graphics.PointF(fx.toFloat(), fy.toFloat()), view.width / 2f, view.height / 2f)))
                     return true
                 }
             }
@@ -231,6 +232,21 @@ internal class QuickZoom(private val view: MapView, private val density: Float, 
         }
         return active
     }
+}
+
+/**
+ * Камера после зума на [dz] уровней вокруг точки экрана [f] (точка под пальцем остаётся на месте).
+ * Встроенный zoomBy(dz, точка) переносил центр в эту точку на каждом шаге — карту «носило» по миру.
+ */
+internal fun zoomAround(m: MapLibreMap, dz: Double, f: android.graphics.PointF?, cx: Float, cy: Float): CameraPosition {
+    val c = m.cameraPosition
+    val z = (c.zoom + dz).coerceIn(m.minZoomLevel, m.maxZoomLevel)
+    if (f == null) return CameraPosition.Builder(c).zoom(z).build()
+    val k = Math.pow(2.0, z - c.zoom)
+    // новый центр — та точка, что сейчас на f + (центр − f) / k
+    val q = android.graphics.PointF((f.x + (cx - f.x) / k).toFloat(), (f.y + (cy - f.y) / k).toFloat())
+    val t = m.projection.fromScreenLocation(q)
+    return CameraPosition.Builder(c).target(t).zoom(z).build()
 }
 
 /**

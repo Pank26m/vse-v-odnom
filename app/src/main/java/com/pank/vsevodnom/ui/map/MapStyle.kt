@@ -46,7 +46,7 @@ object MapStyle {
         "health" to PoiGroup("Больницы, поликлиники, аптеки", 0xFFE53935.toInt(), "medical-cross", listOf("hospital", "pharmacy", "dentist", "doctors", "clinic", "veterinary", "chemist")),
         "edu" to PoiGroup("Вузы, колледжи, школы", 0xFF43A047.toInt(), "school", listOf("school", "college", "university", "kindergarten", "library")),
         "ski" to PoiGroup("Горнолыжные трассы и подъёмники", 0xFF6D4C41.toInt(), "mountain", listOf("aerialway", "skiing")),
-        "rail" to PoiGroup("ЖД-транспорт и метро", 0xFF78909C.toInt(), "train", listOf("railway", "subway", "station")),
+        "rail" to PoiGroup("ЖД-транспорт и метро", 0xFF78909C.toInt(), "train", listOf("railway", "subway", "station", "entrance")),
         "arts" to PoiGroup("Кино, театры, арт-центры", 0xFFFB8C00.toInt(), "movie", listOf("cinema", "theatre", "art_gallery", "music", "arts_centre", "nightclub")),
         "museum" to PoiGroup("Музеи, памятники, церкви", 0xFF26A69A.toInt(), "building-castle", listOf("museum", "monument", "castle", "attraction", "place_of_worship", "memorial", "historic", "ruins")),
         "housenumbers" to PoiGroup("Номера и названия зданий", 0xFF6D4C41.toInt(), "home", emptyList()),
@@ -69,6 +69,52 @@ object MapStyle {
         "other" to PoiGroup("Остальное (туалеты, урны, доступность…)", 0xFF90A4AE.toInt(), "map-pin", emptyList()),
     )
     val DEFAULT_HIDDEN = setOf("parking", "other", "stopnames")
+
+    /** Подписи карты, которые можно скрыть в «Объектах на карте» (ключи «l_…» в том же наборе hidden_poi). Слои — id из OSM Liberty и слоя мира. */
+    class LabelGroup(val title: String, val icon: String, val layers: Set<String>)
+    val LABEL_GROUPS = linkedMapOf(
+        "l_country" to LabelGroup("Страны и континенты", "world", setOf("country_1", "country_2", "country_3", "continent", "wl-country", "wl-country-o")),
+        "l_state" to LabelGroup("Области", "flag", setOf("state")),
+        "l_city" to LabelGroup("Крупные города", "building-skyscraper", setOf("place_city", "wl-city", "wl-city-o")),
+        "l_town" to LabelGroup("Города и посёлки", "building-community", setOf("place_town")),
+        "l_village" to LabelGroup("Сёла", "building-cottage", setOf("place_village")),
+        "l_district" to LabelGroup("Районы, микрорайоны, острова", "map", setOf("place_other")),
+        "l_street" to LabelGroup("Улицы и дороги", "road", setOf("road_label")),
+        "l_shield" to LabelGroup("Номера трасс", "map-pin", setOf("road_shield")),
+        "l_water" to LabelGroup("Реки, озёра, моря", "droplet", setOf("water_name_line", "water_name_point")),
+        "l_oneway" to LabelGroup("Стрелки односторонних улиц", "compass", setOf("road_one_way_arrow", "road_one_way_arrow_opposite")),
+        "l_poitext" to LabelGroup("Названия у значков", "tag", emptySet()),
+    )
+    /** Слои, скрытые выбором подписей. */
+    fun hiddenLabelLayers(hidden: Set<String>): Set<String> = LABEL_GROUPS.filterKeys { it in hidden }.values.flatMap { it.layers }.toSet()
+
+    /**
+     * Станции метро из выгрузки: у каждой станции в OSM есть сама станция и точки остановки по направлениям — получались
+     * две-три точки рядом. Склеиваем одноимённые станции ближе 700 м в одну (среднее место).
+     */
+    fun dedupeStations(gj: String): String {
+        val o = JSONObject(gj); val fs = o.getJSONArray("features")
+        val out = JSONArray(); val st = ArrayList<JSONObject>()
+        for (i in 0 until fs.length()) fs.getJSONObject(i).let { if (it.optJSONObject("properties")?.optString("kind") == "station") st += it else out.put(it) }
+        val used = BooleanArray(st.size)
+        fun ll(f: JSONObject) = f.getJSONObject("geometry").getJSONArray("coordinates").let { it.getDouble(0) to it.getDouble(1) }
+        for (i in st.indices) {
+            if (used[i]) continue
+            val name = st[i].getJSONObject("properties").optString("name"); val (x0, y0) = ll(st[i])
+            var sx = 0.0; var sy = 0.0; var n = 0
+            for (j in i until st.size) {
+                if (used[j] || st[j].getJSONObject("properties").optString("name") != name) continue
+                val (x, y) = ll(st[j])
+                val dm = Math.hypot((x - x0) * 111_320 * Math.cos(Math.toRadians(y0)), (y - y0) * 110_540)
+                if (dm > 700) continue
+                used[j] = true; sx += x; sy += y; n++
+            }
+            val f = JSONObject(st[i].toString())
+            f.getJSONObject("geometry").put("coordinates", JSONArray().put(sx / n).put(sy / n))
+            out.put(f)
+        }
+        return o.put("features", out).toString()
+    }
 
     /** Иконка по классу (Tabler), если у класса своя — иначе иконка группы. */
     val CLASS_ICON = mapOf(
@@ -133,7 +179,7 @@ object MapStyle {
             hiddenPoi = p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet(),
             houseNumbers = "housenumbers" !in (p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet()),
             stopNames = "stopnames" !in (p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet()),
-            worldOnline = p.getBoolean("world_online", true),
+            worldOnline = true,
             metro = "metro" !in (p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet()),
         )
     }
@@ -215,15 +261,12 @@ object MapStyle {
             layers.put(JSONObject().put("id", "world").put("type", "raster").put("source", "world")
                 .put("paint", JSONObject().put("raster-opacity", if (o.relief) 1.0 else 0.25).put("raster-fade-duration", 0)))
             worldOnlineAt = layers.length()
-            if (shapeGeoms.isNotEmpty()) {
-                sources.put("shapes", JSONObject().put("type", "geojson").put("data", JSONObject().put("type", "Feature").put("properties", JSONObject()).put("geometry", shapesGeo(shapeGeoms))))
-                layers.put(JSONObject("""{"id":"land","type":"fill","source":"shapes","paint":{"fill-color":"#f3f1ec","fill-antialias":false,
-                    "fill-opacity":["interpolate",["linear"],["zoom"],4,0,6.5,1]}}"""))
-            }
+            // заливки-маски страны больше нет: она давала белую пелену над страной и морем (0.20–0.22)
         }
 
         val countries = input.files.filterValues { "map" in it }.keys.toList()
-        val onlineWorld = o.online == null && o.worldOnline
+        val hiddenLabels = hiddenLabelLayers(o.hiddenPoi)
+        val onlineWorld = o.online == null
         val base = JSONArray(input.layersJson)
         val nonSymbol = ArrayList<JSONObject>(); val symbol = ArrayList<JSONObject>()
         for (i in 0 until base.length()) base.getJSONObject(i).let {
@@ -258,11 +301,21 @@ object MapStyle {
                     all.put(if ("other" in o.hiddenPoi) match(shown, true) else match(hidden, false))
                     n.put("filter", all)
                 }
+                // свой слой метро уже рисует станции — значок станции из тайлов был бы второй точкой
+                if (o.metro && input.metro.isNotEmpty()) {
+                    val f = n.optJSONArray("filter") ?: JSONArray().put("all")
+                    val all = if (f.optString(0) == "all") f else JSONArray().put("all").put(f)
+                    all.put(JSONArray("""["!",["all",["==",["get","class"],"railway"],["==",["get","subclass"],"subway"]]]"""))
+                    n.put("filter", all)
+                }
                 // единый стиль значков: цветной кружок группы с белой иконкой (картинки рисует экран карты по запросу «p:класс»)
                 n.optJSONObject("layout")?.let { lay ->
                     lay.put("icon-image", JSONArray("""["concat","p:",["get","class"]]"""))
                     lay.put("icon-size", 1.0); lay.put("text-size", 11); lay.put("text-offset", JSONArray("[0,1.1]"))
                     if (l.getString("id") == "poi_transit" && !o.stopNames) lay.put("text-field", "")
+                    // названия у значков: можно скрыть; у входов в метро название станции не пишем (их по 4–6 на станцию)
+                    else if ("l_poitext" in o.hiddenPoi) lay.put("text-field", "")
+                    else (lay.opt("text-field") as? JSONArray)?.let { tf -> lay.put("text-field", JSONArray().put("case").put(JSONArray("""["==",["get","subclass"],"subway_entrance"]""")).put("").put(tf)) }
                 }
                 n.optJSONObject("paint")?.put("text-color", "#5b5866")
             }
@@ -283,12 +336,9 @@ object MapStyle {
         val within = if (shapeGeoms.isNotEmpty()) JSONArray().put("!").put(JSONArray().put("within").put(shapesGeo(shapeGeoms))) else null
         if (wl != null && o.worldLabels) {
             sources.put("wl", JSONObject().put("type", "vector").put("url", "mbtiles://" + wl))
-            fun twice(base: JSONObject, extraFilter: JSONArray?) {
-                layers.put(JSONObject(base.toString()).apply { if (within != null) put("maxzoom", HATCH_MIN_ZOOM) })
-                if (within != null) layers.put(JSONObject(base.toString()).apply {
-                    put("id", getString("id") + "-o"); put("minzoom", HATCH_MIN_ZOOM)
-                    put("filter", if (extraFilter != null) JSONArray().put("all").put(extraFilter).put(within) else within)
-                })
+            @Suppress("UNUSED_PARAMETER") fun twice(base: JSONObject, extraFilter: JSONArray?) {
+                // грубые границы Natural Earth — только издалека: вблизи они шли нечётким контуром рядом с точной границей
+                layers.put(JSONObject(base.toString()).apply { put("maxzoom", HATCH_MIN_ZOOM) })
             }
             twice(JSONObject("""{"id":"wl-b4","type":"line","source":"wl","source-layer":"boundary","minzoom":3.5,"filter":["==",["get","admin_level"],4],
                 "paint":{"line-color":"#8d8a95","line-width":0.6,"line-dasharray":[3,2],"line-opacity":0.6}}"""), JSONArray("""["==",["get","admin_level"],4]"""))
@@ -296,13 +346,14 @@ object MapStyle {
                 "paint":{"line-color":"#7d6f86","line-width":["interpolate",["linear"],["zoom"],1,0.6,6,1.6],"line-opacity":0.85}}"""), JSONArray("""["==",["get","admin_level"],2]"""))
         }
 
+        val symbolsAt = layers.length()      // отсюда — подписи и значки стран; подписи онлайн-мира встают прямо под ними
         if (o.online == null) {
             if (o.houseNumbers) countries.forEach { c ->
                 layers.put(JSONObject("""{"id":"housenum@$c","type":"symbol","source":"omt_$c","source-layer":"housenumber","minzoom":16.5,
                     "layout":{"text-field":["get","housenumber"],"text-font":["Noto Sans Regular"],"text-size":11,"text-padding":2},
                     "paint":{"text-color":"#6f6a63","text-halo-color":"rgba(255,255,255,0.8)","text-halo-width":1}}"""))
             }
-            symbol.forEach { l -> countries.forEach { c -> layers.put(copyFor(l, c)) } }
+            symbol.forEach { l -> if (l.getString("id") !in hiddenLabels) countries.forEach { c -> layers.put(copyFor(l, c)) } }
             // подъезды: номер в рамке у входа, только вблизи
             if ("entrances" !in o.hiddenPoi) input.entrances.forEach { (c, path) ->
                 sources.put("entr_$c", JSONObject().put("type", "vector").put("url", "mbtiles://$path"))
@@ -312,7 +363,7 @@ object MapStyle {
             }
             // метро: линии цветом линий, станции кружками
             if (o.metro) input.metro.forEach { (c, gj) ->
-                runCatching { sources.put("metro_$c", JSONObject().put("type", "geojson").put("data", JSONObject(gj))) }.onFailure { return@forEach }
+                runCatching { sources.put("metro_$c", JSONObject().put("type", "geojson").put("data", JSONObject(dedupeStations(gj)))) }.onFailure { return@forEach }
                 layers.put(JSONObject("""{"id":"metro-l@$c","type":"line","source":"metro_$c","minzoom":9,"filter":["==",["get","kind"],"line"],
                     "layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":["to-color",["get","colour"],"#888888"],"line-width":["interpolate",["linear"],["zoom"],9,1.6,13,3.5,17,6],"line-opacity":0.9}}"""))
                 layers.put(JSONObject("""{"id":"metro-s@$c","type":"circle","source":"metro_$c","minzoom":10.5,"filter":["==",["get","kind"],"station"],
@@ -337,11 +388,15 @@ object MapStyle {
                 "paint":{"text-color":"#4d4458","text-halo-color":"rgba(255,255,255,0.8)","text-halo-width":1.4}}""")
             country.getJSONObject("layout").put("text-field", wn)
             if (within != null) {
-                layers.put(JSONObject(city.toString()).put("maxzoom", HATCH_MIN_ZOOM))
-                layers.put(JSONObject(city.toString()).put("id", "wl-city-o").put("minzoom", HATCH_MIN_ZOOM).put("filter", within))
-                layers.put(JSONObject(country.toString()).put("maxzoom", HATCH_MIN_ZOOM))
-                layers.put(JSONObject(country.toString()).put("id", "wl-country-o").put("minzoom", HATCH_MIN_ZOOM).put("filter", within))
-            } else { layers.put(city); layers.put(country) }
+                if ("wl-city" !in hiddenLabels) {
+                    layers.put(JSONObject(city.toString()).put("maxzoom", HATCH_MIN_ZOOM))
+                    layers.put(JSONObject(city.toString()).put("id", "wl-city-o").put("minzoom", HATCH_MIN_ZOOM).put("filter", within))
+                }
+                if ("wl-country" !in hiddenLabels) {
+                    layers.put(JSONObject(country.toString()).put("maxzoom", HATCH_MIN_ZOOM))
+                    layers.put(JSONObject(country.toString()).put("id", "wl-country-o").put("minzoom", HATCH_MIN_ZOOM).put("filter", within))
+                }
+            } else { if ("wl-city" !in hiddenLabels) layers.put(city); if ("wl-country" !in hiddenLabels) layers.put(country) }
         }
 
         val finalLayers = if (onlineWorld && worldOnlineAt >= 0) {
@@ -351,10 +406,12 @@ object MapStyle {
             // вблизи рельеф мира уходит под светлый фон — дальше рисует онлайн-карта (без интернета — только то, что в кэше)
             out.put(JSONObject("""{"id":"bg-world","type":"background","minzoom":5.5,"paint":{"background-color":"#f3f1ec","background-opacity":["interpolate",["linear"],["zoom"],5.5,0,6.5,1]}}"""))
             nonSymbol.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) it.put("minzoom", HATCH_MIN_ZOOM) }) }
-            // подписи онлайн-мира — тоже под заливкой страны (без фильтра within: он проверял каждую подпись по границе в 3000 точек
-            // и тормозил зум); с 6.5 — когда заливка уже непрозрачна. Внутри страны экран карты их вовсе выключает (WORLD_SUFFIX).
-            symbol.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < 6.5) it.put("minzoom", 6.5) }) }
-            for (i in worldOnlineAt until layers.length()) out.put(layers.get(i))
+            for (i in worldOnlineAt until symbolsAt) out.put(layers.get(i))
+            // подписи онлайн-мира — над заливками страны, но под её подписями: у границы одинаковые надписи гасят друг друга
+            // при расстановке (наши ставятся первыми). Без фильтра within — он проверял каждую подпись по границе в 3000 точек
+            // и тормозил зум. Когда экран целиком внутри страны, экран карты выключает онлайн-мир (WORLD_SUFFIX).
+            symbol.filter { it.getString("id") !in hiddenLabels }.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) it.put("minzoom", HATCH_MIN_ZOOM) }) }
+            for (i in symbolsAt until layers.length()) out.put(layers.get(i))
             out
         } else layers
         return JSONObject().put("version", 8).put("name", "vse")

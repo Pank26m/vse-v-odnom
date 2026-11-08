@@ -125,6 +125,8 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
     var editing by remember(t) { mutableStateOf(t.props["edit"] == "1") }
     var askDelete by remember(t) { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
+    var linkEdit by remember { mutableStateOf<String?>(null) }    // правка ссылки Booking/Airbnb у метки
+    var linkTick by remember { mutableIntStateOf(0) }
     var event by remember { mutableStateOf<CalEvent?>(null) }
     val photos = remember(t) { mutableStateListOf<android.graphics.Bitmap>() }
     var wikiImg by remember(t) { mutableStateOf<android.graphics.Bitmap?>(null) }
@@ -239,6 +241,16 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             if (links.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 links.forEach { (ic, n, u) -> ActionChip(ic, n, Pal.Lilac, Pal.LilacInk) { web(ctx, if (u.startsWith("http")) u else "https://$u") } }
             }
+            // жильё: Booking и Airbnb — для гостиниц с карты ищем по названию, у своих меток — сохранённые ссылки
+            @Suppress("UNUSED_EXPRESSION") linkTick
+            val ownBooking = t.place?.let { StayLinks.get(ctx, it.id, "booking") }
+            val ownAirbnb = t.place?.let { StayLinks.get(ctx, it.id, "airbnb") }
+            val stay = StayLinks.isStay(t.props["class"], t.props["subclass"], g?.type ?: t.kind)
+            if (stay || ownBooking != null || ownAirbnb != null) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val q = listOfNotNull(title, g?.address?.takeIf { it.isNotBlank() } ?: (info?.admin?.takeIf { it.isNotEmpty() } ?: admin).lastOrNull()).joinToString(", ")
+                (ownBooking ?: if (stay && t.place == null) StayLinks.bookingSearch(q) else null)?.let { u -> ActionChip(Icons.Rounded.Hotel, "Booking", Color(0xFFDCE6F7), Color(0xFF003B95)) { web(ctx, u) } }
+                (ownAirbnb ?: if (stay && t.place == null) StayLinks.airbnbSearch(q) else null)?.let { u -> ActionChip(Icons.Rounded.Cottage, "Airbnb", Color(0xFFFDE3E7), Color(0xFFD9344F)) { web(ctx, u) } }
+            }
             g?.address?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             info?.wiki?.let { w -> Text(w.extract, style = MaterialTheme.typography.bodySmall, maxLines = 6) }
             // отзывы
@@ -281,11 +293,48 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             event = CalEvent(title = title, startMillis = st, endMillis = st + 3600_000, note = String.format(Locale.US, "geo:%.6f,%.6f", t.lat, t.lon)); more = false
         }
         MenuRow(Icons.Rounded.ContentCopy, "Копировать координаты") { copy(ctx, MapPrefs.coords(ctx, t.lat, t.lon)); more = false }
+        if (t.place != null) {
+            MenuRow(Icons.Rounded.Hotel, if (StayLinks.get(ctx, t.place.id, "booking") != null) "Ссылка Booking…" else "Подключить Booking") { linkEdit = "booking"; more = false }
+            MenuRow(Icons.Rounded.Cottage, if (StayLinks.get(ctx, t.place.id, "airbnb") != null) "Ссылка Airbnb…" else "Подключить Airbnb") { linkEdit = "airbnb"; more = false }
+        }
         MenuRow(Icons.Rounded.Map, "Открыть в другом приложении") {
             runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(String.format(Locale.US, "geo:%.6f,%.6f?q=%.6f,%.6f(%s)", t.lat, t.lon, t.lat, t.lon, Uri.encode(title))))) }; more = false
         }
     }
     event?.let { e -> EventEditor(e, onDismiss = { event = null }) }
+    linkEdit?.let { kind ->
+        val pl = t.place ?: return@let
+        var url by remember(kind) { mutableStateOf(StayLinks.get(ctx, pl.id, kind).orEmpty()) }
+        val name = if (kind == "booking") "Booking" else "Airbnb"
+        AlertDialog(onDismissRequest = { linkEdit = null }, title = { Text("Ссылка $name") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Откройте жильё в приложении $name → «Поделиться» → «Копировать ссылку» и вставьте сюда.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                    OutlinedTextField(url, { url = it.trim() }, singleLine = true, placeholder = { Text("https://…") }, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = { TextButton({ StayLinks.set(ctx, pl.id, kind, url.takeIf { it.isNotBlank() }?.let { if (it.startsWith("http")) it else "https://$it" }); linkEdit = null; linkTick++ }) { Text("Сохранить") } },
+            dismissButton = { Row { if (StayLinks.get(ctx, pl.id, kind) != null) TextButton({ StayLinks.set(ctx, pl.id, kind, null); linkEdit = null; linkTick++ }) { Text("Отключить", color = Pal.RoseInk) }
+                TextButton({ linkEdit = null }) { Text("Отмена") } } })
+    }
+}
+
+/** Ссылки на Booking и Airbnb: поиск по названию для гостиниц с карты и свои ссылки у меток (prefs «place_links»: {id: {booking, airbnb}}). */
+internal object StayLinks {
+    private val CLASSES = setOf("lodging", "hotel", "hostel", "motel", "guest_house", "apartment", "apartments", "chalet", "camp_site", "campsite", "caravan_site", "alpine_hut", "wilderness_hut")
+    private val WORDS = listOf("готел", "отел", "гостиниц", "хостел", "мотел", "апарт", "hotel", "hostel", "motel", "lodging", "guest", "гостьов", "гостев", "кемпинг", "кемпінг")
+    fun isStay(cls: String?, sub: String?, type: String?): Boolean =
+        cls in CLASSES || sub in CLASSES || type?.lowercase()?.let { tp -> WORDS.any { it in tp } } == true
+    fun bookingSearch(q: String) = "https://www.booking.com/searchresults.html?ss=" + Uri.encode(q)
+    fun airbnbSearch(q: String) = "https://www.airbnb.com/s/" + Uri.encode(q) + "/homes"
+    private fun all(ctx: Context) = runCatching { org.json.JSONObject(MapPrefs.p(ctx).getString("place_links", "{}")!!) }.getOrDefault(org.json.JSONObject())
+    fun get(ctx: Context, id: Long, kind: String): String? = all(ctx).optJSONObject(id.toString())?.optString(kind)?.ifBlank { null }
+    fun set(ctx: Context, id: Long, kind: String, url: String?) {
+        val a = all(ctx); val o = a.optJSONObject(id.toString()) ?: org.json.JSONObject()
+        if (url == null) o.remove(kind) else o.put(kind, url)
+        if (o.length() == 0) a.remove(id.toString()) else a.put(id.toString(), o)
+        MapPrefs.p(ctx).edit().putString("place_links", a.toString()).apply()
+    }
 }
 
 /** Правка метки прямо в карточке: имя, папка выпадающим списком, цвет, заметка. */
@@ -592,7 +641,6 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
     var traffic by remember { mutableStateOf(p.getBoolean("traffic", false)) }
     var b3d by remember { mutableStateOf(p.getBoolean("buildings3d", false)) }
     var metro by remember { mutableStateOf(p.getBoolean("metro", true)) }
-    var worldOn by remember { mutableStateOf(p.getBoolean("world_online", true)) }
     val scope = rememberCoroutineScope()
     var sources by remember { mutableStateOf(OnlineMaps.all(ctx)) }
     val installed = remember(OfflineMaps.version) { OfflineMaps.installed(ctx) }
@@ -611,7 +659,6 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
             SwitchRow("Тени рельефа", "горы и холмы объёмнее", hill) { hill = it; set("hillshade", it) }
             SwitchRow("Линии высот", "через 20 м, подписи через 100 м", contours) { contours = it; set("contours", it) }
             SwitchRow("3D-дома", "объёмные здания вблизи; на слабой графике может подтормаживать", b3d) { b3d = it; set("buildings3d", it) }
-            SwitchRow("Онлайн-карта за границей", "весь мир при интернете; без него — то, что уже в кэше", worldOn) { worldOn = it; set("world_online", it) }
             Text("Слои рельефа работают для скачанных стран.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp, 12.dp, 10.dp))
         }
         SectionLabel("Офлайн-карты")

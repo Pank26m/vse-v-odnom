@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.graphicsLayer
 import com.pank.vsevodnom.data.*
 import com.pank.vsevodnom.ui.theme.Pal
 import kotlinx.coroutines.delay
@@ -137,17 +138,18 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     val view = rememberMapView()
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var style by remember { mutableStateOf<Style?>(null) }
-    var speed by remember { mutableStateOf<Float?>(null) }
-    var alt by remember { mutableStateOf<Double?>(null) }
+    // часто меняющиеся значения (каждый кадр жеста / каждую секунду) — в отдельном объекте: их читают только маленькие
+    // блоки (линейка, «где я», скорость), и весь экран карты при жесте не пересчитывается
+    val live = remember { MapLive() }
     var myLoc by remember { mutableStateOf<GeoPt?>(null) }
     var locMode by remember { mutableIntStateOf(0) }       // 0 — свободно, 1 — за мной, 2 — по компасу
-    var bearing by remember { mutableFloatStateOf(0f) }
-    var zoomNow by remember { mutableFloatStateOf(12f) }
-    var scaleBar by remember { mutableStateOf(60.dp to "") }
     var trackListener by remember { mutableStateOf(false) }
     var rerouting by remember { mutableStateOf(false) }
     var rerouteAt by remember { mutableStateOf<GeoPt?>(null) }
     val world = remember { WorldToggle() }
+    val poiIcons = remember { HashMap<String, android.graphics.Bitmap>() }
+    val poiPending = remember { HashSet<String>() }
+    LaunchedEffect(locMode, style) { runCatching { (map?.locationComponent?.compassEngine as? SmoothCompass)?.fine = locMode == 2 } }
     val quickZoom = remember { QuickZoom(view, density, { map }, { locMode != 0 || Nav.session != null }) }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -201,15 +203,21 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             // жесты: свободный поворот, щипок 1:1 (без ускорения и без ограничения кадров — они давали рывки), свой зум одним пальцем
             tuneGestures(m, density)
             view.setOnTouchListener(quickZoom)
-            view.addOnStyleImageMissingListener { id -> if (id.startsWith("p:")) m.style?.let { st -> runCatching { st.addImage(id, poiBitmap(ctx, id.removePrefix("p:"), density)) } } }
+            // редкие классы, которых нет в заготовке: пока стиль грузится, m.style == null — запоминаем и добавляем после загрузки
+            view.addOnStyleImageMissingListener { id ->
+                if (!id.startsWith("p:")) return@addOnStyleImageMissingListener
+                val st = m.style
+                if (st == null) poiPending += id else runCatching { st.addImage(id, poiIcons.getOrPut(id) { poiBitmap(ctx, id.removePrefix("p:"), density) }) }
+            }
             fun scale() {
                 val c = m.cameraPosition; val lat = c.target?.latitude ?: 50.0
-                bearing = c.bearing.toFloat(); zoomNow = c.zoom.toFloat()
+                live.bearing = c.bearing.toFloat(); live.zoom = c.zoom.toFloat()
                 val mpp = m.projection.getMetersPerPixelAtLatitude(lat)
                 val maxM = mpp * 84 * density
                 val p = 10.0.pow(floor(log10(maxM)))
                 val nice = listOf(5.0, 2.0, 1.0).map { it * p }.first { it <= maxM }
-                scaleBar = (nice / mpp / density).dp to MapPrefs.dist(ctx, nice)
+                val sb = (nice / mpp / density).dp to MapPrefs.dist(ctx, nice)
+                if (sb != live.scaleBar) live.scaleBar = sb
             }
             m.addOnCameraMoveListener { scale(); world.check(m) }
             m.addOnCameraIdleListener {
@@ -255,7 +263,15 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         val m = map ?: return@LaunchedEffect
         val opts = MapStyle.opts(ctx)
         style = null
-        m.setStyle(Style.Builder().fromJson(MapStyle.build(ctx, opts))) { st ->
+        // все значки рисуем заранее (в фоне) и кладём в стиль сразу: раньше они рисовались по запросу во время зума,
+        // а пока стиль догружался, запрос терялся — значки пропадали после любого переключения в «Объектах на карте»
+        if (poiIcons.isEmpty()) poiIcons.putAll(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            (MapStyle.POI_GROUPS.values.flatMap { it.classes } + MapStyle.CLASS_ICON.keys).distinct().associate { c -> "p:$c" to poiBitmap(ctx, c, density) }
+        })
+        val json = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { MapStyle.build(ctx, opts) }
+        m.setStyle(Style.Builder().fromJson(json).withBitmapImages(*poiIcons.map { android.util.Pair(it.key, it.value) }.toTypedArray())) { st ->
+            poiPending.toList().forEach { id -> runCatching { st.addImage(id, poiIcons.getOrPut(id) { poiBitmap(ctx, id.removePrefix("p:"), density) }) } }
+            poiPending.clear()
             st.addImage("pin", pinBitmap(density)); st.addImage("trk-arrow", arrowBitmap(density))
             setupOverlays(st); style = st
             world.reset(if (opts.online == null && opts.worldOnline) MapStyle.rings(OfflineMaps.shapes(ctx).map { it.second }) else emptyList()); world.check(m, force = true)
@@ -282,9 +298,12 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     LaunchedEffect(style) {
         while (true) {
             runCatching { map?.locationComponent?.takeIf { it.isLocationComponentActivated }?.lastKnownLocation }.getOrNull()?.let { l ->
-                speed = if (l.hasSpeed()) l.speed * 3.6f else null
-                alt = if (Build.VERSION.SDK_INT >= 34 && l.hasMslAltitude()) l.mslAltitudeMeters else if (l.hasAltitude()) l.altitude else null
-                myLoc = GeoPt(l.latitude, l.longitude, l.time)
+                live.speed = if (l.hasSpeed()) l.speed * 3.6f else null
+                live.alt = if (Build.VERSION.SDK_INT >= 34 && l.hasMslAltitude()) l.mslAltitudeMeters else if (l.hasAltitude()) l.altitude else null
+                val here = GeoPt(l.latitude, l.longitude, l.time)
+                // экран пересчитываем, только если сдвинулись больше чем на 3 м
+                if (myLoc == null || Osm.distance(myLoc!!, here) > 3 || Nav.session != null) myLoc = here
+                val speed = live.speed
                 if (Nav.session != null) {
                     val needReroute = Nav.update(myLoc!!, if (l.hasAccuracy()) l.accuracy else 20f)
                     Nav.voice(speed ?: 0f)
@@ -431,7 +450,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         if (lc.lastKnownLocation == null) Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()
         when {
             // карта повёрнута и я не «привязан» — сперва просто на север
-            locMode == 0 && abs(((bearing + 540f) % 360f) - 180f) > 1.5f -> m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 350)
+            locMode == 0 && abs(((live.bearing + 540f) % 360f) - 180f) > 1.5f -> m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 350)
             locMode == 0 -> { lc.cameraMode = CameraMode.TRACKING; lc.zoomWhileTracking(maxOf(m.cameraPosition.zoom, 15.5), 700); locMode = 1 }
             locMode == 1 -> { lc.cameraMode = CameraMode.TRACKING_COMPASS; locMode = 2 }
             else -> {
@@ -458,11 +477,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             Row(Modifier.height(48.dp).widthIn(min = 106.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card)
                 .clickable(interactionSource = null, indication = null) {}.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically) {
-                val (sv, su) = speed?.let { MapPrefs.speed(ctx, it) } ?: ("—" to MapPrefs.speed(ctx, 0f).second)
-                val (av, au) = alt?.let { MapPrefs.alt(ctx, it) } ?: ("—" to MapPrefs.alt(ctx, 0.0).second)
-                Metric(sv, su)
-                Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(26.dp).background(Pal.Line))
-                Metric(av, au)
+                SpeedAlt(live)
             }
             MapBtn(Icons.Rounded.Search, "Поиск") { sheet = MapSheet.SEARCH }
             MapBtn(Icons.Rounded.Bookmarks, "Коллекции") { sheet = MapSheet.COLLECTIONS }
@@ -499,13 +514,13 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             Box(Modifier.width(48.dp).height(1.dp).background(Pal.Line))
             Box(Modifier.size(48.dp).clickable { map?.animateCamera(CameraUpdateFactory.zoomOut(), 250) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Remove, "Отдалить", tint = Pal.Ink) }
         }
-        if (prefs.getBoolean("dev_zoom", false)) Text("z %.1f".format(zoomNow), Modifier.align(Alignment.CenterStart).padding(start = 14.dp, top = 130.dp), style = MaterialTheme.typography.labelSmall)
+        if (prefs.getBoolean("dev_zoom", false)) Box(Modifier.align(Alignment.CenterStart).padding(start = 14.dp, top = 130.dp)) { ZoomText(live) }
 
         // ---- низ: где я, линейка, настройки; карточки ----
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom) {
-                LocButton(locMode, bearing) { locTap() }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.BottomCenter) { ScaleBar(scaleBar.first, scaleBar.second) }
+                LocButton(locMode, live) { locTap() }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.BottomCenter) { ScaleBar(live) }
                 MapBtn(Icons.Rounded.Settings, "Настройки карты") { settingsStart = null; sheet = MapSheet.SETTINGS }
             }
             if (nav != null) NavBottom(nav, onStop = { stopNav() })
@@ -554,6 +569,28 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
 }
 
+/** Значения, которые меняются каждый кадр или каждую секунду. */
+internal class MapLive {
+    var bearing by mutableFloatStateOf(0f)
+    var zoom by mutableFloatStateOf(12f)
+    var scaleBar by mutableStateOf(60.dp to "")
+    var speed by mutableStateOf<Float?>(null)
+    var alt by mutableStateOf<Double?>(null)
+}
+
+@Composable
+private fun SpeedAlt(live: MapLive) {
+    val ctx = LocalContext.current
+    val (sv, su) = live.speed?.let { MapPrefs.speed(ctx, it) } ?: ("—" to MapPrefs.speed(ctx, 0f).second)
+    val (av, au) = live.alt?.let { MapPrefs.alt(ctx, it) } ?: ("—" to MapPrefs.alt(ctx, 0.0).second)
+    Metric(sv, su)
+    Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(26.dp).background(Pal.Line))
+    Metric(av, au)
+}
+
+@Composable
+private fun ZoomText(live: MapLive) { Text("z %.1f".format(live.zoom), style = MaterialTheme.typography.labelSmall) }
+
 @Composable
 private fun Metric(v: String, unit: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -570,16 +607,18 @@ internal fun MapBtn(icon: ImageVector, d: String, size: Dp = 48.dp, active: Bool
 
 /** Кнопка «где я»: стрелка контуром — свободно, залитая — карта за мной, компас — карта крутится по компасу. */
 @Composable
-private fun LocButton(mode: Int, bearing: Float, onClick: () -> Unit) {
+private fun LocButton(mode: Int, live: MapLive, onClick: () -> Unit) {
+    // поворот стрелки — в фазе рисования (graphicsLayer), без пересчёта кнопки на каждый кадр
+    val bearingDiffers by remember { derivedStateOf { live.bearing != 0f } }
     Box(Modifier.size(48.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(if (mode != 0) Pal.Sky else Pal.Card).clickable(onClick = onClick),
         contentAlignment = Alignment.Center) {
         when {
-            mode == 2 -> Canvas(Modifier.size(28.dp).rotate(-bearing)) {
+            mode == 2 -> Canvas(Modifier.size(28.dp).graphicsLayer { rotationZ = -live.bearing }) {
                 val w = size.width; val h = size.height
                 drawPath(Path().apply { moveTo(w / 2, 0f); lineTo(w * 0.68f, h / 2); lineTo(w * 0.32f, h / 2); close() }, Color(0xFFE5484D))
                 drawPath(Path().apply { moveTo(w / 2, h); lineTo(w * 0.68f, h / 2); lineTo(w * 0.32f, h / 2); close() }, Pal.SkyInk)
             }
-            mode == 0 && bearing != 0f -> Canvas(Modifier.size(28.dp).rotate(-bearing)) {
+            mode == 0 && bearingDiffers -> Canvas(Modifier.size(28.dp).graphicsLayer { rotationZ = -live.bearing }) {
                 val w = size.width; val h = size.height
                 drawPath(Path().apply { moveTo(w / 2, 0f); lineTo(w * 0.66f, h / 2); lineTo(w * 0.34f, h / 2); close() }, Color(0xFFE5484D))
                 drawPath(Path().apply { moveTo(w / 2, h); lineTo(w * 0.66f, h / 2); lineTo(w * 0.34f, h / 2); close() }, Pal.Muted)
@@ -590,7 +629,8 @@ private fun LocButton(mode: Int, bearing: Float, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ScaleBar(width: Dp, label: String) {
+private fun ScaleBar(live: MapLive) {
+    val (width, label) = live.scaleBar
     if (label.isEmpty()) return
     Column(horizontalAlignment = Alignment.Start, modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.75f)).padding(horizontal = 6.dp, vertical = 3.dp)) {
         Text(label, fontSize = 10.sp, color = Pal.Ink)

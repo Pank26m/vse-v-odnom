@@ -37,5 +37,19 @@ class Geo(osmium.SimpleHandler):
 
 r = Rels(); r.apply_file(src)
 g = Geo(r.ways, r.stops); g.apply_file(src, locations=True)
+# у станции в OSM есть сама станция и точки остановки по направлениям — склеиваем одноимённые ближе 700 м в одну точку
+import math
+st = [f for f in g.feats if f["properties"]["kind"] == "station"]; rest = [f for f in g.feats if f["properties"]["kind"] != "station"]
+used = [False] * len(st)
+for i, f in enumerate(st):
+    if used[i]: continue
+    x0, y0 = f["geometry"]["coordinates"]; xs = []; ys = []
+    for j in range(i, len(st)):
+        if used[j] or st[j]["properties"]["name"] != f["properties"]["name"]: continue
+        x, y = st[j]["geometry"]["coordinates"]
+        if math.hypot((x - x0) * 111320 * math.cos(math.radians(y0)), (y - y0) * 110540) > 700: continue
+        used[j] = True; xs.append(x); ys.append(y)
+    f["geometry"]["coordinates"] = [round(sum(xs) / len(xs), 6), round(sum(ys) / len(ys), 6)]; rest.append(f)
+g.feats = rest
 json.dump({"type": "FeatureCollection", "features": g.feats}, open(out, "w"), ensure_ascii=False, separators=(",", ":"))
 print("metro routes", len(r.ways), "features", len(g.feats))
