@@ -87,6 +87,39 @@ object MapStyle {
     fun groupOf(cls: String): PoiGroup = POI_GROUPS.values.firstOrNull { cls in it.classes } ?: POI_GROUPS["other"]!!
 
     const val HATCH_MIN_ZOOM = 5.5
+    /** Окончание id слоёв онлайн-мира (OpenFreeMap). */
+    const val WORLD_SUFFIX = "@w"
+
+    /** Кольца границ стран (lon,lat,lon,lat…) — для быстрой проверки «весь экран внутри скачанного». */
+    fun rings(shapes: List<JSONObject>): List<DoubleArray> = shapes.flatMap { g ->
+        val polys = if (g.getString("type") == "Polygon") listOf(g.getJSONArray("coordinates")) else { val a = g.getJSONArray("coordinates"); (0 until a.length()).map { a.getJSONArray(it) } }
+        polys.flatMap { poly -> (0 until poly.length()).map { r -> val ring = poly.getJSONArray(r); DoubleArray(ring.length() * 2) { i -> ring.getJSONArray(i / 2).getDouble(i % 2) } } }
+    }
+
+    /** Точка внутри (чётно-нечётно по всем кольцам — так же учитываются дыры и несколько частей). */
+    fun inside(rings: List<DoubleArray>, lon: Double, lat: Double): Boolean {
+        var c = false
+        for (r in rings) {
+            var j = r.size - 2; var i = 0
+            while (i < r.size) {
+                val xi = r[i]; val yi = r[i + 1]; val xj = r[j]; val yj = r[j + 1]
+                if ((yi > lat) != (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) c = !c
+                j = i; i += 2
+            }
+        }
+        return c
+    }
+
+    /** Прямоугольник вида целиком внутри границ: края (по 6 точек) внутри и ни одной вершины границы внутри прямоугольника. */
+    fun viewInside(rings: List<DoubleArray>, w: Double, s: Double, e: Double, n: Double): Boolean {
+        if (rings.isEmpty()) return false
+        for (k in 0..6) {
+            val f = k / 6.0; val x = w + (e - w) * f; val y = s + (n - s) * f
+            if (!inside(rings, x, s) || !inside(rings, x, n) || !inside(rings, w, y) || !inside(rings, e, y)) return false
+        }
+        for (r in rings) { var i = 0; while (i < r.size) { if (r[i] in w..e && r[i + 1] in s..n) return false; i += 2 } }
+        return true
+    }
     private val layerCache = HashMap<Variant, String>()
 
     fun opts(ctx: Context): Opts {
@@ -204,8 +237,7 @@ object MapStyle {
             if (it.getString("type") == "symbol") symbol += it else nonSymbol += it
         }
 
-        val withinOut = if (shapeGeoms.isNotEmpty()) JSONArray().put("!").put(JSONArray().put("within").put(shapesGeo(shapeGeoms))) else null
-        fun copyFor(l: JSONObject, c: String, src: String = "omt_$c", cw: JSONArray? = null): JSONObject {
+        fun copyFor(l: JSONObject, c: String, src: String = "omt_$c"): JSONObject {
             val n = JSONObject(l.toString())
             n.put("id", l.getString("id") + "@" + c); n.put("source", src)
             n.optJSONObject("layout")?.let { lay -> if (lay.optString("text-field") == "__NAME__") lay.put("text-field", name) }
@@ -233,10 +265,6 @@ object MapStyle {
                     if (l.getString("id") == "poi_transit" && !o.stopNames) lay.put("text-field", "")
                 }
                 n.optJSONObject("paint")?.put("text-color", "#5b5866")
-            }
-            if (cw != null && l.getString("type") == "symbol") {
-                val f = n.optJSONArray("filter")
-                n.put("filter", if (f == null) cw else JSONArray().put("all").put(f).put(cw))
             }
             return n
         }
@@ -293,8 +321,6 @@ object MapStyle {
                     "layout":{"text-field":["get","name"],"text-font":["Noto Sans Bold"],"text-size":11,"text-anchor":"left","text-offset":[0.8,0],"text-optional":true},
                     "paint":{"text-color":["to-color",["get","colour"],"#444444"],"text-halo-color":"#ffffff","text-halo-width":1.4}}"""))
             }
-            // онлайн-мир: подписи и значки только за границей скачанного
-            if (onlineWorld) symbol.forEach { l -> layers.put(copyFor(l, "w", "ofm", withinOut).also { if (it.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) it.put("minzoom", HATCH_MIN_ZOOM) }) }
         }
 
         if (wl != null && o.worldLabels) {
@@ -325,6 +351,9 @@ object MapStyle {
             // вблизи рельеф мира уходит под светлый фон — дальше рисует онлайн-карта (без интернета — только то, что в кэше)
             out.put(JSONObject("""{"id":"bg-world","type":"background","minzoom":5.5,"paint":{"background-color":"#f3f1ec","background-opacity":["interpolate",["linear"],["zoom"],5.5,0,6.5,1]}}"""))
             nonSymbol.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) it.put("minzoom", HATCH_MIN_ZOOM) }) }
+            // подписи онлайн-мира — тоже под заливкой страны (без фильтра within: он проверял каждую подпись по границе в 3000 точек
+            // и тормозил зум); с 6.5 — когда заливка уже непрозрачна. Внутри страны экран карты их вовсе выключает (WORLD_SUFFIX).
+            symbol.forEach { l -> out.put(copyFor(l, "w", "ofm").also { if (it.optDouble("minzoom", 0.0) < 6.5) it.put("minzoom", 6.5) }) }
             for (i in worldOnlineAt until layers.length()) out.put(layers.get(i))
             out
         } else layers

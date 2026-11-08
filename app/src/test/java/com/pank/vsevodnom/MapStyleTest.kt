@@ -32,4 +32,15 @@ class MapStyleTest {
         val online = MapStyle.compose(input("car", true), MapStyle.Opts(online = OnlineMaps.BUILT_IN[1]))
         File(out, "online.json").writeText(JSONObject(online).toString(1))
     }
+
+    @Test fun viewInsideBorder() {
+        val r = MapStyle.rings(listOf(shape))
+        // центр Киева — внутри, онлайн-мир не нужен
+        assertTrue(MapStyle.viewInside(r, 30.40, 50.40, 30.65, 50.52))
+        // вид через западную границу (Ужгород — Словакия) и над морем — снаружи
+        assertTrue(!MapStyle.viewInside(r, 21.0, 48.3, 23.0, 49.0))
+        assertTrue(!MapStyle.viewInside(r, 30.0, 42.0, 31.0, 43.0))
+        assertTrue(!MapStyle.viewInside(emptyList(), 30.40, 50.40, 30.65, 50.52))
+        assertTrue(com.pank.vsevodnom.ui.map.nearNorth(354.0) && com.pank.vsevodnom.ui.map.nearNorth(4.0) && !com.pank.vsevodnom.ui.map.nearNorth(25.0) && !com.pank.vsevodnom.ui.map.nearNorth(0.0))
+    }
 }

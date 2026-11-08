@@ -147,6 +147,8 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var trackListener by remember { mutableStateOf(false) }
     var rerouting by remember { mutableStateOf(false) }
     var rerouteAt by remember { mutableStateOf<GeoPt?>(null) }
+    val world = remember { WorldToggle() }
+    val quickZoom = remember { QuickZoom(view, density, { map }, { locMode != 0 || Nav.session != null }) }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         val m = map; val st = style
@@ -196,15 +198,9 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             m.uiSettings.isAttributionEnabled = true
             m.uiSettings.setAttributionMargins((8 * density).toInt(), 0, 0, (4 * density).toInt())
             m.setMinZoomPreference(1.0)
-            // плавность: до 120 кадров (Pixel 8 Pro), быстрее зум щипком; наклон двумя пальцами легче отличить от поворота
-            runCatching { view.setMaximumFps(120) }
-            runCatching {
-                m.uiSettings.zoomRate = 1.25f
-                val g = m.gesturesManager
-                g.rotateGestureDetector.angleThreshold = 18f
-                g.shoveGestureDetector.pixelDeltaThreshold = 10f * density
-                g.shoveGestureDetector.maxShoveAngle = 45f
-            }
+            // жесты: свободный поворот, щипок 1:1 (без ускорения и без ограничения кадров — они давали рывки), свой зум одним пальцем
+            tuneGestures(m, density)
+            view.setOnTouchListener(quickZoom)
             view.addOnStyleImageMissingListener { id -> if (id.startsWith("p:")) m.style?.let { st -> runCatching { st.addImage(id, poiBitmap(ctx, id.removePrefix("p:"), density)) } } }
             fun scale() {
                 val c = m.cameraPosition; val lat = c.target?.latitude ?: 50.0
@@ -215,9 +211,11 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 val nice = listOf(5.0, 2.0, 1.0).map { it * p }.first { it <= maxM }
                 scaleBar = (nice / mpp / density).dp to MapPrefs.dist(ctx, nice)
             }
-            m.addOnCameraMoveListener { scale() }
+            m.addOnCameraMoveListener { scale(); world.check(m) }
             m.addOnCameraIdleListener {
-                scale()
+                scale(); world.check(m, force = true)
+                // повернули чуть-чуть (до 10°) — выровнять на север; в режиме компаса и в навигации не трогаем
+                if (locMode == 0 && Nav.session == null && !quickZoom.active && nearNorth(m.cameraPosition.bearing)) m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 220)
                 val c = m.cameraPosition
                 c.target?.let { t -> prefs.edit().putFloat("zoom", c.zoom.toFloat()).putFloat("lat", t.latitude.toFloat()).putFloat("lon", t.longitude.toFloat()).apply() }
             }
@@ -260,6 +258,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         m.setStyle(Style.Builder().fromJson(MapStyle.build(ctx, opts))) { st ->
             st.addImage("pin", pinBitmap(density)); st.addImage("trk-arrow", arrowBitmap(density))
             setupOverlays(st); style = st
+            world.reset(if (opts.online == null && opts.worldOnline) MapStyle.rings(OfflineMaps.shapes(ctx).map { it.second }) else emptyList()); world.check(m, force = true)
             m.isDebugActive = prefs.getBoolean("dev_tiles", false)
             if (hasLoc(ctx)) {
                 MapKit.enableLocation(ctx, m, st, false)

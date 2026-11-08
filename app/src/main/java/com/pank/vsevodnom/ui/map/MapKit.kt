@@ -160,3 +160,99 @@ class SmoothCompass(ctx: Context) : org.maplibre.android.location.CompassEngine,
         if (sent.isNaN() || kotlin.math.abs(((heading - sent + 540) % 360) - 180) >= 0.7f) { sent = heading; listeners.forEach { it.onCompassChanged(heading) } }
     }
 }
+
+/**
+ * Жесты карты как в Guru/галерее: щипок следует за пальцами 1:1, поворот свободный при любом расстоянии между пальцами
+ * (MapLibre по умолчанию выключал поворот, если первым начался зум — так было при далёких пальцах).
+ */
+internal fun tuneGestures(m: MapLibreMap, density: Float) = runCatching {
+    val u = m.uiSettings
+    u.isRotateGesturesEnabled = true
+    u.isZoomGesturesEnabled = true
+    u.isDoubleTapGesturesEnabled = true
+    u.isQuickZoomGesturesEnabled = false            // свой зум одним пальцем — QuickZoom
+    u.isDisableRotateWhenScaling = false
+    u.isIncreaseRotateThresholdWhenScaling = false
+    u.isIncreaseScaleThresholdWhenRotating = false
+    val g = m.gesturesManager
+    g.rotateGestureDetector.angleThreshold = 7f        // по умолчанию ~15°, у нас было 18 — поворот «не брался»
+    g.shoveGestureDetector.pixelDeltaThreshold = 10f * density
+    g.shoveGestureDetector.maxShoveAngle = 45f
+}
+
+/** Почти север (меньше [deg] градусов в любую сторону) — повод выровнять. */
+internal fun nearNorth(bearing: Double, deg: Double = 10.0): Boolean {
+    val b = ((bearing % 360) + 360) % 360
+    val d = if (b > 180) 360 - b else b
+    return d > 0.05 && d <= deg
+}
+
+/**
+ * Масштаб одним пальцем: коснуться, отпустить и сразу коснуться снова, затем вести вниз (ближе) или вверх (дальше), пока палец на экране.
+ * Сделан сам — не зависит от настроек жестов MapLibre. Обычный двойной тап (без ведения) по-прежнему приближает.
+ */
+internal class QuickZoom(private val view: MapView, private val density: Float, private val map: () -> MapLibreMap?, private val keepCenter: () -> Boolean) : android.view.View.OnTouchListener {
+    var active = false; private set
+    private var lastUpT = 0L; private var lastUpX = 0f; private var lastUpY = 0f
+    private var armed = false; private var downX = 0f; private var downY = 0f; private var downT = 0L; private var lastY = 0f; private var fx = 0; private var fy = 0
+    private val timeout = android.view.ViewConfiguration.getDoubleTapTimeout().toLong() + 60
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouch(v: android.view.View, e: android.view.MotionEvent): Boolean {
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                armed = e.eventTime - lastUpT < timeout && kotlin.math.hypot(e.x - lastUpX, e.y - lastUpY) < 48 * density
+                active = false; downX = e.x; downY = e.y; downT = e.eventTime; lastY = e.y; fx = e.x.toInt(); fy = e.y.toInt()
+            }
+            android.view.MotionEvent.ACTION_POINTER_DOWN -> { armed = false; if (active) { active = false; return true } }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (armed && !active && kotlin.math.abs(e.y - downY) > 10 * density) {
+                    active = true; lastY = e.y
+                    // MapLibre видел начало двойного тапа — отменяем, иначе он приблизит при отпускании
+                    val c = android.view.MotionEvent.obtain(e).apply { action = android.view.MotionEvent.ACTION_CANCEL }
+                    view.onTouchEvent(c); c.recycle()
+                }
+                if (active) {
+                    val m = map() ?: return true
+                    val dz = (e.y - lastY) / (190 * density).toDouble()      // ~190dp на один уровень
+                    lastY = e.y
+                    if (dz != 0.0) m.moveCamera(if (keepCenter()) org.maplibre.android.camera.CameraUpdateFactory.zoomBy(dz)
+                        else org.maplibre.android.camera.CameraUpdateFactory.zoomBy(dz, android.graphics.Point(fx, fy)))
+                    return true
+                }
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                val was = active; active = false
+                // первое касание считается, только если это короткий тап (не сдвиг карты)
+                val tap = e.eventTime - downT < 300 && kotlin.math.hypot(e.x - downX, e.y - downY) < 16 * density
+                if (e.actionMasked == android.view.MotionEvent.ACTION_UP && !was && !armed && tap) { lastUpT = e.eventTime; lastUpX = e.x; lastUpY = e.y } else lastUpT = 0
+                armed = false
+                if (was) return true
+            }
+        }
+        return active
+    }
+}
+
+/**
+ * Онлайн-мир (слои «…@w») выключен, пока весь экран внутри скачанных стран: тайлы OpenFreeMap тогда не грузятся
+ * и не разбираются — зум внутри страны не делит силы телефона с невидимой картой.
+ */
+internal class WorldToggle {
+    private var rings: List<DoubleArray> = emptyList()
+    private var shown: Boolean? = null
+    private var at = 0L
+    fun reset(r: List<DoubleArray>) { rings = r; shown = null }
+    fun check(m: MapLibreMap, force: Boolean = false) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (!force && now - at < 250) return
+        at = now
+        val st = m.style?.takeIf { it.isFullyLoaded } ?: return
+        val b = runCatching { m.projection.visibleRegion.latLngBounds }.getOrNull() ?: return
+        val dx = (b.longitudeEast - b.longitudeWest) * 0.15; val dy = (b.latitudeNorth - b.latitudeSouth) * 0.15   // запас — мир успевает появиться до края
+        val show = !MapStyle.viewInside(rings, b.longitudeWest - dx, b.latitudeSouth - dy, b.longitudeEast + dx, b.latitudeNorth + dy)
+        if (show == shown) return
+        shown = show
+        val vis = org.maplibre.android.style.layers.PropertyFactory.visibility(if (show) org.maplibre.android.style.layers.Property.VISIBLE else org.maplibre.android.style.layers.Property.NONE)
+        st.layers.forEach { l -> if (l.id.endsWith(MapStyle.WORLD_SUFFIX)) l.setProperties(vis) }
+    }
+}
