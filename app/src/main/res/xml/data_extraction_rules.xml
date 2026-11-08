@@ -7,6 +7,8 @@
     <!-- офлайн-карты: большие и скачиваются заново -->
     <exclude domain="file" path="mbgl-offline.db" />
     <exclude domain="file" path=".mbgl-offline.db" />
+    <exclude domain="file" path="map/" />
+    <exclude domain="external" path="maps/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="vault.key" />
@@ -15,5 +17,7 @@
     <!-- офлайн-карты: большие и скачиваются заново -->
     <exclude domain="file" path="mbgl-offline.db" />
     <exclude domain="file" path=".mbgl-offline.db" />
+    <exclude domain="file" path="map/" />
+    <exclude domain="external" path="maps/" />
     </device-transfer>
 </data-extraction-rules>

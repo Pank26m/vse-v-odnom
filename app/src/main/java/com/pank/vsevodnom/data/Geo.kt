@@ -41,12 +41,15 @@ data class GeoHit(val name: String, val address: String, val lat: Double, val lo
 object Osm {
     private var last = 0L
 
+    /** GET к Nominatim с паузой между запросами (для PlaceInfo). */
+    @Synchronized fun raw(url: String): String = get(url)
+
     private fun get(url: String): String {
         val wait = 1100 - (System.currentTimeMillis() - last)
         if (wait > 0) Thread.sleep(wait)
         last = System.currentTimeMillis()
         val c = URL(url).openConnection() as HttpURLConnection
-        c.setRequestProperty("User-Agent", "VseVOdnom/0.8 (personal Android app)")
+        c.setRequestProperty("User-Agent", "VseVOdnom/0.16 (personal Android app)")
         c.setRequestProperty("Accept-Language", "ru,uk")
         c.connectTimeout = 10_000; c.readTimeout = 15_000
         return c.inputStream.bufferedReader().use { it.readText() }
@@ -89,6 +92,8 @@ class TrackService : Service(), LocationListener {
         val points = MutableStateFlow<List<GeoPt>>(emptyList())
         val recording = MutableStateFlow(false)
         val distance = MutableStateFlow(0.0)
+        /** id только что сохранённого трека — экран карты может предложить имя и папку. */
+        val lastSaved = MutableStateFlow<Long?>(null)
         var startedAt = 0L
         private const val CH = "track"
 
@@ -156,7 +161,9 @@ suspend fun saveTrack(ctx: Context, pts: List<GeoPt>, dist: Double, startedAt: L
     val end = pts.last().t.takeIf { it > startedAt } ?: System.currentTimeMillis()
     val title = name ?: ("Трек " + Instant.ofEpochMilli(startedAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM HH:mm")))
     val db = AppDb.get(ctx)
-    db.map().upsertTrack(Track(name = title, startedAt = startedAt, endedAt = end, distanceM = dist, points = Osm.encode(pts)))
+    val folder = ctx.getSharedPreferences("map", Context.MODE_PRIVATE).getLong("track_folder", 0).takeIf { it > 0 }
+    val id = db.map().upsertTrack(Track(name = title, startedAt = startedAt, endedAt = end, distanceM = dist, points = Osm.encode(pts), folderId = folder))
+    TrackService.lastSaved.value = id
     db.schedule().upsertEvent(CalEvent(title = "Трек · ${fmtKm(dist)}", startMillis = startedAt, endMillis = end.coerceAtLeast(startedAt + 60_000),
         note = "$title · ${fmtDur(end - startedAt)}", tint = 1))
 }

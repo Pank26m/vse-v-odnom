@@ -39,11 +39,13 @@ fun MapPointPicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double
             view.getMapAsync { m ->
                 map = m
                 m.cameraPosition = camera(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), maxOf(prefs.getFloat("zoom", 13f).toDouble(), 13.0))
-                val st = MapKit.STYLES.firstOrNull { it.key == (prefs.getString("style", "liberty") ?: "liberty") } ?: MapKit.STYLES[0]
-                m.setStyle(MapKit.styleBuilder(st)) { s -> if (com.pank.vsevodnom.data.TrackService.canStart(ctx)) MapKit.enableLocation(ctx, m, s, false) }
+                m.setStyle(org.maplibre.android.maps.Style.Builder().fromJson(MapStyle.build(ctx, MapStyle.opts(ctx)))) { s ->
+                    s.addImage("hatch", MapStyle.hatchBitmap(ctx.resources.displayMetrics.density))
+                    if (com.pank.vsevodnom.data.TrackService.canStart(ctx)) MapKit.enableLocation(ctx, m, s, false)
+                }
                 m.addOnCameraIdleListener {
                     val t = m.cameraPosition.target ?: return@addOnCameraIdleListener
-                    scope.launch { Osm.reverse(t.latitude, t.longitude)?.let { address = it.name + if (it.address.isNotBlank() && it.address != it.name) " · " + it.address else "" } }
+                    if (com.pank.vsevodnom.data.Net.online) scope.launch { Osm.reverse(t.latitude, t.longitude)?.let { address = it.name + if (it.address.isNotBlank() && it.address != it.name) " · " + it.address else "" } }
                 }
             }
         }

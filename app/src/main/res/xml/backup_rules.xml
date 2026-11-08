@@ -7,4 +7,6 @@
     <!-- офлайн-карты: большие и скачиваются заново -->
     <exclude domain="file" path="mbgl-offline.db" />
     <exclude domain="file" path=".mbgl-offline.db" />
+    <exclude domain="file" path="map/" />
+    <exclude domain="external" path="maps/" />
 </full-backup-content>

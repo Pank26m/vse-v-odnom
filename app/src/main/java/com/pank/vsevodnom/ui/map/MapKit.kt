@@ -27,30 +27,11 @@ import org.maplibre.android.offline.OfflineRegionStatus
 import org.maplibre.android.offline.OfflineTilePyramidRegionDefinition
 
 /**
- * Карта на MapLibre (векторные тайлы OpenFreeMap, данные © OpenStreetMap).
- * Стиль «Liberty» — светлый, с иконками заведений, ближе всего к Guru Maps.
- * Офлайн: OfflineManager скачивает тайлы выбранной области в базу карты на телефоне.
+ * Карта на MapLibre: общие помощники (местоположение, жизненный цикл MapView, старые офлайн-области 0.15).
+ * Стиль карты собирает MapStyle, офлайн-карты стран — OfflineMaps.
  */
 object MapKit {
-    data class MapStyle(val key: String, val name: String, val url: String?, val rasterTiles: String? = null, val attribution: String = "© OpenStreetMap")
-
-    val STYLES = listOf(
-        MapStyle("liberty", "Обычная (как Guru)", "https://tiles.openfreemap.org/styles/liberty"),
-        MapStyle("bright", "Яркая", "https://tiles.openfreemap.org/styles/bright"),
-        MapStyle("positron", "Светлая простая", "https://tiles.openfreemap.org/styles/positron"),
-        MapStyle("topo", "Рельеф", null, "https://a.tile.opentopomap.org/{z}/{x}/{y}.png", "© OpenTopoMap, OpenStreetMap"),
-        MapStyle("sat", "Спутник", null, "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", "© Esri"),
-    )
-
     fun init(ctx: Context) { MapLibre.getInstance(ctx.applicationContext) }
-
-    fun styleBuilder(s: MapStyle): Style.Builder =
-        if (s.url != null) Style.Builder().fromUri(s.url)
-        else Style.Builder().fromJson(JSONObject()
-            .put("version", 8)
-            .put("sources", JSONObject().put("r", JSONObject().put("type", "raster").put("tileSize", 256).put("attribution", s.attribution).put("tiles", JSONArray().put(s.rasterTiles))))
-            .put("layers", JSONArray().put(JSONObject().put("id", "r").put("type", "raster").put("source", "r")))
-            .toString())
 
     @SuppressLint("MissingPermission")
     fun enableLocation(ctx: Context, map: MapLibreMap, style: Style, follow: Boolean) = runCatching {
@@ -70,27 +51,6 @@ object MapKit {
                 cb(offlineRegions.orEmpty().map { Region(it, runCatching { JSONObject(String(it.metadata)).optString("name") }.getOrDefault("Область")) })
             }
             override fun onError(error: String) = cb(emptyList())
-        })
-    }
-
-    /** Примерно сколько тайлов в области на уровнях zMin…zMax. */
-    fun tileCount(b: LatLngBounds, zMin: Int, zMax: Int): Long {
-        var n = 0L
-        for (z in zMin..zMax) {
-            val k = 1 shl z
-            fun x(lon: Double) = ((lon + 180) / 360 * k).toInt()
-            fun y(lat: Double) = ((1 - Math.log(Math.tan(Math.toRadians(lat)) + 1 / Math.cos(Math.toRadians(lat))) / Math.PI) / 2 * k).toInt()
-            n += (x(b.longitudeEast) - x(b.longitudeWest) + 1).toLong() * (y(b.latitudeSouth) - y(b.latitudeNorth) + 1)
-        }
-        return n
-    }
-
-    fun download(ctx: Context, styleUrl: String, bounds: LatLngBounds, maxZoom: Double, name: String, onStatus: (OfflineRegionStatus) -> Unit, onError: (String) -> Unit) {
-        val def = OfflineTilePyramidRegionDefinition(styleUrl, bounds, 0.0, maxZoom, ctx.resources.displayMetrics.density)
-        val meta = JSONObject().put("name", name).put("style", styleUrl).toString().toByteArray()
-        OfflineManager.getInstance(ctx).createOfflineRegion(def, meta, object : OfflineManager.CreateOfflineRegionCallback {
-            override fun onCreate(offlineRegion: OfflineRegion) = start(offlineRegion, onStatus, onError)
-            override fun onError(error: String) = onError(error)
         })
     }
 

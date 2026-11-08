@@ -318,9 +318,9 @@ interface LifeDao {
         WeightEntry::class, PiggyGoal::class, PiggyTx::class, AlarmEntity::class, WorldCity::class, WeatherCity::class,
         Lesson::class, SubjectAlias::class, CalEvent::class, MoodEntry::class, CartItem::class,
         TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
-        Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class, Deck::class, Card::class,
+        Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class, Deck::class, Card::class, MapFolder::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -342,6 +342,24 @@ abstract class AppDb : RoomDatabase() {
         fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
 
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        /** v9 → v10: коллекции карты — папки в папках, видимость и цвет меток/треков; старые текстовые папки → настоящие. */
+        val M9_10 = object : androidx.room.migration.Migration(9, 10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `map_folder` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `parentId` INTEGER, `name` TEXT NOT NULL, `color` INTEGER NOT NULL, `visible` INTEGER NOT NULL, `sort` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)")
+                db.execSQL("ALTER TABLE `place` ADD COLUMN `folderId` INTEGER")
+                db.execSQL("ALTER TABLE `place` ADD COLUMN `visible` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `place` ADD COLUMN `color` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `place` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `place` ADD COLUMN `address` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `track` ADD COLUMN `folderId` INTEGER")
+                db.execSQL("ALTER TABLE `track` ADD COLUMN `visible` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `track` ADD COLUMN `color` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("INSERT INTO `map_folder` (`parentId`, `name`, `color`, `visible`, `sort`, `createdAt`) SELECT NULL, f, 0, 1, 0, 0 FROM (SELECT `folder` AS f FROM `place` UNION SELECT `folder` AS f FROM `track`) WHERE f != ''")
+                db.execSQL("UPDATE `place` SET `folderId` = (SELECT `id` FROM `map_folder` WHERE `name` = `place`.`folder`) WHERE `folder` != ''")
+                db.execSQL("UPDATE `track` SET `folderId` = (SELECT `id` FROM `map_folder` WHERE `name` = `track`.`folder`) WHERE `folder` != ''")
+            }
+        }
+
         /** v8 → v9: избранные фильмы, описание и приоритет покупок, цвет/бюджет/порядок категорий, фото операции. */
         val M8_9 = object : androidx.room.migration.Migration(8, 9) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -469,7 +487,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7, M7_8, M8_9)
+                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7, M7_8, M8_9, M9_10)
                 .build().also { inst = it }
         }
     }

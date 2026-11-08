@@ -193,9 +193,14 @@ data class Place(
     val name: String,
     val lat: Double,
     val lon: Double,
-    val folder: String = "",
+    val folder: String = "",          // старое поле (до v10), теперь — folderId
     val note: String = "",
     val createdAt: Long = System.currentTimeMillis(),
+    val folderId: Long? = null,       // папка коллекции (null — без папки)
+    @ColumnInfo(defaultValue = "1") val visible: Boolean = true,
+    @ColumnInfo(defaultValue = "0") val color: Int = 0,
+    @ColumnInfo(defaultValue = "") val icon: String = "",
+    @ColumnInfo(defaultValue = "") val address: String = "",
 )
 
 /** Трек: точки в виде «lat,lon,timeSec;…». */
@@ -208,6 +213,21 @@ data class Track(
     val endedAt: Long,
     val distanceM: Double,
     val points: String,
+    val folderId: Long? = null,
+    @ColumnInfo(defaultValue = "1") val visible: Boolean = true,
+    @ColumnInfo(defaultValue = "0") val color: Int = 0,
+)
+
+/** Папка коллекции карты: папки вкладываются друг в друга (parentId), метки и треки — в папки или без папки. */
+@Entity(tableName = "map_folder")
+data class MapFolder(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val parentId: Long? = null,
+    val name: String,
+    val color: Int = 0,
+    val visible: Boolean = true,
+    val sort: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 // ================= DAO =================
@@ -292,6 +312,23 @@ interface MapDao {
     @Query("SELECT * FROM track ORDER BY startedAt DESC") fun tracks(): Flow<List<Track>>
     @Upsert suspend fun upsertTrack(t: Track): Long
     @Delete suspend fun deleteTrack(t: Track)
+    @Query("SELECT * FROM place") suspend fun placesNow(): List<Place>
+    @Query("SELECT * FROM track") suspend fun tracksNow(): List<Track>
+    @Query("SELECT * FROM track WHERE id = :id") suspend fun track(id: Long): Track?
+
+    @Query("SELECT * FROM map_folder ORDER BY sort, name") fun folders(): Flow<List<MapFolder>>
+    @Query("SELECT * FROM map_folder") suspend fun foldersNow(): List<MapFolder>
+    @Upsert suspend fun upsertFolder(f: MapFolder): Long
+    @Delete suspend fun deleteFolder(f: MapFolder)
+    @Query("UPDATE place SET folderId = :to WHERE id IN (:ids)") suspend fun movePlaces(ids: List<Long>, to: Long?)
+    @Query("UPDATE track SET folderId = :to WHERE id IN (:ids)") suspend fun moveTracks(ids: List<Long>, to: Long?)
+    @Query("UPDATE map_folder SET parentId = :to WHERE id IN (:ids)") suspend fun moveFolders(ids: List<Long>, to: Long?)
+    @Query("UPDATE place SET visible = :v WHERE id IN (:ids)") suspend fun showPlaces(ids: List<Long>, v: Boolean)
+    @Query("UPDATE track SET visible = :v WHERE id IN (:ids)") suspend fun showTracks(ids: List<Long>, v: Boolean)
+    @Query("UPDATE map_folder SET visible = :v WHERE id IN (:ids)") suspend fun showFolders(ids: List<Long>, v: Boolean)
+    @Query("DELETE FROM place WHERE id IN (:ids)") suspend fun deletePlaces(ids: List<Long>)
+    @Query("DELETE FROM track WHERE id IN (:ids)") suspend fun deleteTracks(ids: List<Long>)
+    @Query("DELETE FROM map_folder WHERE id IN (:ids)") suspend fun deleteFolders(ids: List<Long>)
 }
 
 // ================= Карточки для обучения (v7) =================

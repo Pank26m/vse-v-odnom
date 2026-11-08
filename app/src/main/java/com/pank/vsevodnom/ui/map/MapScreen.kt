@@ -2,509 +2,473 @@ package com.pank.vsevodnom.ui.map
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
+import android.graphics.RectF
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import com.pank.vsevodnom.data.*
-import com.pank.vsevodnom.ui.calendar.EventEditor
-import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.location.OnCameraTrackingChangedListener
+import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
-import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.PropertyFactory as PF
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.pow
 
-private fun hasLoc(ctx: Context) = TrackService.canStart(ctx)
+internal fun hasLoc(ctx: Context) = TrackService.canStart(ctx)
 
-/** Слои поверх любой карты: места, выбранная точка, показанный трек, записываемый трек. */
+/** Что показано в карточке снизу. */
+data class MapTarget(val name: String, val kind: String, val lat: Double, val lon: Double, val place: Place? = null, val props: Map<String, String> = emptyMap())
+
+internal fun colorHex(c: Int, def: String) = if (c == 0) def else String.format("#%06X", c and 0xFFFFFF)
+internal const val PLACE_COLOR = "#E0607E"
+internal const val TRACK_COLOR = "#6A55A8"
+
+/** Слои пользователя поверх карты: треки, метки, булавка, запись, маршрут. */
 private fun setupOverlays(style: Style) {
     fun src(id: String) { if (style.getSource(id) == null) style.addSource(GeoJsonSource(id, FeatureCollection.fromFeatures(emptyList()))) }
-    listOf("track", "rec", "places", "pin").forEach(::src)
-    if (style.getLayer("track-l") == null) style.addLayer(LineLayer("track-l", "track").withProperties(PropertyFactory.lineColor("#6A55A8"), PropertyFactory.lineWidth(5f), PropertyFactory.lineCap("round"), PropertyFactory.lineJoin("round")))
-    if (style.getLayer("rec-l") == null) style.addLayer(LineLayer("rec-l", "rec").withProperties(PropertyFactory.lineColor("#D8456A"), PropertyFactory.lineWidth(5f), PropertyFactory.lineCap("round")))
-    if (style.getLayer("places-l") == null) style.addLayer(CircleLayer("places-l", "places").withProperties(PropertyFactory.circleRadius(8f), PropertyFactory.circleColor("#E0607E"), PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(2.5f)))
-    if (style.getLayer("pin-l") == null) style.addLayer(CircleLayer("pin-l", "pin").withProperties(PropertyFactory.circleRadius(10f), PropertyFactory.circleColor("#4F86C6"), PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(3f)))
+    listOf("u-tracks", "u-sel", "u-rec", "u-route", "u-places", "u-pin").forEach(::src)
+    style.addLayer(LineLayer("u-route-l", "u-route").withProperties(PF.lineColor("#3E6FA8"), PF.lineWidth(5f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.85f)))
+    style.addLayer(LineLayer("u-tracks-l", "u-tracks").withProperties(PF.lineColor(Expression.toColor(Expression.get("color"))), PF.lineWidth(4f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.9f)))
+    style.addLayer(LineLayer("u-sel-l", "u-sel").withProperties(PF.lineColor("#FFFFFF"), PF.lineWidth(9f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.9f)))
+    style.addLayer(LineLayer("u-sel-l2", "u-sel").withProperties(PF.lineColor(Expression.toColor(Expression.get("color"))), PF.lineWidth(5.5f), PF.lineCap("round"), PF.lineJoin("round")))
+    style.addLayer(LineLayer("u-rec-l", "u-rec").withProperties(PF.lineColor("#D8456A"), PF.lineWidth(5f), PF.lineCap("round"), PF.lineJoin("round")))
+    style.addLayer(CircleLayer("u-places-c", "u-places").withProperties(PF.circleRadius(7.5f), PF.circleColor(Expression.toColor(Expression.get("color"))), PF.circleStrokeColor("#FFFFFF"), PF.circleStrokeWidth(2.5f)))
+    style.addLayer(SymbolLayer("u-places-t", "u-places").withProperties(PF.textField(Expression.get("name")), PF.textFont(arrayOf("Noto Sans Bold")), PF.textSize(11.5f),
+        PF.textColor("#2B2A33"), PF.textHaloColor("#FFFFFF"), PF.textHaloWidth(1.5f), PF.textAnchor("top"), PF.textOffset(arrayOf(0f, 0.9f)), PF.textOptional(true)).withProperties().apply { minZoom = 11f })
+    style.addLayer(CircleLayer("u-pin-c", "u-pin").withProperties(PF.circleRadius(9f), PF.circleColor("#4F86C6"), PF.circleStrokeColor("#FFFFFF"), PF.circleStrokeWidth(3f)))
 }
 
-private fun Style.set(id: String, f: List<Feature>) { getSourceAs<GeoJsonSource>(id)?.setGeoJson(FeatureCollection.fromFeatures(f)) }
+internal fun Style.setFeatures(id: String, f: List<Feature>) { getSourceAs<GeoJsonSource>(id)?.setGeoJson(FeatureCollection.fromFeatures(f)) }
+
+internal fun line(pts: List<GeoPt>): LineString = LineString.fromLngLats(pts.map { Point.fromLngLat(it.lon, it.lat) })
+
+/** Видимые папки: сама видима и все родители видимы. */
+internal fun visibleFolders(folders: List<MapFolder>): Set<Long> {
+    val byId = folders.associateBy { it.id }
+    fun ok(f: MapFolder, depth: Int = 0): Boolean = f.visible && (f.parentId == null || depth > 30 || byId[f.parentId]?.let { ok(it, depth + 1) } ?: true)
+    return folders.filter { ok(it) }.map { it.id }.toSet()
+}
+
+enum class MapSheet { NONE, SEARCH, COLLECTIONS, LAYERS, ROUTE, SETTINGS }
 
 @Composable
-fun MapScreen(onBack: () -> Unit) {
+fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     val ctx = LocalContext.current
+    val density = LocalDensity.current.density
     val dao = remember { AppDb.get(ctx).map() }
     val scope = rememberCoroutineScope()
-    val prefs = remember { ctx.getSharedPreferences("map", Context.MODE_PRIVATE) }
+    val prefs = remember { MapPrefs.p(ctx) }
     val places by dao.places().collectAsState(initial = emptyList())
     val tracks by dao.tracks().collectAsState(initial = emptyList())
-    var styleKey by remember { mutableStateOf(prefs.getString("style", "liberty") ?: "liberty") }
-    var picked by remember { mutableStateOf<GeoHit?>(null) }
-    var pickedLoading by remember { mutableStateOf(false) }
-    var pickedPlace by remember { mutableStateOf<Place?>(null) }
-    var shownTrack by remember { mutableStateOf<Track?>(null) }
-    var sheet by remember { mutableIntStateOf(0) }   // 1 места, 2 треки, 3 слои, 4 офлайн
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<GeoHit>>(emptyList()) }
-    var editPlace by remember { mutableStateOf<Place?>(null) }
-    var eventFor by remember { mutableStateOf<CalEvent?>(null) }
+    val folders by dao.folders().collectAsState(initial = emptyList())
+    var styleTick by remember { mutableIntStateOf(0) }
+    var showAll by remember { mutableStateOf(prefs.getBoolean("show_collections", true)) }
+    var sheet by remember { mutableStateOf(MapSheet.NONE) }
+    var settingsStart by remember { mutableStateOf<String?>(null) }
+    var target by remember { mutableStateOf<MapTarget?>(null) }
+    var selTrack by remember { mutableStateOf<Track?>(null) }
+    var routeTo by remember { mutableStateOf<MapPrefs.Spot?>(null) }
+    var routeLine by remember { mutableStateOf<List<GeoPt>>(emptyList()) }
+    var routeInfo by remember { mutableStateOf("") }
+    var renameTrack by remember { mutableStateOf<Track?>(null) }
     val rec by TrackService.recording.collectAsState()
     val recPts by TrackService.points.collectAsState()
     val recDist by TrackService.distance.collectAsState()
+    val lastSaved by TrackService.lastSaved.collectAsState()
 
     val view = rememberMapView()
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var style by remember { mutableStateOf<Style?>(null) }
     var speed by remember { mutableStateOf<Float?>(null) }
     var alt by remember { mutableStateOf<Double?>(null) }
+    var myLoc by remember { mutableStateOf<GeoPt?>(null) }
+    var locMode by remember { mutableIntStateOf(0) }       // 0 — свободно, 1 — за мной, 2 — по компасу
+    var bearing by remember { mutableFloatStateOf(0f) }
+    var zoomNow by remember { mutableFloatStateOf(12f) }
+    var scaleBar by remember { mutableStateOf(60.dp to "") }
+    var trackListener by remember { mutableStateOf(false) }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         val m = map; val st = style
-        if (hasLoc(ctx) && m != null && st != null) MapKit.enableLocation(ctx, m, st, true)
+        if (hasLoc(ctx) && m != null && st != null) MapKit.enableLocation(ctx, m, st, false)
     }
+    fun askLoc() = locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
 
-    fun showPin(lat: Double, lon: Double) { style?.set("pin", listOf(Feature.fromGeometry(Point.fromLngLat(lon, lat)))) }
-    fun clearPin() { style?.set("pin", emptyList()) }
-    fun whatsHere(lat: Double, lon: Double) {
-        pickedPlace = null; results = emptyList()
-        showPin(lat, lon)
-        picked = GeoHit("Точка на карте", "%.5f, %.5f".format(lat, lon), lat, lon)
-        pickedLoading = true
-        scope.launch { Osm.reverse(lat, lon)?.let { if (picked?.lat == lat) picked = it }; pickedLoading = false }
+    fun fly(lat: Double, lon: Double, z: Double? = null) {
+        val m = map ?: return
+        if (locMode != 0) { runCatching { m.locationComponent.cameraMode = CameraMode.NONE }; locMode = 0 }
+        m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), z ?: maxOf(m.cameraPosition.zoom, 15.5)), 650)
     }
-    fun center(): LatLng = map?.cameraPosition?.target ?: LatLng(50.4501, 30.5234)
-    fun fly(lat: Double, lon: Double, z: Double = 16.5) { map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), z), 600) }
+    fun fit(pts: List<GeoPt>) {
+        val m = map ?: return
+        if (pts.size == 1) { fly(pts[0].lat, pts[0].lon); return }
+        if (pts.size < 2) return
+        runCatching {
+            val b = LatLngBounds.Builder().apply { pts.forEach { include(LatLng(it.lat, it.lon)) } }.build()
+            m.animateCamera(CameraUpdateFactory.newLatLngBounds(b, (70 * density).toInt()), 700)
+        }
+    }
+    fun pin(lat: Double?, lon: Double?) { style?.setFeatures("u-pin", if (lat == null || lon == null) emptyList() else listOf(Feature.fromGeometry(Point.fromLngLat(lon, lat)))) }
+    fun open(t: MapTarget) { selTrack = null; target = t; pin(if (t.place == null) t.lat else null, t.lon) }
+    fun closeAll() { target = null; selTrack = null; pin(null, null) }
 
-    // карта и стиль
+    // ---------- карта ----------
     LaunchedEffect(Unit) {
+        OnlineMaps.applyCacheLimit(ctx)
+        launch { OfflineMaps.loadCatalog(ctx); OfflineMaps.resume(ctx); OfflineMaps.autoWorld(ctx) }
         view.getMapAsync { m ->
             map = m
-            m.cameraPosition = camera(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), prefs.getFloat("zoom", 12f).toDouble())
-            m.uiSettings.isCompassEnabled = true
-            m.uiSettings.setCompassMargins(0, 260, 40, 0)
-            m.addOnMapClickListener { ll ->
-                val f = m.queryRenderedFeatures(m.projection.toScreenLocation(ll), "places-l").firstOrNull()
-                val id = f?.getNumberProperty("id")?.toLong()
-                if (id != null) { picked = null; clearPin(); pickedPlace = places.firstOrNull { it.id == id } ?: pickedPlace }
-                else if (picked != null || pickedPlace != null || results.isNotEmpty()) { picked = null; pickedPlace = null; results = emptyList(); clearPin() }
-                else whatsHere(ll.latitude, ll.longitude)
-                true
+            m.cameraPosition = camera(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), prefs.getFloat("zoom", 11f).toDouble())
+            m.uiSettings.isCompassEnabled = false
+            m.uiSettings.isLogoEnabled = false
+            m.uiSettings.isAttributionEnabled = true
+            m.uiSettings.setAttributionMargins((8 * density).toInt(), 0, 0, (4 * density).toInt())
+            m.setMinZoomPreference(1.0)
+            fun scale() {
+                val c = m.cameraPosition; val lat = c.target?.latitude ?: 50.0
+                bearing = c.bearing.toFloat(); zoomNow = c.zoom.toFloat()
+                val mpp = m.projection.getMetersPerPixelAtLatitude(lat)
+                val maxM = mpp * 84 * density
+                val p = 10.0.pow(floor(log10(maxM)))
+                val nice = listOf(5.0, 2.0, 1.0).map { it * p }.first { it <= maxM }
+                scaleBar = (nice / mpp / density).dp to MapPrefs.dist(ctx, nice)
             }
-            m.addOnMapLongClickListener { ll -> whatsHere(ll.latitude, ll.longitude); true }
+            m.addOnCameraMoveListener { scale() }
             m.addOnCameraIdleListener {
+                scale()
                 val c = m.cameraPosition
                 c.target?.let { t -> prefs.edit().putFloat("zoom", c.zoom.toFloat()).putFloat("lat", t.latitude.toFloat()).putFloat("lon", t.longitude.toFloat()).apply() }
             }
+            m.addOnMapClickListener { ll ->
+                val pt = m.projection.toScreenLocation(ll)
+                val r = 18 * density
+                val box = RectF(pt.x - r, pt.y - r, pt.x + r, pt.y + r)
+                m.queryRenderedFeatures(box, "u-places-c", "u-places-t").firstOrNull()?.getNumberProperty("id")?.toLong()?.let { id ->
+                    AppScope.io.launch {
+                        val pl = AppDb.get(ctx).map().placesNow().firstOrNull { it.id == id } ?: return@launch
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl)) }
+                    }
+                    return@addOnMapClickListener true
+                }
+                m.queryRenderedFeatures(box, "u-tracks-l", "u-sel-l2").firstOrNull()?.getNumberProperty("id")?.toLong()?.let { id ->
+                    AppScope.io.launch {
+                        val t = AppDb.get(ctx).map().track(id) ?: return@launch
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { target = null; pin(null, null); selTrack = t }
+                    }
+                    return@addOnMapClickListener true
+                }
+                if (target != null || selTrack != null) { closeAll(); return@addOnMapClickListener true }
+                val f = m.queryRenderedFeatures(box).firstOrNull { f -> f.hasNonNullValueForProperty("name") }
+                if (f != null) {
+                    val props = f.properties()?.entrySet()?.associate { it.key to (runCatching { it.value.asString }.getOrDefault(it.value.toString())) }.orEmpty()
+                    val g = f.geometry()
+                    val (lat, lon) = if (g is Point) g.latitude() to g.longitude() else ll.latitude to ll.longitude
+                    val nm = props["name:ru"]?.takeIf { MapStyle.opts(ctx).lang == "ru" } ?: props["name"].orEmpty()
+                    open(MapTarget(nm, MapNames.omt(props["class"], props["subclass"]), lat, lon, props = props))
+                }
+                true
+            }
+            m.addOnMapLongClickListener { ll -> open(MapTarget("Точка на карте", "", ll.latitude, ll.longitude)); true }
         }
     }
-    LaunchedEffect(map, styleKey) {
+    LaunchedEffect(map, styleTick, OfflineMaps.version) {
         val m = map ?: return@LaunchedEffect
-        prefs.edit().putString("style", styleKey).apply()
-        val s = MapKit.STYLES.firstOrNull { it.key == styleKey } ?: MapKit.STYLES[0]
+        val opts = MapStyle.opts(ctx)
         style = null
-        m.setStyle(MapKit.styleBuilder(s)) { st ->
+        m.setStyle(Style.Builder().fromJson(MapStyle.build(ctx, opts))) { st ->
+            st.addImage("hatch", MapStyle.hatchBitmap(density))
             setupOverlays(st); style = st
-            if (hasLoc(ctx)) MapKit.enableLocation(ctx, m, st, false)
-            else locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            m.isDebugActive = prefs.getBoolean("dev_tiles", false)
+            if (hasLoc(ctx)) {
+                MapKit.enableLocation(ctx, m, st, false)
+                if (!trackListener) runCatching {
+                    trackListener = true
+                    m.locationComponent.addOnCameraTrackingChangedListener(object : OnCameraTrackingChangedListener {
+                        override fun onCameraTrackingDismissed() { locMode = 0 }
+                        override fun onCameraTrackingChanged(currentMode: Int) {
+                            locMode = when (currentMode) { CameraMode.TRACKING_COMPASS, CameraMode.TRACKING_GPS -> 2; CameraMode.TRACKING -> 1; else -> 0 }
+                        }
+                    })
+                }
+                runCatching {
+                    if (locMode == 1) m.locationComponent.cameraMode = CameraMode.TRACKING
+                    if (locMode == 2) m.locationComponent.cameraMode = CameraMode.TRACKING_COMPASS
+                }
+            } else if (!prefs.getBoolean("asked_loc", false)) { prefs.edit().putBoolean("asked_loc", true).apply(); askLoc() }
         }
     }
-    // скорость и высота — как в Guru: плашка слева сверху
+    // скорость, высота, автомасштаб
     LaunchedEffect(style) {
         while (true) {
-            runCatching { map?.locationComponent?.lastKnownLocation }.getOrNull()?.let { l -> speed = if (l.hasSpeed()) l.speed * 3.6f else null; alt = if (l.hasAltitude()) l.altitude else null }
-            kotlinx.coroutines.delay(1500)
+            runCatching { map?.locationComponent?.takeIf { it.isLocationComponentActivated }?.lastKnownLocation }.getOrNull()?.let { l ->
+                speed = if (l.hasSpeed()) l.speed * 3.6f else null
+                alt = if (Build.VERSION.SDK_INT >= 34 && l.hasMslAltitude()) l.mslAltitudeMeters else if (l.hasAltitude()) l.altitude else null
+                myLoc = GeoPt(l.latitude, l.longitude, l.time)
+                if (locMode != 0 && MapPrefs.bool(ctx, "autozoom", true)) {
+                    val s = speed ?: 0f
+                    val z = when { s > 90 -> 13.5; s > 55 -> 14.5; s > 25 -> 15.5; s > 8 -> 16.3; else -> null }
+                    if (z != null) runCatching { map?.locationComponent?.zoomWhileTracking(z, 1200) }
+                }
+            }
+            delay(1000)
         }
     }
-    LaunchedEffect(style, places) {
-        style?.set("places", places.map { pl -> Feature.fromGeometry(Point.fromLngLat(pl.lon, pl.lat)).also { it.addNumberProperty("id", pl.id); it.addStringProperty("name", pl.name) } })
+    // данные пользователя на карте
+    val visF = remember(folders) { visibleFolders(folders) }
+    LaunchedEffect(style, places, visF, showAll) {
+        style?.setFeatures("u-places", if (!showAll) emptyList() else places.filter { it.visible && (it.folderId == null || it.folderId in visF) }.map { pl ->
+            Feature.fromGeometry(Point.fromLngLat(pl.lon, pl.lat)).also { it.addNumberProperty("id", pl.id); it.addStringProperty("name", pl.name); it.addStringProperty("color", colorHex(pl.color, PLACE_COLOR)) }
+        })
     }
-    LaunchedEffect(style, shownTrack) {
-        val st = style ?: return@LaunchedEffect
-        val pts = shownTrack?.let { Osm.decode(it.points) }.orEmpty()
-        st.set("track", if (pts.size >= 2) listOf(Feature.fromGeometry(LineString.fromLngLats(pts.map { Point.fromLngLat(it.lon, it.lat) }))) else emptyList())
-        if (pts.size >= 2) runCatching {
-            val b = LatLngBounds.Builder().apply { pts.forEach { include(LatLng(it.lat, it.lon)) } }.build()
-            map?.animateCamera(CameraUpdateFactory.newLatLngBounds(b, 120), 700)
+    LaunchedEffect(style, tracks, visF, showAll) {
+        val list = if (!showAll) emptyList() else tracks.filter { it.visible && (it.folderId == null || it.folderId in visF) }
+        val feats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            list.mapNotNull { t -> Osm.decode(t.points).takeIf { it.size >= 2 }?.let { pts ->
+                Feature.fromGeometry(line(pts)).also { it.addNumberProperty("id", t.id); it.addStringProperty("color", colorHex(t.color, TRACK_COLOR)) } } }
+        }
+        style?.setFeatures("u-tracks", feats)
+    }
+    LaunchedEffect(style, selTrack) {
+        val t = selTrack; val pts = t?.let { Osm.decode(it.points) }.orEmpty()
+        style?.setFeatures("u-sel", if (pts.size >= 2) listOf(Feature.fromGeometry(line(pts)).also { it.addNumberProperty("id", t!!.id); it.addStringProperty("color", colorHex(t.color, TRACK_COLOR)) }) else emptyList())
+    }
+    LaunchedEffect(style, recPts) { style?.setFeatures("u-rec", if (recPts.size >= 2) listOf(Feature.fromGeometry(line(recPts))) else emptyList()) }
+    LaunchedEffect(style, routeLine) { style?.setFeatures("u-route", if (routeLine.size >= 2) listOf(Feature.fromGeometry(line(routeLine))) else emptyList()) }
+    // маршрут «по прямой» обновляется вместе с моим местом
+    LaunchedEffect(routeTo, myLoc) {
+        val to = routeTo ?: run { if (routeInfo.startsWith("По прямой")) { routeLine = emptyList(); routeInfo = "" }; return@LaunchedEffect }
+        val me = myLoc ?: return@LaunchedEffect
+        if (routeInfo.isEmpty() || routeInfo.startsWith("По прямой")) {
+            routeLine = listOf(me, GeoPt(to.lat, to.lon, 0))
+            routeInfo = "По прямой · " + MapPrefs.dist(ctx, Osm.distance(me, GeoPt(to.lat, to.lon, 0)))
         }
     }
-    LaunchedEffect(style, recPts) {
-        style?.set("rec", if (recPts.size >= 2) listOf(Feature.fromGeometry(LineString.fromLngLats(recPts.map { Point.fromLngLat(it.lon, it.lat) }))) else emptyList())
+    // трек сохранён: если автосохранение выключено — спросить имя и папку
+    LaunchedEffect(lastSaved) {
+        val id = lastSaved ?: return@LaunchedEffect
+        TrackService.lastSaved.value = null
+        if (!MapPrefs.bool(ctx, "autosave_track", true)) renameTrack = dao.track(id)
+        else Toast.makeText(ctx, "Трек сохранён в коллекции", Toast.LENGTH_SHORT).show()
     }
 
-    fun eventAt(title: String, note: String) {
-        val st = LocalDate.now().plusDays(1).atTime(10, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        eventFor = CalEvent(title = title, startMillis = st, endMillis = st + 3600_000, note = note)
-    }
-    fun route(lat: Double, lon: Double, name: String) {
-        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lon?q=$lat,$lon(${Uri.encode(name)})"))) }
-            .onFailure { Toast.makeText(ctx, "Нет приложения для маршрута", Toast.LENGTH_SHORT).show() }
-    }
-    @Composable fun MapBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, d: String, f: () -> Unit) =
-        Box(Modifier.size(52.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = f), contentAlignment = Alignment.Center) {
-            Icon(icon, d, tint = Pal.Ink)
+    fun locTap() {
+        val m = map ?: return; val st = style ?: return
+        if (!hasLoc(ctx)) { askLoc(); return }
+        MapKit.enableLocation(ctx, m, st, false)
+        val lc = m.locationComponent
+        if (lc.lastKnownLocation == null) Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()
+        when {
+            locMode == 0 && bearing != 0f && lc.lastKnownLocation == null -> m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 400)
+            locMode == 0 -> { lc.cameraMode = CameraMode.TRACKING; lc.zoomWhileTracking(maxOf(m.cameraPosition.zoom, 15.5), 700); locMode = 1 }
+            locMode == 1 -> { lc.cameraMode = CameraMode.TRACKING_COMPASS; locMode = 2 }
+            else -> {
+                lc.cameraMode = CameraMode.NONE; locMode = 0
+                m.animateCamera(CameraUpdateFactory.newCameraPosition(org.maplibre.android.camera.CameraPosition.Builder(m.cameraPosition).bearing(0.0).tilt(0.0).build()), 500)
+            }
         }
+    }
+    fun recTap() {
+        if (rec) { TrackService.stop(ctx); return }
+        if (!hasLoc(ctx)) { askLoc(); return }
+        TrackService.start(ctx)
+        val m = map; val st = style
+        if (m != null && st != null) MapKit.enableLocation(ctx, m, st, false)
+    }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         AndroidView({ view }, Modifier.fillMaxSize())
 
-        // верх: назад + поиск
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MapBtn(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onBack)
-                Row(Modifier.weight(1f).height(52.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(start = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Search, null, tint = Pal.Muted)
-                    TextField(query, { query = it }, placeholder = { Text("Поиск места или адреса") }, singleLine = true,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Pal.Card, unfocusedContainerColor = Pal.Card, focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
-                            val q = query.trim(); if (q.isEmpty()) return@KeyboardActions
-                            scope.launch {
-                                val c = center()
-                                results = runCatching { Osm.search(q, c.latitude, c.longitude) }.getOrElse { emptyList() }
-                                if (results.isEmpty()) Toast.makeText(ctx, "Ничего не нашлось", Toast.LENGTH_SHORT).show()
-                            }
-                        }),
-                        modifier = Modifier.weight(1f))
-                    if (query.isNotEmpty()) IconButton({ query = ""; results = emptyList() }) { Icon(Icons.Rounded.Close, "Очистить") }
-                }
+        // ---- слева сверху: скорость | высота, поиск, коллекции ----
+        Column(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 12.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                val (sv, su) = speed?.let { MapPrefs.speed(ctx, it) } ?: ("—" to MapPrefs.speed(ctx, 0f).second)
+                val (av, au) = alt?.let { MapPrefs.alt(ctx, it) } ?: ("—" to MapPrefs.alt(ctx, 0.0).second)
+                Metric(sv, su)
+                Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(26.dp).background(Pal.Line))
+                Metric(av, au)
             }
-            if (results.isNotEmpty()) AppCard(Modifier.fillMaxWidth().heightIn(max = 320.dp), padding = 4.dp) {
-                LazyColumn {
-                    items(results) { r ->
-                        Column(Modifier.fillMaxWidth().clickable {
-                            results = emptyList(); pickedPlace = null; picked = r
-                            showPin(r.lat, r.lon); fly(r.lat, r.lon, 17.0)
-                        }.padding(12.dp)) {
-                            Text(r.name, style = MaterialTheme.typography.titleSmall)
-                            Text(r.address, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                        }
-                    }
-                }
-            } else if (speed != null || alt != null) Row(Modifier.shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(14.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(speed?.let { "%.0f".format(it) } ?: "-.--", style = MaterialTheme.typography.titleLarge); Text(" км/ч", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
-                Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(24.dp).background(Pal.Line))
-                Text("↑ " + (alt?.let { "%.0f".format(it) } ?: "—"), style = MaterialTheme.typography.titleLarge); Text(" м", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
-            }
+            MapBtn(Icons.Rounded.Search, "Поиск") { sheet = MapSheet.SEARCH }
+            MapBtn(Icons.Rounded.Bookmarks, "Коллекции") { sheet = MapSheet.COLLECTIONS }
         }
-
-        // справа: слои, места, треки, офлайн
-        Column(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 140.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            MapBtn(Icons.Rounded.Layers, "Слои") { sheet = 3 }
-            MapBtn(Icons.Rounded.Bookmarks, "Мои места") { sheet = 1 }
-            MapBtn(Icons.Rounded.Route, "Треки") { sheet = 2 }
-            MapBtn(Icons.Rounded.CloudDownload, "Офлайн-карты") { sheet = 4 }
-        }
-        // слева: масштаб и «где я»
-        Column(Modifier.align(Alignment.CenterStart).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            MapBtn(Icons.Rounded.Add, "Приблизить") { map?.animateCamera(CameraUpdateFactory.zoomIn(), 250) }
-            MapBtn(Icons.Rounded.Remove, "Отдалить") { map?.animateCamera(CameraUpdateFactory.zoomOut(), 250) }
-            MapBtn(Icons.Rounded.MyLocation, "Где я") {
-                val m = map; val st = style
-                if (!hasLoc(ctx)) locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                else if (m != null && st != null) {
-                    MapKit.enableLocation(ctx, m, st, true)
-                    runCatching { m.locationComponent.lastKnownLocation }.getOrNull()?.let { fly(it.latitude, it.longitude, 16.0) } ?: Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        // низ: карточка точки/места, запись трека
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            picked?.let { p ->
-                AppCard(Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(16.dp))) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(p.name, style = MaterialTheme.typography.titleMedium)
-                            Text(p.address, style = MaterialTheme.typography.bodySmall, maxLines = 3)
-                        }
-                        if (pickedLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PillButton("Событие", { eventAt(p.name, p.address + "\ngeo:%.6f,%.6f".format(java.util.Locale.US, p.lat, p.lon)) }, Modifier.weight(1f))
-                        PillButton("Сохранить", { editPlace = Place(name = p.name, lat = p.lat, lon = p.lon, folder = prefs.getString("last_folder", "") ?: "", note = p.address) }, Modifier.weight(1f))
-                        RoundIconButton(Icons.Rounded.Directions, "Маршрут", { route(p.lat, p.lon, p.name) }, bg = Pal.Lilac)
-                    }
-                }
-            }
-            pickedPlace?.let { pl ->
-                AppCard(Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(16.dp))) {
-                    Text(pl.name, style = MaterialTheme.typography.titleMedium)
-                    Text(listOf(pl.folder.ifBlank { "Без папки" }, pl.note).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, maxLines = 3)
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PillButton("Событие", { eventAt(pl.name, pl.note + "\ngeo:%.6f,%.6f".format(java.util.Locale.US, pl.lat, pl.lon)) }, Modifier.weight(1f))
-                        PillButton("Изменить", { editPlace = pl }, Modifier.weight(1f))
-                        RoundIconButton(Icons.Rounded.Directions, "Маршрут", { route(pl.lat, pl.lon, pl.name) }, bg = Pal.Lilac)
-                    }
-                }
-            }
-            shownTrack?.takeIf { picked == null && pickedPlace == null }?.let { t ->
-                AppCard(Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(16.dp)), padding = 12.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(t.name, style = MaterialTheme.typography.titleSmall)
-                            Text("${fmtKm(t.distanceM)} · ${fmtDur(t.endedAt - t.startedAt)}", style = MaterialTheme.typography.bodySmall)
-                        }
-                        IconButton({ shownTrack = null }) { Icon(Icons.Rounded.Close, "Скрыть") }
-                    }
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                if (rec) {
-                    Row(Modifier.shadow(6.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Rose).clickable { TrackService.stop(ctx) }.padding(16.dp, 12.dp),
+        // ---- справа сверху: слои, маршрут, запись ----
+        Column(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 12.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.End) {
+            MapBtn(Icons.Rounded.Layers, "Слои") { sheet = MapSheet.LAYERS }
+            MapBtn(Icons.Rounded.Directions, "Маршрут", active = routeTo != null) { sheet = MapSheet.ROUTE }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AnimatedVisibility(rec, enter = fadeIn(), exit = fadeOut()) {
+                    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+                    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
+                    Row(Modifier.padding(end = 8.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(horizontal = 12.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Stop, null, tint = Pal.RoseInk)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Стоп · ${fmtKm(recDist)} · ${fmtDur(System.currentTimeMillis() - TrackService.startedAt)}", style = MaterialTheme.typography.labelLarge, color = Pal.RoseInk)
+                        Text(MapPrefs.dist(ctx, recDist), style = MaterialTheme.typography.titleSmall)
+                        Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(18.dp).background(Pal.Line))
+                        val s = (now - TrackService.startedAt).coerceAtLeast(0) / 1000
+                        Text(if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60), style = MaterialTheme.typography.titleSmall)
                     }
-                } else {
-                    Column(Modifier.size(56.dp).shadow(6.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable {
-                        if (!hasLoc(ctx)) locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                        else { TrackService.start(ctx); val m = map; val st = style; if (m != null && st != null) MapKit.enableLocation(ctx, m, st, true) }
-                    }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        Icon(Icons.Rounded.FiberManualRecord, null, tint = Pal.RoseInk, modifier = Modifier.size(16.dp))
-                        Text("REC", style = MaterialTheme.typography.labelMedium)
+                }
+                Box(Modifier.size(48.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(if (rec) Color(0xFFE5484D) else Pal.Card).clickable { recTap() },
+                    contentAlignment = Alignment.Center) {
+                    if (rec) Icon(Icons.Rounded.Stop, "Остановить запись", tint = Color.White)
+                    else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(9.dp).clip(CircleShape).background(Color(0xFFE5484D)))
+                        Text("REC", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Pal.Ink)
                     }
                 }
             }
         }
-    }
+        // ---- слева по центру: масштаб ----
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 12.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card)) {
+            Box(Modifier.size(48.dp).clickable { map?.animateCamera(CameraUpdateFactory.zoomIn(), 250) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Приблизить", tint = Pal.Ink) }
+            Box(Modifier.width(48.dp).height(1.dp).background(Pal.Line))
+            Box(Modifier.size(48.dp).clickable { map?.animateCamera(CameraUpdateFactory.zoomOut(), 250) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Remove, "Отдалить", tint = Pal.Ink) }
+        }
+        if (prefs.getBoolean("dev_zoom", false)) Text("z %.1f".format(zoomNow), Modifier.align(Alignment.CenterStart).padding(start = 14.dp, top = 130.dp), style = MaterialTheme.typography.labelSmall)
 
-    if (sheet == 3) AlertDialog(onDismissRequest = { sheet = 0 }, confirmButton = { TextButton({ sheet = 0 }) { Text("Готово") } }, title = { Text("Вид карты") },
-        text = {
-            Column {
-                MapKit.STYLES.forEach { l ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { styleKey = l.key; sheet = 0 }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(styleKey == l.key, { styleKey = l.key; sheet = 0 }); Text(l.name, style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-                Text("Векторные карты OpenFreeMap на данных © OpenStreetMap. Офлайн работают первые три вида.", style = MaterialTheme.typography.bodySmall)
+        // ---- низ: где я, линейка, настройки; карточки ----
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom) {
+                LocButton(locMode, bearing) { locTap() }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.BottomCenter) { ScaleBar(scaleBar.first, scaleBar.second) }
+                MapBtn(Icons.Rounded.Settings, "Настройки карты") { settingsStart = null; sheet = MapSheet.SETTINGS }
             }
-        })
-    if (sheet == 4) OfflineSheet(MapKit.STYLES.firstOrNull { it.key == styleKey && it.url != null } ?: MapKit.STYLES[0], { map?.projection?.visibleRegion?.latLngBounds }, { map?.cameraPosition?.zoom ?: 12.0 }) { sheet = 0 }
-    if (sheet == 1) PlacesSheet(places, onDismiss = { sheet = 0 }, onPick = { pl ->
-        sheet = 0; picked = null; clearPin(); pickedPlace = pl; fly(pl.lat, pl.lon, 17.0)
-    }, onEdit = { editPlace = it })
-    if (sheet == 2) TracksSheet(tracks, onDismiss = { sheet = 0 }, onPick = { sheet = 0; shownTrack = it })
-    editPlace?.let { pl -> PlaceEditor(pl, places.map { it.folder }.filter { it.isNotBlank() }.distinct(), onDismiss = { editPlace = null }) { saved ->
-        if (saved == null) pickedPlace = null else { pickedPlace = null; picked = null; clearPin(); prefs.edit().putString("last_folder", saved.folder).apply() }
-    } }
-    eventFor?.let { e -> EventEditor(e, onDismiss = { eventFor = null }) }
-}
-
-/** Офлайн-карты: скачать видимую область, список скачанного с размером, удаление. */
-@Composable
-private fun OfflineSheet(style: MapKit.MapStyle, bounds: () -> LatLngBounds?, zoom: () -> Double, onDismiss: () -> Unit) {
-    val ctx = LocalContext.current
-    var regions by remember { mutableStateOf<List<MapKit.Region>>(emptyList()) }
-    var tick by remember { mutableIntStateOf(0) }
-    var progress by remember { mutableStateOf<String?>(null) }
-    var name by remember { mutableStateOf("Киев") }
-    var maxZ by remember { mutableFloatStateOf(15f) }
-    val sizes = remember { mutableStateMapOf<Long, String>() }
-    LaunchedEffect(tick) {
-        MapKit.list(ctx) { l -> regions = l; l.forEach { r -> MapKit.status(r.r) { st -> sizes[r.r.id] = (if (st.isComplete) "" else "${st.completedResourceCount}/${st.requiredResourceCount} · ") + MapKit.human(st.completedResourceSize) } } }
-    }
-    val b = remember { bounds() }
-    val tiles = b?.let { MapKit.tileCount(it, 0, maxZ.toInt()) } ?: 0
-    FullDialog("Офлайн-карты", onDismiss) {
-        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
-                AppCard(Modifier.fillMaxWidth()) {
-                    Text("Скачать то, что сейчас видно на экране", style = MaterialTheme.typography.titleSmall)
-                    Text("Вид: ${style.name}. Приблизь или отдали карту до нужной области перед открытием этого окна.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
-                    Spacer(Modifier.height(8.dp))
-                    AppTextField(name, { name = it }, "Название области")
-                    Text("Детализация до уровня ${maxZ.toInt()} (${if (maxZ >= 16) "все дома и заведения" else if (maxZ >= 14) "улицы и здания" else "города и дороги"})", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
-                    Slider(maxZ, { maxZ = it }, valueRange = 10f..16f, steps = 5)
-                    Text("≈ ${tiles} тайлов, примерно ${MapKit.human(tiles * 25_000L)}", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-                    PillButton(if (progress == null) "Скачать" else "Качаю…", {
-                        val bb = b ?: return@PillButton
-                        if (progress != null) return@PillButton
-                        progress = "0%"
-                        MapKit.download(ctx, style.url!!, bb, maxZ.toDouble(), name.ifBlank { "Область" }, { st ->
-                            val pct = if (st.requiredResourceCount > 0) st.completedResourceCount * 100 / st.requiredResourceCount else 0
-                            progress = if (st.isComplete) null else "$pct% · ${MapKit.human(st.completedResourceSize)}"
-                            if (st.isComplete) tick++
-                        }) { e -> progress = null; Toast.makeText(ctx, "Ошибка: $e", Toast.LENGTH_LONG).show() }
-                        tick++
-                    }, Modifier.fillMaxWidth())
-                    progress?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp)) }
-                }
+            if (routeTo != null && target == null && selTrack == null) RouteStrip(routeTo!!, routeInfo, onOpen = { sheet = MapSheet.ROUTE }) { routeTo = null; routeLine = emptyList(); routeInfo = "" }
+            target?.let { t ->
+                PlaceCard(t, myLoc, folders, onClose = { closeAll() }, onRoute = { s -> routeTo = s; routeInfo = ""; sheet = MapSheet.ROUTE }, onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl)) })
             }
-            item { SectionLabel(if (regions.isEmpty()) "Скачанных областей нет" else "Скачано") }
-            items(regions, key = { it.r.id }) { r ->
-                AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Map, null, tint = Pal.SkyInk)
-                        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                            Text(r.name, style = MaterialTheme.typography.titleSmall)
-                            Text(sizes[r.r.id] ?: "…", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
-                        }
-                        IconButton({ MapKit.start(r.r, { tick++ }) { } }) { Icon(Icons.Rounded.Refresh, "Докачать / обновить") }
-                        IconButton({ MapKit.delete(r.r) { tick++ } }) { Icon(Icons.Rounded.DeleteOutline, "Удалить", tint = Pal.RoseInk) }
-                    }
-                }
-            }
-            item { Text("Скачанные области работают без интернета: карта, поиск по сохранённым местам и треки. Поиск адресов (Nominatim) — только онлайн.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
+            selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }) }
         }
     }
+
+    when (sheet) {
+        MapSheet.SEARCH -> SearchScreen(map?.cameraPosition?.target, places, tracks, onDismiss = { sheet = MapSheet.NONE }) { hit ->
+            sheet = MapSheet.NONE
+            MapPrefs.addRecent(ctx, MapPrefs.Spot(hit.name, hit.lat, hit.lon, hit.address))
+            fly(hit.lat, hit.lon, if (hit.kind.startsWith("place:city")) 12.0 else if (hit.kind.startsWith("place:")) 14.0 else 17.0)
+            val pl = places.firstOrNull { it.lat == hit.lat && it.lon == hit.lon && it.name == hit.name }
+            open(MapTarget(hit.name, pl?.let { "Моя метка" } ?: hit.address, hit.lat, hit.lon, pl))
+        }
+        MapSheet.COLLECTIONS -> CollectionsScreen(places, tracks, folders, showAll, onShowAll = { showAll = it; prefs.edit().putBoolean("show_collections", it).apply() },
+            onDismiss = { sheet = MapSheet.NONE },
+            onPlace = { pl -> sheet = MapSheet.NONE; fly(pl.lat, pl.lon, 16.5); open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl)) },
+            onTrack = { t -> sheet = MapSheet.NONE; target = null; pin(null, null); selTrack = t; fit(Osm.decode(t.points)) },
+            onShowFolder = { pts -> sheet = MapSheet.NONE; if (!showAll) { showAll = true; prefs.edit().putBoolean("show_collections", true).apply() }; fit(pts) })
+        MapSheet.LAYERS -> LayersPanel(onDismiss = { sheet = MapSheet.NONE }, onChanged = { styleTick++ }, onSettings = { settingsStart = "downloads"; sheet = MapSheet.SETTINGS })
+        MapSheet.ROUTE -> RoutePanel(routeTo, myLoc, places, onDismiss = { sheet = MapSheet.NONE }, onTarget = { routeTo = it; routeInfo = "" },
+            onLine = { pts, info -> routeLine = pts; routeInfo = info; if (pts.size >= 2) fit(pts) },
+            onClear = { routeTo = null; routeLine = emptyList(); routeInfo = "" })
+        MapSheet.SETTINGS -> MapSettingsScreen(onDismiss = { sheet = MapSheet.NONE; settingsStart = null }, onChanged = { styleTick++ }, start = settingsStart)
+        MapSheet.NONE -> {}
+    }
+    renameTrack?.let { t -> TrackEditor(t, folders) { renameTrack = null } }
 }
 
 @Composable
-private fun FullDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
-            Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                RoundIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onDismiss)
-                Text(title, style = MaterialTheme.typography.headlineMedium)
+private fun Metric(v: String, unit: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(v, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(unit, fontSize = 10.sp, color = Pal.Muted)
+    }
+}
+
+@Composable
+internal fun MapBtn(icon: ImageVector, d: String, size: Dp = 48.dp, active: Boolean = false, f: () -> Unit) =
+    Box(Modifier.size(size).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(if (active) Pal.Sky else Pal.Card).clickable(onClick = f), contentAlignment = Alignment.Center) {
+        Icon(icon, d, tint = if (active) Pal.SkyInk else Pal.Ink)
+    }
+
+/** Кнопка «где я»: стрелка контуром — свободно, залитая — карта за мной, компас — карта крутится по компасу. */
+@Composable
+private fun LocButton(mode: Int, bearing: Float, onClick: () -> Unit) {
+    Box(Modifier.size(52.dp).shadow(4.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(if (mode != 0) Pal.Sky else Pal.Card).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center) {
+        when {
+            mode == 2 -> Canvas(Modifier.size(28.dp).rotate(-bearing)) {
+                val w = size.width; val h = size.height
+                drawPath(Path().apply { moveTo(w / 2, 0f); lineTo(w * 0.68f, h / 2); lineTo(w * 0.32f, h / 2); close() }, Color(0xFFE5484D))
+                drawPath(Path().apply { moveTo(w / 2, h); lineTo(w * 0.68f, h / 2); lineTo(w * 0.32f, h / 2); close() }, Pal.SkyInk)
             }
-            content()
+            mode == 0 && bearing != 0f -> Canvas(Modifier.size(28.dp).rotate(-bearing)) {
+                val w = size.width; val h = size.height
+                drawPath(Path().apply { moveTo(w / 2, 0f); lineTo(w * 0.66f, h / 2); lineTo(w * 0.34f, h / 2); close() }, Color(0xFFE5484D))
+                drawPath(Path().apply { moveTo(w / 2, h); lineTo(w * 0.66f, h / 2); lineTo(w * 0.34f, h / 2); close() }, Pal.Muted)
+            }
+            else -> Icon(if (mode == 1) Icons.Rounded.Navigation else Icons.Rounded.NearMe, "Где я", tint = if (mode == 1) Pal.SkyInk else Pal.Ink, modifier = Modifier.rotate(if (mode == 1) 0f else 0f))
         }
     }
 }
 
 @Composable
-private fun PlacesSheet(places: List<Place>, onDismiss: () -> Unit, onPick: (Place) -> Unit, onEdit: (Place) -> Unit) {
-    var folder by remember { mutableStateOf<String?>(null) }
-    val folders = places.map { it.folder.ifBlank { "Без папки" } }.distinct().sorted()
-    FullDialog("Мои места", onDismiss) {
-        if (places.isEmpty()) EmptyHint("Пока пусто. Нажми на карту в нужном месте → «Сохранить».", Modifier.padding(16.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("Все", folder == null, { folder = null })
-            folders.forEach { f -> Chip(f, folder == f, { folder = f }) }
-        }
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            places.filter { folder == null || it.folder.ifBlank { "Без папки" } == folder }.groupBy { it.folder.ifBlank { "Без папки" } }.forEach { (f, list) ->
-                item { SectionLabel("$f · ${list.size}") }
-                items(list, key = { it.id }) { pl ->
-                    AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { onPick(pl) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Place, null, tint = Pal.LilacInk)
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(pl.name, style = MaterialTheme.typography.titleSmall)
-                                if (pl.note.isNotBlank()) Text(pl.note, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                            }
-                            IconButton({ onEdit(pl) }) { Icon(Icons.Rounded.Edit, "Изменить", tint = Pal.Muted) }
-                        }
-                    }
-                }
-            }
+private fun ScaleBar(width: Dp, label: String) {
+    if (label.isEmpty()) return
+    Column(horizontalAlignment = Alignment.Start, modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.75f)).padding(horizontal = 6.dp, vertical = 3.dp)) {
+        Text(label, fontSize = 10.sp, color = Pal.Ink)
+        Canvas(Modifier.width(width).height(5.dp)) {
+            val y = size.height - 1f
+            drawLine(Pal.Ink, Offset(0f, y), Offset(size.width, y), 2.5f, StrokeCap.Square)
+            drawLine(Pal.Ink, Offset(0f, 0f), Offset(0f, y), 2.5f)
+            drawLine(Pal.Ink, Offset(size.width, 0f), Offset(size.width, y), 2.5f)
         }
     }
 }
 
-
 @Composable
-private fun TracksSheet(tracks: List<Track>, onDismiss: () -> Unit, onPick: (Track) -> Unit) {
-    val ctx = LocalContext.current
-    var rename by remember { mutableStateOf<Track?>(null) }
-    FullDialog("Треки", onDismiss) {
-        val total = tracks.sumOf { it.distanceM }
-        if (tracks.isEmpty()) EmptyHint("Треков пока нет. На карте — «Записать трек». Каждый трек сам попадает в календарь.", Modifier.padding(16.dp))
-        else Text("Всего ${tracks.size} · ${fmtKm(total)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp))
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(tracks, key = { it.id }) { t ->
-                AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { onPick(t) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Route, null, tint = Pal.RoseInk)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(t.name, style = MaterialTheme.typography.titleSmall)
-                            Text(Instant.ofEpochMilli(t.startedAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")) +
-                                " · ${fmtKm(t.distanceM)} · ${fmtDur(t.endedAt - t.startedAt)}", style = MaterialTheme.typography.bodySmall)
-                        }
-                        IconButton({ rename = t }) { Icon(Icons.Rounded.Edit, "Изменить", tint = Pal.Muted) }
-                    }
-                }
-            }
+private fun RouteStrip(to: MapPrefs.Spot, info: String, onOpen: () -> Unit, onClear: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 10.dp).shadow(6.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(Pal.Card).clickable(onClick = onOpen).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Directions, null, tint = Pal.SkyInk)
+        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+            Text(to.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+            if (info.isNotBlank()) Text(info, style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
         }
+        IconButton(onClear) { Icon(Icons.Rounded.Close, "Убрать маршрут") }
     }
-    rename?.let { t ->
-        var name by remember(t.id) { mutableStateOf(t.name) }
-        var folder by remember(t.id) { mutableStateOf(t.folder) }
-        AlertDialog(onDismissRequest = { rename = null }, title = { Text("Трек") },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { AppTextField(name, { name = it }, "Название"); AppTextField(folder, { folder = it }, "Папка") } },
-            confirmButton = { TextButton({ AppScope.io.launch { AppDb.get(ctx).map().upsertTrack(t.copy(name = name.trim().ifBlank { t.name }, folder = folder.trim())) }; rename = null }) { Text("Сохранить") } },
-            dismissButton = { TextButton({ AppScope.io.launch { AppDb.get(ctx).map().deleteTrack(t) }; rename = null }) { Text("Удалить", color = Pal.RoseInk) } })
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PlaceEditor(p: Place, folders: List<String>, onDismiss: () -> Unit, onDone: (Place?) -> Unit) {
-    val ctx = LocalContext.current
-    var name by remember { mutableStateOf(p.name) }
-    var folder by remember { mutableStateOf(p.folder) }
-    var note by remember { mutableStateOf(p.note) }
-    val defaults = listOf("Дом", "Еда", "Учёба", "Хочу сходить", "Магазины", "Спорт")
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (p.id == 0L) "Новое место" else "Место") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppTextField(name, { name = it }, "Название")
-                AppTextField(folder, { folder = it }, "Папка")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    (folders + defaults).distinct().forEach { f -> Chip(f, folder == f, { folder = f }) }
-                }
-                AppTextField(note, { note = it }, "Заметка", singleLine = false)
-            }
-        },
-        confirmButton = {
-            TextButton({
-                if (name.isBlank()) return@TextButton
-                val saved = p.copy(name = name.trim(), folder = folder.trim(), note = note.trim())
-                AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(saved) }
-                onDone(saved); onDismiss()
-            }) { Text("Сохранить") }
-        },
-        dismissButton = {
-            if (p.id != 0L) TextButton({ AppScope.io.launch { AppDb.get(ctx).map().deletePlace(p) }; onDone(null); onDismiss() }) { Text("Удалить", color = Pal.RoseInk) }
-            else TextButton(onDismiss) { Text("Отмена") }
-        })
 }
