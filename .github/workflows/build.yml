@@ -3,6 +3,7 @@ name: Сборка APK
 on:
   push:
     branches: [main]
+    paths-ignore: ['maps/**', '.github/workflows/maps.yml']
   workflow_dispatch:
 
 permissions:

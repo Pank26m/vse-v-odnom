@@ -1,0 +1,39 @@
+name: Офлайн-карты
+
+on:
+  push:
+    branches: [main]
+    paths: ['maps/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  maps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Место на диске
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost; df -h /
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Инструменты
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdal-bin python3-gdal python3-numpy python3-pil osmium-tool sqlite3 build-essential libsqlite3-dev zlib1g-dev
+          if ! sudo apt-get install -y -qq tippecanoe; then
+            git clone -q --depth 1 https://github.com/felt/tippecanoe.git /tmp/tc && make -C /tmp/tc -j4 >/dev/null && sudo make -C /tmp/tc install >/dev/null
+          fi
+      - name: Сборка
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -c "import osgeo, numpy, PIL" && bash maps/build.sh
+      - name: Отчёт при ошибке
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload maps-v1 maps/out/build-report.txt --clobber || true
