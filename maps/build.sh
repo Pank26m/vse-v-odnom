@@ -112,7 +112,7 @@ while IFS='|' read -r ID NAME PATHS RELID <&3; do
     if ! have "$f" || forced "$ID" || outdated "$ID" "$part"; then NEED+=("$part"); fi
   done
   # подъезды и метро собираются из выгрузки — если их ещё нет в каталоге, выгрузку тоже качаем
-  python3 -c "import json,sys; c=next((c for c in json.load(open('work/catalog.json'))['countries'] if c['id']==sys.argv[1]),{}); sys.exit(0 if c.get('entrances') else 1)" "$ID" || NEED+=(extra)
+  { have "$ID-entrances.mbtiles" && have "$ID-metro.json"; } || NEED+=(extra)
   if [ ${#NEED[@]} -eq 0 ]; then log "$ID: всё собрано"; routing_part "$ID"; continue; fi
   log "$ID ($NAME): нужно ${NEED[*]}"
   needs() { [[ " ${NEED[*]} " == *" $1 "* ]]; }
@@ -239,7 +239,8 @@ entry["size"] = sum(f["size"] for k in names for f in entry.get(k, []))
 cat["countries"] = [c for c in cat["countries"] if c["id"] != cid] + [entry]
 json.dump(cat, open("work/catalog.json", "w"), ensure_ascii=False, indent=1)
 PY
-  shopt -s nullglob; FILES=("$OUT/$ID.json" $OUT/$ID-metro.json $OUT/$ID-entrances.mbtiles $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*); shopt -u nullglob
+  shopt -s nullglob; FILES=("$OUT/$ID.json" $OUT/$ID-metro.json $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*); shopt -u nullglob
+  mapfile -t FILES < <(printf '%s\n' "${FILES[@]}" | sort -u)
   up "${FILES[@]}"
   rm -f $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*
 
