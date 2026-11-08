@@ -32,7 +32,7 @@ object OfflineMaps {
 
     data class Part(val file: String, val size: Long)
     data class Country(val id: String, val name: String, val bbox: List<Double>, val built: String, val parts: Map<String, List<Part>>, val shape: String,
-                       val partBuilt: Map<String, String> = emptyMap(), val metro: String? = null) {
+                       val partBuilt: Map<String, String> = emptyMap(), val metro: String? = null, val entrances: String? = null) {
         fun size(kinds: Collection<String> = KINDS) = kinds.sumOf { k -> parts[k].orEmpty().sumOf { it.size } }
     }
     data class Catalog(val countries: List<Country>, val world: Part?, val labels: Part?)
@@ -95,6 +95,7 @@ object OfflineMaps {
     fun file(ctx: Context, id: String, kind: String) = File(dir(ctx), fileName(id, kind))
     fun shapeFile(ctx: Context, id: String) = File(dir(ctx), "$id.json")
     fun metroFile(ctx: Context, id: String) = File(dir(ctx), "$id-metro.json")
+    fun entrancesFile(ctx: Context, id: String) = File(dir(ctx), "$id-entrances.mbtiles")
 
     /** Рельеф мира: скачанный (z0…6) или встроенный в приложение (z0…4). */
     fun worldRelief(ctx: Context): File {
@@ -125,7 +126,7 @@ object OfflineMaps {
             val c = arr.getJSONObject(i); val bb = c.optJSONArray("bbox")
             Country(c.getString("id"), c.optString("name", c.getString("id")), (0 until (bb?.length() ?: 0)).map { bb!!.getDouble(it) },
                 c.optString("built"), KINDS.associateWith { parts(c.optJSONArray(it)) }, c.optString("shape", c.getString("id") + ".json"),
-                KINDS.associateWith { k -> c.optString(k + "_built", c.optString("built")) }, c.optString("metro").ifBlank { null })
+                KINDS.associateWith { k -> c.optString(k + "_built", c.optString("built")) }, c.optString("metro").ifBlank { null }, c.optString("entrances").ifBlank { null })
         }
         fun one(k: String) = o.optJSONObject(k)?.let { Part(it.getString("file"), it.optLong("size")) }
         return Catalog(list.sortedBy { it.name }, one("world"), one("labels"))
@@ -157,7 +158,7 @@ object OfflineMaps {
     /** Скачать части страны (или «world»/«labels»). Части больше 2 ГБ приходят кусками и склеиваются. */
     fun download(ctx: Context, c: Country, kinds: Set<String>) {
         val files = kinds.associateWith { c.parts[it].orEmpty() }.filterValues { it.isNotEmpty() }
-        val parts = files.values.flatten() + Part(c.shape, 0) + listOfNotNull(c.metro?.let { Part(it, 0) })
+        val parts = files.values.flatten() + Part(c.shape, 0) + listOfNotNull(c.metro?.let { Part(it, 0) }, c.entrances?.takeIf { "map" in kinds }?.let { Part(it, 0) })
         val ids = enqueue(ctx, c.id, parts) ?: return
         savePending(ctx, c.id, JSONObject().put("type", "country").put("kinds", JSONArray(files.keys.toList())).put("ids", JSONArray(ids))
             .put("files", JSONArray(parts.map { it.file })).put("total", parts.sumOf { it.size }))
@@ -182,6 +183,7 @@ object OfflineMaps {
         }
         File(dir(ctx), c.shape + ".dl").renameTo(shapeFile(ctx, c.id).also { it.delete() })
         c.metro?.let { m -> File(dir(ctx), "$m.dl").takeIf { it.exists() }?.renameTo(metroFile(ctx, c.id).also { it.delete() }) }
+        c.entrances?.let { m -> File(dir(ctx), "$m.dl").takeIf { it.exists() }?.renameTo(entrancesFile(ctx, c.id).also { it.delete() }) }
         markInstalled(ctx, c.id, c.built, kinds)
     }
 

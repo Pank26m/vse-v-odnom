@@ -52,6 +52,7 @@ object MapStyle {
         "museum" to PoiGroup("Музеи, памятники, церкви", 0xFF26A69A.toInt(), "building-castle", listOf("museum", "monument", "castle", "attraction", "place_of_worship", "memorial", "historic", "ruins")),
         "housenumbers" to PoiGroup("Номера и названия зданий", 0xFF6D4C41.toInt(), "home", emptyList()),
         "transit" to PoiGroup("Общественный транспорт", 0xFF78909C.toInt(), "bus", listOf("bus", "tram", "ferry_terminal", "bus_stop", "bus_station", "harbor")),
+        "entrances" to PoiGroup("Подъезды и входы", 0xFF8D6E63.toInt(), "home-2", emptyList()),
         "stopnames" to PoiGroup("Названия остановок", 0xFF78909C.toInt(), "tag", emptyList()),
         "post" to PoiGroup("Отделения почты, почтоматы", 0xFF43A047.toInt(), "package", listOf("post", "parcel_locker", "post_office")),
         "hotel" to PoiGroup("Отели, хостелы, кемпинги", 0xFF7E57C2.toInt(), "bed", listOf("lodging", "campsite", "hotel", "hostel", "camp_site", "guest_house")),
@@ -148,14 +149,15 @@ object MapStyle {
 
     /** Что лежит на телефоне: пути к файлам. id страны → (вид части → путь). */
     class Input(val layersJson: String, val worldRelief: String, val worldLabels: String?, val files: Map<String, Map<String, String>>, val shapes: List<JSONObject>,
-                val metro: Map<String, String> = emptyMap())
+                val metro: Map<String, String> = emptyMap(), val entrances: Map<String, String> = emptyMap())
 
     fun build(ctx: Context, o: Opts): String {
         val inst = OfflineMaps.installed(ctx)
         val files = inst.mapValues { (id, v) -> v.second.associateWith { OfflineMaps.file(ctx, id, it).absolutePath } }
         val input = Input(layerCache.getOrPut(o.variant) { ctx.assets.open("map/${o.variant.key}.json").bufferedReader().use { it.readText() } },
             OfflineMaps.worldRelief(ctx).absolutePath, OfflineMaps.worldLabels(ctx)?.absolutePath, files, OfflineMaps.shapes(ctx).map { it.second },
-            inst.keys.mapNotNull { id -> OfflineMaps.metroFile(ctx, id).takeIf { it.exists() }?.let { id to it.readText() } }.toMap())
+            inst.keys.mapNotNull { id -> OfflineMaps.metroFile(ctx, id).takeIf { it.exists() }?.let { id to it.readText() } }.toMap(),
+            inst.keys.mapNotNull { id -> OfflineMaps.entrancesFile(ctx, id).takeIf { it.exists() && it.length() > 0 }?.let { id to it.absolutePath } }.toMap())
         return compose(input, o)
     }
 
@@ -283,6 +285,13 @@ object MapStyle {
                     "paint":{"text-color":"#6f6a63","text-halo-color":"rgba(255,255,255,0.8)","text-halo-width":1}}"""))
             }
             symbol.forEach { l -> countries.forEach { c -> layers.put(copyFor(l, c)) } }
+            // подъезды: номер в рамке у входа, только вблизи
+            if ("entrances" !in o.hiddenPoi) input.entrances.forEach { (c, path) ->
+                sources.put("entr_$c", JSONObject().put("type", "vector").put("url", "mbtiles://$path"))
+                layers.put(JSONObject("""{"id":"entr@$c","type":"symbol","source":"entr_$c","source-layer":"entrance","minzoom":17,
+                    "layout":{"text-field":["coalesce",["get","ref"],"⇥"],"text-font":["Noto Sans Bold"],"text-size":10,"text-padding":1,"text-allow-overlap":false},
+                    "paint":{"text-color":"#ffffff","text-halo-color":"#8d6e63","text-halo-width":3}}"""))
+            }
             // метро: линии цветом линий, станции кружками
             if (o.metro) input.metro.forEach { (c, gj) ->
                 runCatching { sources.put("metro_$c", JSONObject().put("type", "geojson").put("data", JSONObject(gj))) }.onFailure { return@forEach }

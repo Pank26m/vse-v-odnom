@@ -3,6 +3,8 @@
 python3 tools/map_style.py path/to/osm-liberty/style.json app/src/main/assets/map
 Пишет car.json / foot.json / bike.json — списки слоёв со источником «omt» и плейсхолдером имени «__NAME__».
 Приложение размножает слои для каждой скачанной страны (MapStyle.kt).
+После генерации фильтры переводятся в выражения (convertFilter из @maplibre/maplibre-gl-style-spec) — иначе их нельзя
+дополнять выражениями (within, match).
 """
 import copy, json, sys
 
