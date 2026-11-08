@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: maps
+  cancel-in-progress: false
+
 jobs:
   maps:
     runs-on: ubuntu-latest
@@ -17,6 +21,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Место на диске
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost; df -h /
+      - name: Кэш источников (вода, Natural Earth)
+        uses: actions/cache@v4
+        with:
+          path: maps/data/sources
+          key: planetiler-sources-v1
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
