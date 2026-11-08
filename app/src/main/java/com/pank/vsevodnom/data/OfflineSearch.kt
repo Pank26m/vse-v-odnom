@@ -59,7 +59,9 @@ object OfflineSearch {
                 val lat = r[3] as Double; val lon = r[4] as Double; val kind = r[2] as String
                 val km = dist(lat, lon)
                 val score = (r[6] as Int) * 3.0 + kotlin.math.ln(1 + km) * 2
-                val sub = listOf(MapNames.kind(kind), r[5] as String).filter { it.isNotBlank() }.joinToString(" · ")
+                // у городов «ближайший пункт» — их же пригород, не показываем
+                val near = if (kind.startsWith("place:") && (r[6] as Int) <= 3) "" else r[5] as String
+                val sub = listOf(MapNames.kind(kind), near).filter { it.isNotBlank() }.joinToString(" · ")
                 if (house != null && kind.startsWith("highway:")) {
                     d.rawQuery("SELECT num, lat, lon FROM a WHERE street = ? AND (num = ? OR num LIKE ?) LIMIT 5", arrayOf((r[0] as Long).toString(), house, "$house%")).use { c ->
                         while (c.moveToNext()) {
@@ -71,7 +73,8 @@ object OfflineSearch {
                 out += score to GeoHit(r[1] as String, sub, lat, lon, kind)
             }
         }
-        out.sortedBy { it.first }.map { it.second }.distinctBy { "${it.name}|${"%.4f".format(it.lat)}|${"%.4f".format(it.lon)}" }.take(limit)
+        // один и тот же объект часто есть несколькими точками (дом-здание и адрес-узел) — склеиваем в пределах ~300 м
+        out.sortedBy { it.first }.map { it.second }.distinctBy { "${it.name}|${it.kind}|${(it.lat * 300).toInt()}|${(it.lon * 300).toInt()}" }.take(limit)
     }
 }
 

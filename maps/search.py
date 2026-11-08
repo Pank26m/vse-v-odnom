@@ -92,7 +92,7 @@ CREATE TABLE a(street INTEGER NOT NULL, num TEXT NOT NULL, lat REAL NOT NULL, lo
 seen_street = {}
 rows = []
 for name, alt, kind, lat, lon, rank in feats:
-    pl = nearest(lat, lon, name if kind.startswith("place:") else None)
+    pl = "" if kind in ("place:city", "place:town") else nearest(lat, lon, name if kind.startswith("place:") else None)
     if kind.startswith("highway:"):
         key = (name, pl, int(lat * 20), int(lon * 20)) if not pl else (name, pl)
         if key in seen_street: continue
