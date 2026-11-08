@@ -31,12 +31,31 @@ import org.maplibre.android.offline.OfflineTilePyramidRegionDefinition
  * Стиль карты собирает MapStyle, офлайн-карты стран — OfflineMaps.
  */
 object MapKit {
-    fun init(ctx: Context) { MapLibre.getInstance(ctx.applicationContext) }
+    @Volatile private var httpSet = false
+    fun init(ctx: Context) {
+        MapLibre.getInstance(ctx.applicationContext)
+        if (!httpSet) runCatching {
+            // онлайн-слои из .ms: часть серверов (Google и др.) не отдаёт тайлы без «браузерного» User-Agent
+            val client = okhttp3.OkHttpClient.Builder().addInterceptor { ch ->
+                val r = ch.request()
+                val h = r.url.host
+                ch.proceed(if (h.endsWith("google.com") || h.endsWith("googleapis.com") || h.contains("khms") || h.contains("yandex"))
+                    r.newBuilder().header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36").build() else r)
+            }.build()
+            org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(client)
+            httpSet = true
+        }
+    }
 
     @SuppressLint("MissingPermission")
     fun enableLocation(ctx: Context, map: MapLibreMap, style: Style, follow: Boolean) = runCatching {
         val lc = map.locationComponent
-        if (!lc.isLocationComponentActivated) lc.activateLocationComponent(LocationComponentActivationOptions.builder(ctx, style).build())
+        if (!lc.isLocationComponentActivated) {
+            lc.activateLocationComponent(LocationComponentActivationOptions.builder(ctx, style)
+                .locationComponentOptions(org.maplibre.android.location.LocationComponentOptions.builder(ctx).compassAnimationEnabled(true).trackingAnimationDurationMultiplier(0.6f).build())
+                .build())
+            lc.compassEngine = SmoothCompass(ctx)
+        }
         lc.isLocationComponentEnabled = true
         lc.renderMode = RenderMode.COMPASS
         if (follow) lc.cameraMode = CameraMode.TRACKING
@@ -101,3 +120,43 @@ fun rememberMapView(): MapView {
 fun camera(lat: Double, lon: Double, zoom: Double): CameraPosition = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).build()
 
 @Suppress("unused") private val keepColor = AColor.BLACK
+
+/**
+ * Свой компас вместо встроенного MapLibre (тот обновляется раз в ~0,5 с и дёргается):
+ * датчик поворота (rotation vector) ~30 раз в секунду, сглаживание по кругу, пропуск изменений меньше 0,7°.
+ */
+class SmoothCompass(ctx: Context) : org.maplibre.android.location.CompassEngine, android.hardware.SensorEventListener {
+    private val sm = ctx.getSystemService(android.hardware.SensorManager::class.java)
+    private val sensor = sm.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
+    private val wm = ctx.getSystemService(android.view.WindowManager::class.java)
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<org.maplibre.android.location.CompassListener>()
+    private var heading = 0f; private var sent = Float.NaN; private var acc = android.hardware.SensorManager.SENSOR_STATUS_ACCURACY_HIGH
+    private val r = FloatArray(9); private val rr = FloatArray(9); private val o = FloatArray(3)
+
+    override fun addCompassListener(l: org.maplibre.android.location.CompassListener) {
+        if (listeners.isEmpty()) sensor?.let { sm.registerListener(this, it, 33_000) }
+        listeners += l
+    }
+    override fun removeCompassListener(l: org.maplibre.android.location.CompassListener) {
+        listeners -= l; if (listeners.isEmpty()) sm.unregisterListener(this)
+    }
+    override fun getLastHeading() = heading
+    override fun getLastAccuracySensorStatus() = acc
+    override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) { acc = a; listeners.forEach { it.onCompassAccuracyChange(a) } }
+    override fun onSensorChanged(e: android.hardware.SensorEvent) {
+        android.hardware.SensorManager.getRotationMatrixFromVector(r, e.values)
+        @Suppress("DEPRECATION") val rot = wm.defaultDisplay.rotation
+        val (ax, ay) = when (rot) {
+            android.view.Surface.ROTATION_90 -> android.hardware.SensorManager.AXIS_Y to android.hardware.SensorManager.AXIS_MINUS_X
+            android.view.Surface.ROTATION_180 -> android.hardware.SensorManager.AXIS_MINUS_X to android.hardware.SensorManager.AXIS_MINUS_Y
+            android.view.Surface.ROTATION_270 -> android.hardware.SensorManager.AXIS_MINUS_Y to android.hardware.SensorManager.AXIS_X
+            else -> android.hardware.SensorManager.AXIS_X to android.hardware.SensorManager.AXIS_Y
+        }
+        android.hardware.SensorManager.remapCoordinateSystem(r, ax, ay, rr)
+        android.hardware.SensorManager.getOrientation(rr, o)
+        val h = ((Math.toDegrees(o[0].toDouble()) + 360) % 360).toFloat()
+        var d = h - heading; if (d > 180) d -= 360; if (d < -180) d += 360
+        heading = (heading + d * 0.35f + 360) % 360           // мягкое сглаживание без задержки в полсекунды
+        if (sent.isNaN() || kotlin.math.abs(((heading - sent + 540) % 360) - 180) >= 0.7f) { sent = heading; listeners.forEach { it.onCompassChanged(heading) } }
+    }
+}

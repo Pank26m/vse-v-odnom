@@ -40,6 +40,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
                 MenuRow(Icons.Rounded.Backup, "Резервные копии", sub = "все метки и треки — в файл KML и обратно") { page = "backup" }
                 MenuRow(Icons.Rounded.SdCard, "Хранилище карт", sub = "память телефона или карта памяти") { page = "storage" }
                 MenuRow(Icons.Rounded.Straighten, "Единицы измерения", sub = "расстояние, высота, координаты") { page = "units" }
+                MenuRow(Icons.Rounded.FilterList, "Что показывать на карте", sub = "значки заведений по группам") { page = "filter" }
                 MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "Google (места, отзывы), TomTom (пробки), лимиты") { page = "keys" }
                 MenuRow(Icons.Rounded.Lock, "Конфиденциальность", sub = "история, работа без интернета") { page = "privacy" }
                 MenuRow(Icons.Rounded.Code, "Для разработчиков") { page = "dev" }
@@ -57,6 +58,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
         "privacy" -> PrivacyPage { page = null }
         "dev" -> DevPage(onChanged) { page = null }
         "keys" -> KeysPage(onChanged) { page = null }
+        "filter" -> FilterPage(onChanged) { page = null }
     }
 }
 
@@ -356,7 +358,7 @@ private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
     var tomtom by remember { mutableStateOf(ApiKeys.tomtom(ctx)) }
     var gLimit by remember { mutableStateOf(ApiKeys.limit(ctx, "google").toString()) }
     var tLimit by remember { mutableStateOf(ApiKeys.limit(ctx, "tomtom").toString()) }
-    var gAuto by remember { mutableStateOf(MapPrefs.bool(ctx, "google_auto", false)) }
+    var gAuto by remember { mutableStateOf(MapPrefs.bool(ctx, "google_auto", true)) }
     var gSearch by remember { mutableStateOf(MapPrefs.bool(ctx, "google_default", true)) }
     var ttRoute by remember { mutableStateOf(MapPrefs.bool(ctx, "tomtom_route", true)) }
     Page("Ключи и сервисы", onBack) {
@@ -384,5 +386,24 @@ private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
         }, Modifier.fillMaxWidth())
         Text("Google: в консоли ограничь ключ «Приложения Android» (пакет и SHA-1 — в Настройках → О приложении) и API «Places API (New)». Waze: кнопка в карточке и маршруте открывает навигацию в Waze.",
             style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+    }
+}
+
+@Composable
+private fun FilterPage(onChanged: () -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val p = MapPrefs.p(ctx)
+    var hidden by remember { mutableStateOf(p.getStringSet("hidden_poi", setOf("parking", "other"))!!.toSet()) }
+    Page("Что показывать на карте", onBack) {
+        Text("Выключенные группы значков не рисуются (подписи улиц и домов остаются).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+        AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
+            MapStyle.POI_GROUPS.forEach { (k, v) ->
+                SwitchRow(v.first, null, k !in hidden) { on -> hidden = if (on) hidden - k else hidden + k; p.edit().putStringSet("hidden_poi", hidden).apply(); onChanged() }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PillButton("Всё", { hidden = emptySet(); p.edit().putStringSet("hidden_poi", hidden).apply(); onChanged() }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+            PillButton("Минимум", { hidden = MapStyle.POI_GROUPS.keys - setOf("food", "health", "transport"); p.edit().putStringSet("hidden_poi", hidden).apply(); onChanged() }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+        }
     }
 }

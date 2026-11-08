@@ -25,7 +25,7 @@ class MapStyleTest {
             val ids = (0 until s.getJSONArray("layers").length()).map { s.getJSONArray("layers").getJSONObject(it).getString("id") }
             assertEquals("дубли id слоёв", ids.size, ids.toSet().size)
             assertTrue(ids.contains("world"))
-            if (c) { assertTrue(ids.any { it.endsWith("@ukraine") }); assertTrue(ids.contains("hatch")); assertTrue(ids.contains("hill@ukraine")) }
+            if (c) { assertTrue(ids.any { it.endsWith("@ukraine") }); assertTrue(ids.contains("hill@ukraine")) }
             File(out, "${v.key}-${if (c) "ua" else "world"}-$lang.json").writeText(s.toString(1))
         }
         val online = MapStyle.compose(input("car", true), MapStyle.Opts(online = OnlineMaps.BUILT_IN[1]))

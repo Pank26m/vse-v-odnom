@@ -79,7 +79,9 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                RoundIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onDismiss)
+                Box(Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", tint = Pal.Ink)
+                }
                 Spacer(Modifier.width(8.dp))
                 Row(Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Search, null, tint = Pal.Muted)
@@ -97,7 +99,7 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
             }
             if (!canOnline) Text(if (!Net.online) "Нет интернета — ищу по скачанным картам" else "Онлайн-поиск выключен в настройках", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(16.dp, 6.dp))
             error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk, modifier = Modifier.padding(16.dp, 6.dp)) }
-            LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (q.isBlank()) {
                     MapPrefs.home(ctx)?.let { h -> item { HitRow(Icons.Rounded.Home, "Дом", h.sub) { onPick(GeoHit("Дом", h.sub, h.lat, h.lon, "home")) } } }
                     MapPrefs.work(ctx)?.let { w -> item { HitRow(Icons.Rounded.Work, "Работа", w.sub) { onPick(GeoHit("Работа", w.sub, w.lat, w.lon, "work")) } } }

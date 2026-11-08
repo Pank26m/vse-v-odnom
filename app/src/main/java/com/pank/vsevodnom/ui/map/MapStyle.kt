@@ -30,6 +30,22 @@ object MapStyle {
         val online: OnlineMaps.Source? = null,
         val worldLabels: Boolean = true,
         val traffic: String? = null,          // ключ TomTom, если слой пробок включён
+        val buildings3d: Boolean = false,
+        val hiddenPoi: Set<String> = emptySet(),   // скрытые группы значков (POI_GROUPS)
+        val houseNumbers: Boolean = true,
+    )
+
+    /** Группы значков для фильтра «Что показывать»: ключ → (название, классы OpenMapTiles). */
+    val POI_GROUPS = linkedMapOf(
+        "food" to ("Еда и кафе" to listOf("restaurant", "fast_food", "cafe", "bar", "beer", "ice_cream", "bakery", "pub", "food_court", "confectionery")),
+        "shop" to ("Магазины" to listOf("shop", "grocery", "clothing_store", "alcohol_shop", "jewelry", "florist", "furniture", "hardware", "mobile_phone", "shoe", "gift", "books", "convenience", "supermarket", "butcher", "pet", "cosmetics", "optician")),
+        "transport" to ("Транспорт" to listOf("bus", "railway", "aerialway", "ferry_terminal", "tram", "subway", "airport", "harbor")),
+        "car" to ("Авто и АЗС" to listOf("fuel", "car", "car_repair", "car_wash", "charging_station", "bicycle", "bicycle_rental", "motorcycle")),
+        "parking" to ("Парковки" to listOf("parking", "bicycle_parking", "motorcycle_parking")),
+        "health" to ("Медицина" to listOf("hospital", "pharmacy", "dentist", "doctors", "veterinary", "clinic")),
+        "fun" to ("Отдых и культура" to listOf("attraction", "museum", "art_gallery", "theatre", "cinema", "castle", "monument", "park", "stadium", "swimming", "zoo", "playground", "music", "golf", "campsite", "lodging", "viewpoint")),
+        "service" to ("Услуги и учреждения" to listOf("bank", "atm", "post", "laundry", "hairdresser", "police", "fire_station", "town_hall", "office", "school", "college", "library", "place_of_worship", "kindergarten", "university")),
+        "other" to ("Остальное (туалеты, доступность и пр.)" to emptyList()),
     )
 
     const val HATCH_MIN_ZOOM = 5.5
@@ -43,6 +59,9 @@ object MapStyle {
             p.getBoolean("hillshade", true), p.getBoolean("contours", true), p.getBoolean("relief", true),
             p.getString("lang", "local") ?: "local", if (p.getBoolean("use_online", false)) online else null,
             traffic = com.pank.vsevodnom.data.ApiKeys.tomtom(ctx).takeIf { it.isNotBlank() && p.getBoolean("traffic", false) },
+            buildings3d = p.getBoolean("buildings3d", false),
+            hiddenPoi = p.getStringSet("hidden_poi", setOf("parking", "other")) ?: emptySet(),
+            houseNumbers = p.getBoolean("housenumbers", true),
         )
     }
 
@@ -128,7 +147,16 @@ object MapStyle {
         val countries = input.files.filterValues { "map" in it }.keys.toList()
         val base = JSONArray(input.layersJson)
         val nonSymbol = ArrayList<JSONObject>(); val symbol = ArrayList<JSONObject>()
-        for (i in 0 until base.length()) base.getJSONObject(i).let { if (it.getString("type") == "symbol") symbol += it else nonSymbol += it }
+        for (i in 0 until base.length()) base.getJSONObject(i).let {
+            if (it.getString("type") == "fill-extrusion") {
+                // 3D-дома — тяжёлые для GPU; включаются в «Слоях», и только вблизи
+                if (!o.buildings3d) return@let
+                it.put("minzoom", 15.5)
+            }
+            // плоские дома в Liberty только до z14 (дальше их сменяли 3D) — без 3D рисуем их на всех зумах, с 3D — до 15.5
+            if (it.getString("id") == "building") { it.remove("maxzoom"); if (o.buildings3d) it.put("maxzoom", 15.5) }
+            if (it.getString("type") == "symbol") symbol += it else nonSymbol += it
+        }
 
         fun copyFor(l: JSONObject, c: String): JSONObject {
             val n = JSONObject(l.toString())
@@ -136,6 +164,17 @@ object MapStyle {
             n.optJSONObject("layout")?.let { lay -> if (lay.optString("text-field") == "__NAME__") lay.put("text-field", name) }
             // подписи стран/городов на мелких зумах даёт слой мира — чтобы не двоились
             if (hasWorld && n.optString("source-layer") == "place" && n.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) n.put("minzoom", HATCH_MIN_ZOOM)
+            // на мелких зумах в тайлах страны лежит океан Natural Earth для всего мира — давал синие прямоугольники поверх рельефа
+            if (l.getString("type") != "symbol" && n.optDouble("minzoom", 0.0) < 6.0) n.put("minzoom", 6.0)
+            // фильтр значков
+            if (n.optString("source-layer") == "poi" && o.hiddenPoi.isNotEmpty()) {
+                val f = n.optJSONArray("filter") ?: JSONArray().put("all")
+                val all = if (f.optString(0) == "all") f else JSONArray().put("all").put(f)
+                val hidden = POI_GROUPS.filterKeys { it in o.hiddenPoi }.values.flatMap { it.second }
+                val shown = POI_GROUPS.filterKeys { it !in o.hiddenPoi }.values.flatMap { it.second }
+                all.put(if ("other" in o.hiddenPoi) JSONArray().put("in").put("class").apply { shown.forEach { put(it) } } else JSONArray().put("!in").put("class").apply { hidden.forEach { put(it) } })
+                n.put("filter", all)
+            }
             return n
         }
 
@@ -176,11 +215,11 @@ object MapStyle {
         }
 
         if (o.online == null) {
-            sources.put("hatch", JSONObject().put("type", "geojson").put("data", hatchGeo(shapeGeoms)))
-            layers.put(JSONObject("""{"id":"hatch","type":"fill","source":"hatch","minzoom":$HATCH_MIN_ZOOM,
-                "paint":{"fill-pattern":"hatch","fill-opacity":["interpolate",["linear"],["zoom"],$HATCH_MIN_ZOOM,0,6.5,1]}}"""))
-            if (shapeGeoms.isNotEmpty()) layers.put(JSONObject("""{"id":"shape-edge","type":"line","source":"shapes","minzoom":$HATCH_MIN_ZOOM,
-                "paint":{"line-color":"#9a96a3","line-width":1,"line-opacity":0.5}}"""))
+            if (o.houseNumbers) countries.forEach { c ->
+                layers.put(JSONObject("""{"id":"housenum@$c","type":"symbol","source":"omt_$c","source-layer":"housenumber","minzoom":16.5,
+                    "layout":{"text-field":["get","housenumber"],"text-font":["Noto Sans Regular"],"text-size":11,"text-padding":2},
+                    "paint":{"text-color":"#6f6a63","text-halo-color":"rgba(255,255,255,0.8)","text-halo-width":1}}"""))
+            }
             symbol.forEach { l -> countries.forEach { c -> layers.put(copyFor(l, c)) } }
         }
 

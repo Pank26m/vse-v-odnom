@@ -21,6 +21,10 @@ object MapPrefs {
     fun setHome(ctx: Context, s: Spot?) = p(ctx).edit().putString("home", s?.let { json(it).toString() }).apply()
     fun setWork(ctx: Context, s: Spot?) = p(ctx).edit().putString("work", s?.let { json(it).toString() }).apply()
 
+    /** Свои избранные места для маршрута (учёба, вторая работа…). */
+    fun favs(ctx: Context): List<Spot> = runCatching { JSONArray(p(ctx).getString("favs", "[]")).let { a -> (0 until a.length()).map { spot(a.getJSONObject(it)) } } }.getOrDefault(emptyList())
+    fun setFavs(ctx: Context, l: List<Spot>) = p(ctx).edit().putString("favs", JSONArray(l.map { json(it) }).toString()).apply()
+
     fun recents(ctx: Context): List<Spot> = runCatching { JSONArray(p(ctx).getString("recents", "[]")).let { a -> (0 until a.length()).map { spot(a.getJSONObject(it)) } } }.getOrDefault(emptyList())
     fun addRecent(ctx: Context, s: Spot) {
         if (p(ctx).getBoolean("no_history", false)) return

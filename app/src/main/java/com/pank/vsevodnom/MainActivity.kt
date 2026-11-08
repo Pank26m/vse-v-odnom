@@ -201,7 +201,14 @@ class MainActivity : FragmentActivity() {
             return "todo"
         }
         if (i?.action == Intent.ACTION_SEND) {
-            i.getStringExtra(Intent.EXTRA_TEXT)?.let(::extractUrl)?.let { SharedLink.url = it; return "downloads" }
+            val t = i.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+            if (com.pank.vsevodnom.data.IncomingGeo.isMapLink(t)) { com.pank.vsevodnom.data.IncomingGeo.handleLink(applicationContext, t); return "map" }
+            extractUrl(t)?.let { SharedLink.url = it; return "downloads" }
+        }
+        if (i?.action == Intent.ACTION_VIEW && i.data != null && i.getStringExtra("route") == null) {
+            val d = i.data!!
+            if (d.scheme == "geo" || d.host?.contains("google") == true || d.host == "maps.app.goo.gl") { com.pank.vsevodnom.data.IncomingGeo.handleLink(applicationContext, d.toString()); return "map" }
+            if (d.scheme == "content" || d.scheme == "file") { com.pank.vsevodnom.data.IncomingGeo.handleFile(applicationContext, d); return "map" }
         }
         // ярлык команды с рабочего стола: выполняем и остаёмся на главной
         i?.getStringExtra("command")?.let { id ->

@@ -207,5 +207,17 @@ private fun FolderEditor(f: MapFolder, onDismiss: () -> Unit, onExport: (() -> U
             if (name.isBlank()) return@TextButton
             AppScope.io.launch { AppDb.get(ctx).map().upsertFolder(f.copy(name = name.trim(), color = color)) }; onDismiss()
         }) { Text("Сохранить") } },
-        dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
+        dismissButton = {
+            if (f.id != 0L) TextButton({
+                // папку удаляем, её содержимое и подпапки переезжают на уровень выше
+                AppScope.io.launch {
+                    val dao = AppDb.get(ctx).map()
+                    dao.movePlaces(dao.placesNow().filter { it.folderId == f.id }.map { it.id }, f.parentId)
+                    dao.moveTracks(dao.tracksNow().filter { it.folderId == f.id }.map { it.id }, f.parentId)
+                    dao.moveFolders(dao.foldersNow().filter { it.parentId == f.id }.map { it.id }, f.parentId)
+                    dao.deleteFolder(f)
+                }
+                onDismiss()
+            }) { Text("Удалить папку", color = Pal.RoseInk) } else TextButton(onDismiss) { Text("Отмена") }
+        })
 }

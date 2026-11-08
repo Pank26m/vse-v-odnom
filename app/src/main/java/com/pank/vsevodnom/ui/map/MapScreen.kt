@@ -83,7 +83,7 @@ private fun setupOverlays(style: Style) {
     style.addLayer(CircleLayer("u-places-c", "u-places").withProperties(PF.circleRadius(7.5f), PF.circleColor(Expression.toColor(Expression.get("color"))), PF.circleStrokeColor("#FFFFFF"), PF.circleStrokeWidth(2.5f)))
     style.addLayer(SymbolLayer("u-places-t", "u-places").withProperties(PF.textField(Expression.get("name")), PF.textFont(arrayOf("Noto Sans Bold")), PF.textSize(11.5f),
         PF.textColor("#2B2A33"), PF.textHaloColor("#FFFFFF"), PF.textHaloWidth(1.5f), PF.textAnchor("top"), PF.textOffset(arrayOf(0f, 0.9f)), PF.textOptional(true)).withProperties().apply { minZoom = 11f })
-    style.addLayer(CircleLayer("u-pin-c", "u-pin").withProperties(PF.circleRadius(9f), PF.circleColor("#4F86C6"), PF.circleStrokeColor("#FFFFFF"), PF.circleStrokeWidth(3f)))
+    style.addLayer(SymbolLayer("u-pin-c", "u-pin").withProperties(PF.iconImage("pin"), PF.iconAnchor("bottom"), PF.iconAllowOverlap(true), PF.iconIgnorePlacement(true)))
 }
 
 internal fun Style.setFeatures(id: String, f: List<Feature>) { getSourceAs<GeoJsonSource>(id)?.setGeoJson(FeatureCollection.fromFeatures(f)) }
@@ -153,7 +153,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         if (pts.size < 2) return
         runCatching {
             val b = LatLngBounds.Builder().apply { pts.forEach { include(LatLng(it.lat, it.lon)) } }.build()
-            m.animateCamera(CameraUpdateFactory.newLatLngBounds(b, (70 * density).toInt()), 700)
+            m.animateCamera(CameraUpdateFactory.newLatLngBounds(b, (90 * density).toInt(), (190 * density).toInt(), (90 * density).toInt(), (200 * density).toInt()), 700)
         }
     }
     fun pin(lat: Double?, lon: Double?) { style?.setFeatures("u-pin", if (lat == null || lon == null) emptyList() else listOf(Feature.fromGeometry(Point.fromLngLat(lon, lat)))) }
@@ -224,7 +224,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         val opts = MapStyle.opts(ctx)
         style = null
         m.setStyle(Style.Builder().fromJson(MapStyle.build(ctx, opts))) { st ->
-            st.addImage("hatch", MapStyle.hatchBitmap(density))
+            st.addImage("pin", pinBitmap(density))
             setupOverlays(st); style = st
             m.isDebugActive = prefs.getBoolean("dev_tiles", false)
             if (hasLoc(ctx)) {
@@ -292,6 +292,18 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         }
     }
     // трек сохранён: если автосохранение выключено — спросить имя и папку
+    // пришло извне: ссылка Google Карт → метка, файл .ms / GPX / KML
+    LaunchedEffect(IncomingGeo.message) {
+        IncomingGeo.message?.let { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show(); IncomingGeo.message = null; styleTick++ }
+    }
+    LaunchedEffect(IncomingGeo.open, map) {
+        val q = IncomingGeo.open ?: return@LaunchedEffect
+        if (map == null) return@LaunchedEffect
+        IncomingGeo.open = null
+        fly(q.lat, q.lon, 16.5)
+        val pl = q.placeId?.let { id -> dao.placesNow().firstOrNull { it.id == id } }
+        open(MapTarget(q.name, if (pl != null) "Моя метка" else "", q.lat, q.lon, pl, q.googleId?.let { mapOf("google_id" to it) } ?: emptyMap()))
+    }
     LaunchedEffect(lastSaved) {
         val id = lastSaved ?: return@LaunchedEffect
         TrackService.lastSaved.value = null
@@ -306,7 +318,6 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         val lc = m.locationComponent
         if (lc.lastKnownLocation == null) Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()
         when {
-            locMode == 0 && bearing != 0f && lc.lastKnownLocation == null -> m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 400)
             locMode == 0 -> { lc.cameraMode = CameraMode.TRACKING; lc.zoomWhileTracking(maxOf(m.cameraPosition.zoom, 15.5), 700); locMode = 1 }
             locMode == 1 -> { lc.cameraMode = CameraMode.TRACKING_COMPASS; locMode = 2 }
             else -> {
@@ -382,7 +393,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             }
             if (routeTo != null && target == null && selTrack == null) RouteStrip(routeTo!!, routeInfo, onOpen = { sheet = MapSheet.ROUTE }) { routeTo = null; routeLine = emptyList(); routeInfo = "" }
             target?.let { t ->
-                PlaceCard(t, myLoc, folders, onClose = { closeAll() }, onRoute = { s -> routeTo = s; routeInfo = ""; sheet = MapSheet.ROUTE }, onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl)) })
+                PlaceCard(t, myLoc, folders, onClose = { closeAll() }, onRoute = { s -> routeTo = s; routeInfo = ""; sheet = MapSheet.ROUTE }, onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl, if (t.place == null) mapOf("edit" to "1") else emptyMap())) })
             }
             selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }) }
         }
@@ -471,4 +482,21 @@ private fun RouteStrip(to: MapPrefs.Spot, info: String, onOpen: () -> Unit, onCl
         }
         IconButton(onClear) { Icon(Icons.Rounded.Close, "Убрать маршрут") }
     }
+}
+
+/** Красная метка «как везде» для выбранной точки. */
+internal fun pinBitmap(d: Float): android.graphics.Bitmap {
+    val w = (30 * d).toInt(); val h = (42 * d).toInt()
+    val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(b)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val r = w / 2f - d
+    val path = android.graphics.Path().apply {
+        addCircle(w / 2f, r + d, r, android.graphics.Path.Direction.CW)
+        moveTo(w / 2f - r * 0.7f, r + d + r * 0.7f); lineTo(w / 2f, h - d); lineTo(w / 2f + r * 0.7f, r + d + r * 0.7f); close()
+    }
+    p.color = 0x40000000; c.save(); c.translate(0f, d); c.drawPath(path, p); c.restore()
+    p.color = 0xFFE5484D.toInt(); c.drawPath(path, p)
+    p.color = 0xFFFFFFFF.toInt(); c.drawCircle(w / 2f, r + d, r * 0.38f, p)
+    return b
 }
