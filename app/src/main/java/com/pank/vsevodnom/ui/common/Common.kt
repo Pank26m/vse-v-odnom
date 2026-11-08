@@ -222,8 +222,14 @@ val LocalRootInsets = androidx.compose.runtime.staticCompositionLocalOf { RootIn
 @Composable
 fun Modifier.dialogBars(): Modifier {
     val r = LocalRootInsets.current
-    val top = maxOf(r.top, WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
-    val bottom = maxOf(r.bottom, r.ime, WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(), WindowInsets.ime.asPaddingValues().calculateBottomPadding())
+    // запасной путь: отступы окна самой активности (на вкладках с нижним баром корневые отступы уже «съедены»)
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val act = generateSequence(ctx) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()
+    val sys = act?.window?.decorView?.let { androidx.core.view.ViewCompat.getRootWindowInsets(it)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+    val sysTop = with(density) { (sys?.top ?: 0).toDp() }; val sysBottom = with(density) { (sys?.bottom ?: 0).toDp() }
+    val top = maxOf(r.top, sysTop, WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+    val bottom = maxOf(r.bottom, r.ime, sysBottom, WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(), WindowInsets.ime.asPaddingValues().calculateBottomPadding())
     // окно диалога: пусть клавиатура сжимает его, а не перекрывает поля
     val view = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.SideEffect {

@@ -32,8 +32,11 @@ object OnlineMaps {
 
     fun custom(ctx: Context): List<Source> = runCatching {
         val a = JSONArray(prefs(ctx).getString("online_sources", "[]"))
-        (0 until a.length()).map { fromJson(a.getJSONObject(it)) }
+        (0 until a.length()).map { fromJson(a.getJSONObject(it)).let { s -> s.copy(layers = s.layers.map { l -> l.copy(tiles = l.tiles.map(::secure)) }) } }
     }.getOrDefault(emptyList())
+
+    /** Android запрещает http без шифрования — у Google и большинства серверов тайлов есть https. */
+    fun secure(u: String) = if (u.startsWith("http://")) "https://" + u.removePrefix("http://") else u
 
     fun saveCustom(ctx: Context, list: List<Source>) = prefs(ctx).edit().putString("online_sources", JSONArray(list.map { toJson(it) }).toString()).apply()
 
@@ -53,7 +56,7 @@ object OnlineMaps {
         val text = StringBuilder()
         fun flush() {
             if (url.isBlank()) return
-            var u = url.trim().replace("&amp;", "&")
+            var u = secure(url.trim().replace("&amp;", "&"))
             val tms = u.contains("{\$invY}")
             u = u.replace("{\$x}", "{x}").replace("{\$y}", "{y}").replace("{\$invY}", "{y}").replace("{\$z}", "{z}").replace("{\$quad}", "{quadkey}")
             val sp = parts.trim().split(Regex("[\\s,;]+")).filter { it.isNotBlank() }

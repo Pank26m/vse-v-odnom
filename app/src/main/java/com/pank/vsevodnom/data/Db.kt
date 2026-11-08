@@ -320,7 +320,7 @@ interface LifeDao {
         TaskItem::class, Habit::class, HabitLog::class, FocusSession::class, MediaItem::class, Note::class, Birthday::class,
         Account::class, Category::class, Txn::class, Place::class, Track::class, ListPage::class, ListEntry::class, Deck::class, Card::class, MapFolder::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 abstract class AppDb : RoomDatabase() {
@@ -342,6 +342,13 @@ abstract class AppDb : RoomDatabase() {
         fun closeForRestore() = synchronized(this) { inst?.close(); inst = null }
 
         /** v3 → v4: дела, привычки, фокус, списки, заметки, дни рождения, деньги, карта; фото/голос у настроения; теги/архив у корзины. */
+        /** v10 → v11: у трека — данные маршрута (способ, точки), чтобы его можно было перестроить. */
+        val M10_11 = object : androidx.room.migration.Migration(10, 11) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `track` ADD COLUMN `meta` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** v9 → v10: коллекции карты — папки в папках, видимость и цвет меток/треков; старые текстовые папки → настоящие. */
         val M9_10 = object : androidx.room.migration.Migration(9, 10) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -487,7 +494,7 @@ abstract class AppDb : RoomDatabase() {
         }
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "app.db")
-                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7, M7_8, M8_9, M9_10)
+                .addMigrations(M1_2, M2_3, M3_4, M4_5, M5_6, M6_7, M7_8, M8_9, M9_10, M10_11)
                 .build().also { inst = it }
         }
     }

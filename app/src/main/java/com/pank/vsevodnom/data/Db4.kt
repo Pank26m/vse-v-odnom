@@ -216,6 +216,8 @@ data class Track(
     val folderId: Long? = null,
     @ColumnInfo(defaultValue = "1") val visible: Boolean = true,
     @ColumnInfo(defaultValue = "0") val color: Int = 0,
+    /** Для построенных маршрутов: JSON {mode, way:[{name,lat,lon}]} — чтобы потом менять старт, финиш, остановки, транспорт. */
+    @ColumnInfo(defaultValue = "") val meta: String = "",
 )
 
 /** Папка коллекции карты: папки вкладываются друг в друга (parentId), метки и треки — в папки или без папки. */

@@ -45,9 +45,20 @@ object RoutePlan {
     var busy by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var rev by mutableIntStateOf(0)      // растёт при изменении точек — повод перестроить
+    var editTrack by mutableStateOf<Track?>(null)   // правим сохранённый маршрут — «Сохранить» обновит его
+
+    /** Открыть сохранённый маршрут/трек для правки: точки из meta или начало и конец трека. */
+    fun load(t: Track) {
+        val rw = routeWay(t); val pts = Osm.decode(t.points)
+        points.clear()
+        if (rw != null) { points.addAll(rw.second); mode = rw.first }
+        else if (pts.size >= 2) { points.add(MapPrefs.Spot("Начало трека", pts.first().lat, pts.first().lon)); points.add(MapPrefs.Spot("Конец трека", pts.last().lat, pts.last().lon)); mode = "bike" }
+        while (points.size < 2) points.add(null)
+        editTrack = t; route = null; error = null; active = true; rev++
+    }
 
     fun open(ctx: android.content.Context) { if (!active) { points.clear(); points.add(null); points.add(null); route = null; error = null; mode = MapPrefs.navMode(ctx) }; active = true }
-    fun close() { active = false; points.clear(); points.add(null); points.add(null); route = null; error = null; rev++ }
+    fun close() { active = false; editTrack = null; points.clear(); points.add(null); points.add(null); route = null; error = null; rev++ }
     fun setTo(s: MapPrefs.Spot) { points[points.size - 1] = s; rev++ }
     fun setFrom(s: MapPrefs.Spot?) { points[0] = s; rev++ }
     fun addStop(s: MapPrefs.Spot) { if (points.last() == null) points[points.size - 1] = s else points.add(points.size - 1, s); rev++ }
@@ -65,7 +76,6 @@ object RoutePlan {
 
     fun sourceName(r: Routing.Route?) = when (r?.source) {
         "офлайн" -> "офлайн на телефоне (BRouter)"
-        "TomTom" -> "TomTom с учётом пробок"
         "OSRM" -> "OSRM онлайн (без пробок)"
         "line" -> "по прямой"
         else -> r?.source.orEmpty()
@@ -90,28 +100,32 @@ internal fun RoutePlannerTop(onClose: () -> Unit, onSettings: () -> Unit) {
         Box {
             IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Ещё") }
             DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem({ Text("Сохранить как трек") }, { menu = false; saveRouteAsTrack(ctx) }, enabled = RoutePlan.route != null)
+                if (RoutePlan.editTrack != null) DropdownMenuItem({ Text("Сохранить изменения в «${RoutePlan.editTrack!!.name.take(30)}»") }, { menu = false; saveRouteAsTrack(ctx, RoutePlan.editTrack) }, enabled = RoutePlan.route != null)
+                DropdownMenuItem({ Text(if (RoutePlan.editTrack != null) "Сохранить как новый трек" else "Сохранить как трек") }, { menu = false; saveRouteAsTrack(ctx, null) }, enabled = RoutePlan.route != null)
                 DropdownMenuItem({ Text("Настройки навигации") }, { menu = false; onSettings() })
             }
         }
     }
 }
 
-private fun saveRouteAsTrack(ctx: android.content.Context) {
+private fun saveRouteAsTrack(ctx: android.content.Context, into: Track?) {
     val r = RoutePlan.route ?: return
+    val way = RoutePlan.points.mapIndexedNotNull { i, s -> s ?: if (i == 0) r.points.firstOrNull()?.let { MapPrefs.Spot("Моё место", it.lat, it.lon) } else null }
+    val meta = org.json.JSONObject().put("mode", RoutePlan.mode).put("way", org.json.JSONArray(way.map { org.json.JSONObject().put("name", it.name).put("lat", it.lat).put("lon", it.lon) })).toString()
     val name = "Маршрут: " + RoutePlan.points.filterNotNull().joinToString(" → ") { it.name }.ifBlank { "без названия" }
     AppScope.io.launch {
         val dao = AppDb.get(ctx).map()
         val folder = dao.foldersNow().firstOrNull { it.name == "Маршруты" && it.parentId == null }?.id ?: dao.upsertFolder(MapFolder(name = "Маршруты"))
         val now = System.currentTimeMillis()
-        dao.upsertTrack(Track(name = name.take(120), startedAt = now, endedAt = now, distanceM = r.meters, points = Osm.encode(r.points), folderId = folder))
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(ctx, "Сохранено в коллекции «Маршруты»", Toast.LENGTH_SHORT).show() }
+        if (into != null) dao.upsertTrack(into.copy(distanceM = r.meters, points = Osm.encode(r.points), meta = meta))
+        else dao.upsertTrack(Track(name = name.take(120), startedAt = now, endedAt = now, distanceM = r.meters, points = Osm.encode(r.points), folderId = folder, meta = meta))
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(ctx, if (into != null) "Трек обновлён" else "Сохранено в коллекции «Маршруты»", Toast.LENGTH_SHORT).show() }
     }
 }
 
 /** Нижняя панель плана: итог (км · время · прибытие · ▶) и список точек с остановками. */
 @Composable
-internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Unit, onPickMap: (Int) -> Unit) {
+internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Unit, onPickMap: (Int) -> Unit, onSearch: (Int) -> Unit) {
     val ctx = LocalContext.current
     val r = RoutePlan.route
     var expanded by remember { mutableStateOf(true) }
@@ -132,33 +146,42 @@ internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Uni
                         }
                         Text(RoutePlan.sourceName(r) + if (r.delay >= 60) " · пробки +" + fmtDur((r.delay * 1000).toLong()) else "", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                     }
-                    val canGo = RoutePlan.points.first() == null && r.source != "line" && r.steps.isNotEmpty()
+                    val canGo = RoutePlan.mode == "car" || (RoutePlan.points.first() == null && r.source != "line" && r.steps.isNotEmpty())
                     Box(Modifier.size(52.dp).clip(CircleShape).background(if (canGo) Color(0xFF3E6FA8) else Pal.Line).clickable {
-                        if (canGo) onGo() else Toast.makeText(ctx, if (r.source == "line") "Навигация — по дорогам: выбери авто, вело или пешком" else "Навигация ведёт от моего места — убери «Откуда»", Toast.LENGTH_LONG).show()
+                        if (RoutePlan.mode == "car") RoutePlan.dest?.let { d -> Toast.makeText(ctx, "На машине ведёт Waze", Toast.LENGTH_SHORT).show(); waze(ctx, d.lat, d.lon) }
+                        else if (canGo) onGo() else Toast.makeText(ctx, if (r.source == "line") "Навигация — по дорогам: выбери авто, вело или пешком" else "Навигация ведёт от моего места — убери «Откуда»", Toast.LENGTH_LONG).show()
                     }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PlayArrow, "Поехали", tint = Color.White, modifier = Modifier.size(30.dp)) }
                 }
-                else -> Text(RoutePlan.error ?: if (RoutePlan.dest == null) "Куда? Выбери ниже, на карте или долгим нажатием" else "…", style = MaterialTheme.typography.bodyLarge,
-                    color = if (RoutePlan.error != null) Pal.RoseInk else Pal.Muted, modifier = Modifier.weight(1f))
+                RoutePlan.error != null -> Text(RoutePlan.error!!, style = MaterialTheme.typography.bodyMedium, color = Pal.RoseInk, modifier = Modifier.weight(1f))
+                else -> Text("Маршрут", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             }
         }
         if (expanded) Column(Modifier.fillMaxWidth().heightIn(max = (screenH * 0.42f).dp).verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
-            RoutePlan.points.forEachIndexed { i, s ->
+            RoutePlan.points.forEachIndexed { i, sp ->
                 val last = i == RoutePlan.points.size - 1
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onPickMap(i) }.padding(vertical = 8.dp, horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Bg).clickable { onSearch(i) }.padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
                     when {
                         i == 0 -> Box(Modifier.size(22.dp).clip(CircleShape).background(Color(0xFF3E6FA8)))
-                        last -> Icon(Icons.Rounded.SportsScore, null, tint = Pal.Ink, modifier = Modifier.size(22.dp))
+                        last -> Box(Modifier.size(22.dp).clip(CircleShape).background(Color(0xFFE5484D)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SportsScore, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
                         else -> Box(Modifier.size(22.dp).clip(CircleShape).background(Color(0xFFE09A1B)), contentAlignment = Alignment.Center) {
                             Text(RoutePlan.label(i - 1), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                    Text(when { s != null -> s.name; i == 0 -> "Моё положение"; last -> "Куда — нажми, чтобы выбрать на карте"; else -> "Остановка" },
-                        style = MaterialTheme.typography.bodyLarge, color = if (s == null && i != 0) Pal.Muted else Pal.Ink, maxLines = 1, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
-                    if (s != null) IconButton({ RoutePlan.remove(i) }, Modifier.size(32.dp)) { Icon(Icons.Rounded.Cancel, "Убрать", tint = Pal.Muted, modifier = Modifier.size(20.dp)) }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(when { i == 0 -> "Откуда"; last -> "Куда"; else -> "Остановка ${RoutePlan.label(i - 1)}" }, fontSize = 11.sp, color = Pal.Muted)
+                        Text(sp?.name ?: if (i == 0) "Моё положение" else "Найти место…", style = MaterialTheme.typography.bodyLarge, color = if (sp == null && i != 0) Pal.Muted else Pal.Ink, maxLines = 1)
+                    }
+                    IconButton({ onPickMap(i) }) { Icon(Icons.Rounded.AddLocationAlt, "Выбрать на карте", tint = Pal.SkyInk) }
+                    if (sp != null) IconButton({ RoutePlan.remove(i) }) { Icon(Icons.Rounded.Cancel, "Убрать", tint = Pal.Muted, modifier = Modifier.size(20.dp)) }
                 }
-                if (!last) HorizontalDivider(color = Pal.Line, modifier = Modifier.padding(start = 40.dp))
             }
-            TextButton({ onPickMap(-1) }) { Icon(Icons.Rounded.Add, null); Text(" Добавить остановку") }
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Bg).clickable { onSearch(-1) }.padding(start = 12.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Add, null, tint = Pal.SkyInk, modifier = Modifier.size(22.dp))
+                Text("Добавить остановку", style = MaterialTheme.typography.bodyLarge, color = Pal.SkyInk, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+                IconButton({ onPickMap(-1) }) { Icon(Icons.Rounded.AddLocationAlt, "Остановка на карте", tint = Pal.SkyInk) }
+            }
             if (RoutePlan.dest == null) RouteQuickPicks(me, places)
         }
     }
@@ -173,24 +196,47 @@ private fun RouteQuickPicks(me: GeoPt?, places: List<Place>) {
     var work by remember { mutableStateOf(MapPrefs.work(ctx)) }
     var filter by remember { mutableStateOf("") }
     var pickFav by remember { mutableStateOf(false) }
+    var moveFav by remember { mutableStateOf<((MapPrefs.Spot) -> Unit)?>(null) }
+    var renameFav by remember { mutableStateOf<((String) -> Unit)?>(null) }
+    var renameText by remember { mutableStateOf("") }
     var newFav by remember { mutableStateOf<MapPrefs.Spot?>(null) }
     SectionLabel("Избранное")
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        @Composable fun Tile(ic: androidx.compose.ui.graphics.vector.ImageVector, n: String, s: MapPrefs.Spot?, onLong: () -> Unit) {
-            Column(Modifier.width(104.dp).height(78.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Bg).combinedClickableCompat(onClick = {
-                if (s != null) RoutePlan.setTo(s.copy(name = n)) else Toast.makeText(ctx, "Не задано: открой место → «Ещё» → «Сделать «$n»»", Toast.LENGTH_LONG).show()
-            }, onLongClick = onLong).padding(10.dp)) {
-                Icon(ic, null, tint = Pal.SkyInk); Text(n, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                Text(s?.sub?.ifBlank { null } ?: if (s != null) "задано" else "не задано", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+        @Composable fun Tile(ic: androidx.compose.ui.graphics.vector.ImageVector, n: String, s: MapPrefs.Spot?, onRename: ((String) -> Unit)?, onMove: (MapPrefs.Spot) -> Unit, onDelete: () -> Unit) {
+            var menu by remember { mutableStateOf(false) }
+            Box(Modifier.width(110.dp).height(80.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Bg).clickable {
+                if (s != null) RoutePlan.setTo(s.copy(name = n)) else { moveFav = { sp -> onMove(sp) } }
+            }) {
+                Column(Modifier.padding(10.dp)) {
+                    Icon(ic, null, tint = Pal.SkyInk); Text(n, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text(s?.sub?.ifBlank { null } ?: if (s != null) "задано" else "нажми — задать", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+                }
+                Box(Modifier.align(Alignment.TopEnd)) {
+                    Icon(Icons.Rounded.MoreVert, "Ещё", tint = Pal.Muted, modifier = Modifier.padding(4.dp).size(18.dp).clickable { menu = true })
+                    DropdownMenu(menu, { menu = false }) {
+                        if (onRename != null) DropdownMenuItem({ Text("Переименовать") }, { menu = false; renameFav = onRename; renameText = n })
+                        DropdownMenuItem({ Text("Изменить адрес") }, { menu = false; moveFav = onMove })
+                        DropdownMenuItem({ Text("Удалить", color = Pal.RoseInk) }, { menu = false; onDelete() })
+                    }
+                }
             }
         }
-        Tile(Icons.Rounded.Home, "Дом", home) { MapPrefs.setHome(ctx, null); home = null }
-        Tile(Icons.Rounded.Work, "Работа", work) { MapPrefs.setWork(ctx, null); work = null }
-        favs.forEach { f -> Tile(Icons.Rounded.Star, f.name, f) { favs = favs - f; MapPrefs.setFavs(ctx, favs) } }
-        Column(Modifier.width(104.dp).height(78.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Bg).clickable { pickFav = true }.padding(10.dp),
+        Tile(Icons.Rounded.Home, "Дом", home, null, { sp -> val h = sp.copy(name = "Дом"); MapPrefs.setHome(ctx, h); home = h }) { MapPrefs.setHome(ctx, null); home = null }
+        Tile(Icons.Rounded.Work, "Работа", work, null, { sp -> val w = sp.copy(name = "Работа"); MapPrefs.setWork(ctx, w); work = w }) { MapPrefs.setWork(ctx, null); work = null }
+        favs.forEachIndexed { idx, f ->
+            Tile(Icons.Rounded.Star, f.name, f, { nn -> favs = favs.toMutableList().also { it[idx] = f.copy(name = nn) }; MapPrefs.setFavs(ctx, favs) },
+                { sp -> favs = favs.toMutableList().also { it[idx] = sp.copy(name = f.name) }; MapPrefs.setFavs(ctx, favs) }) { favs = favs - f; MapPrefs.setFavs(ctx, favs) }
+        }
+        Column(Modifier.width(110.dp).height(80.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Bg).clickable { pickFav = true }.padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(Icons.Rounded.Add, "Добавить", tint = Pal.SkyInk); Text("Добавить", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
         }
+    }
+    moveFav?.let { cb -> MapPointPicker(onDismiss = { moveFav = null }) { (n, la, lo) -> cb(MapPrefs.Spot(n, la, lo, n)); moveFav = null } }
+    renameFav?.let { cb ->
+        AlertDialog(onDismissRequest = { renameFav = null }, title = { Text("Название") }, text = { AppTextField(renameText, { renameText = it }, "Название") },
+            confirmButton = { TextButton({ if (renameText.isNotBlank()) cb(renameText.trim()); renameFav = null }) { Text("Сохранить") } },
+            dismissButton = { TextButton({ renameFav = null }) { Text("Отмена") } })
     }
     if (pickFav) MapPointPicker(onDismiss = { pickFav = false }) { (n, la, lo) -> pickFav = false; newFav = MapPrefs.Spot(n, la, lo, n) }
     newFav?.let { sp ->
@@ -200,7 +246,6 @@ private fun RouteQuickPicks(me: GeoPt?, places: List<Place>) {
             confirmButton = { TextButton({ if (name.isNotBlank()) { favs = favs + sp.copy(name = name.trim()); MapPrefs.setFavs(ctx, favs) }; newFav = null }) { Text("Добавить") } },
             dismissButton = { TextButton({ newFav = null }) { Text("Отмена") } })
     }
-    Text("«Добавить» — выбрать место на карте (или у места: «Ещё» → «В избранное маршрутов»). Долгое нажатие на плитку — убрать.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
     val rec = remember { MapPrefs.recents(ctx) }
     if (rec.isNotEmpty()) { SectionLabel("Недавние"); rec.take(5).forEach { r -> MenuRow(Icons.Rounded.History, r.name, sub = r.sub.ifBlank { null }) { RoutePlan.setTo(r) } } }
     if (places.isNotEmpty()) {

@@ -202,6 +202,26 @@ object OfflineMaps {
     }
 
     /** Мировые слои (подписи и подробный рельеф, ~20 МБ) — сами по Wi-Fi, один раз. */
+    /** Мелкие файлы страны (метро, подъезды), появившиеся на сервере после скачивания карты, — докачать молча. */
+    fun ensureExtras(ctx: Context) {
+        val cat = catalog ?: return
+        if (!Net.online) return
+        installed(ctx).filterValues { "map" in it.second }.keys.forEach { id ->
+            val c = cat.countries.firstOrNull { it.id == id } ?: return@forEach
+            listOfNotNull(c.metro?.let { it to metroFile(ctx, id) }, c.entrances?.let { it to entrancesFile(ctx, id) }).forEach { (name, f) ->
+                if (f.exists() && f.length() > 0) return@forEach
+                AppScope.io.launch {
+                    runCatching {
+                        val conn = URL(BASE + name).openConnection() as HttpURLConnection
+                        conn.connectTimeout = 15_000; conn.readTimeout = 60_000; conn.instanceFollowRedirects = true
+                        val tmp = File(f.path + ".tmp"); conn.inputStream.use { i -> tmp.outputStream().use { i.copyTo(it) } }
+                        if (tmp.length() > 0 && tmp.renameTo(f)) version++
+                    }
+                }
+            }
+        }
+    }
+
     fun autoWorld(ctx: Context) {
         val cat = catalog ?: return
         val cm = ctx.getSystemService(android.net.ConnectivityManager::class.java)

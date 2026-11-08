@@ -16,7 +16,8 @@ class MapStyleTest {
     private fun input(v: String, countries: Boolean) = MapStyle.Input(
         File("src/main/assets/map/$v.json").readText(), "/data/world-z4.mbtiles", if (countries) "/data/world-labels.mbtiles" else null,
         if (countries) mapOf("ukraine" to mapOf("map" to "/m/ukraine.mbtiles", "dem" to "/m/ukraine-dem.mbtiles", "contours" to "/m/ukraine-contours.mbtiles")) else emptyMap(),
-        if (countries) listOf(shape) else emptyList())
+        if (countries) listOf(shape) else emptyList(),
+        metro = System.getenv("UA_METRO")?.takeIf { countries }?.let { mapOf("ukraine" to File(it).readText()) } ?: emptyMap())
 
     @Test fun styles() {
         val out = File("build/map-style").apply { mkdirs() }

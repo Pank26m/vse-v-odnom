@@ -65,7 +65,6 @@ object Nav {
         val preferOffline = !Net.online || MapPrefsBridge.offlineOnly(ctx) || MapPrefsBridge.bool(ctx, "prefer_offline_route", false)
         if (offlineAvailable(ctx) && (preferOffline || !MapPrefsBridge.bool(ctx, "online_nav", true))) runCatching { return offlineRoute(ctx, mode, way, toll) }
         if (Net.online && !MapPrefsBridge.offlineOnly(ctx)) {
-            if (mode == "car" && ApiKeys.tomtom(ctx).isNotBlank() && MapPrefsBridge.bool(ctx, "tomtom_route", true)) runCatching { return TomTom.route(ctx, mode, way, toll, ferry) }
             runCatching { return Routing.route(mode, way, toll, ferry) }
         }
         if (offlineAvailable(ctx)) return offlineRoute(ctx, mode, way, toll)

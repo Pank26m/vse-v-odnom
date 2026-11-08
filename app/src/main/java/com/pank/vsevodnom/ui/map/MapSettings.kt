@@ -41,7 +41,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
                 MenuRow(Icons.Rounded.SdCard, "Хранилище карт", sub = "память телефона или карта памяти") { page = "storage" }
                 MenuRow(Icons.Rounded.Straighten, "Единицы измерения", sub = "расстояние, высота, координаты") { page = "units" }
                 MenuRow(Icons.Rounded.FilterList, "Объекты на карте", sub = "какие значки показывать, номера домов, остановки") { page = "filter" }
-                MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "Google (места, отзывы), TomTom (пробки), лимиты") { page = "keys" }
+                MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "Google: места, отзывы, лимит запросов") { page = "keys" }
                 MenuRow(Icons.Rounded.Lock, "Конфиденциальность", sub = "история, работа без интернета") { page = "privacy" }
                 MenuRow(Icons.Rounded.Code, "Для разработчиков") { page = "dev" }
                 Text("Данные карт © участники OpenStreetMap (ODbL), стиль — OSM Liberty / OpenMapTiles, рельеф — Mapzen Terrain Tiles, мир — Natural Earth.",
@@ -230,8 +230,8 @@ private fun NavPage(onBack: () -> Unit) {
         AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
             SwitchRow("Голосовые подсказки", "«Через 300 метров поверните направо» — голосом телефона", voice) { voice = it; MapPrefs.setBool(ctx, "voice", it); Nav.muted = !it }
             SwitchRow("Предпочитать офлайн-маршруты", "строить на телефоне даже с интернетом (без пробок)", preferOff, enabled = Nav.offlineAvailable(ctx)) { preferOff = it; MapPrefs.setBool(ctx, "prefer_offline_route", it) }
-            SwitchRow("Избегать платных дорог", "офлайн, TomTom и OSRM", avoidToll) { avoidToll = it; MapPrefs.setBool(ctx, "avoid_toll", it) }
-            SwitchRow("Избегать паромов", "TomTom и OSRM (офлайн-профиль паромы и так не любит)", avoidFerry) { avoidFerry = it; MapPrefs.setBool(ctx, "avoid_ferry", it) }
+            SwitchRow("Избегать платных дорог", "офлайн и OSRM", avoidToll) { avoidToll = it; MapPrefs.setBool(ctx, "avoid_toll", it) }
+            SwitchRow("Избегать паромов", "OSRM (офлайн-профиль паромы и так не любит)", avoidFerry) { avoidFerry = it; MapPrefs.setBool(ctx, "avoid_ferry", it) }
             SwitchRow("Автомасштаб", "в движении карта сама отдаляется по скорости", autozoom) { autozoom = it; MapPrefs.setBool(ctx, "autozoom", it) }
             SwitchRow("Онлайн-маршруты", "строить по дорогам через интернет (OSRM)", onlineNav) { onlineNav = it; MapPrefs.setBool(ctx, "online_nav", it) }
             SwitchRow("Автосохранение трека", "после «Стоп» трек сразу в коллекции; выкл. — спросить имя", autosave) { autosave = it; MapPrefs.setBool(ctx, "autosave_track", it) }
@@ -362,12 +362,9 @@ private fun DevPage(onChanged: () -> Unit, onBack: () -> Unit) {
 private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var google by remember { mutableStateOf(ApiKeys.google(ctx)) }
-    var tomtom by remember { mutableStateOf(ApiKeys.tomtom(ctx)) }
     var gLimit by remember { mutableStateOf(ApiKeys.limit(ctx, "google").toString()) }
-    var tLimit by remember { mutableStateOf(ApiKeys.limit(ctx, "tomtom").toString()) }
     var gAuto by remember { mutableStateOf(MapPrefs.bool(ctx, "google_auto", true)) }
     var gSearch by remember { mutableStateOf(MapPrefs.bool(ctx, "google_default", true)) }
-    var ttRoute by remember { mutableStateOf(MapPrefs.bool(ctx, "tomtom_route", true)) }
     Page("Ключи и сервисы", onBack) {
         Text("Ключи хранятся только на телефоне (в коде и на GitHub их нет). Каждый запрос считается — при достижении дневного предела приложение перестаёт обращаться к сервису до завтра.",
             style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
@@ -379,16 +376,9 @@ private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
             SwitchRow("Искать через Google по умолчанию", null, gSearch) { gSearch = it; MapPrefs.setBool(ctx, "google_default", it) }
             SwitchRow("Сведения Google сразу в карточке", "иначе — по кнопке, экономит лимит", gAuto) { gAuto = it; MapPrefs.setBool(ctx, "google_auto", it) }
         }
-        AppCard(Modifier.fillMaxWidth()) {
-            Text("TomTom", style = MaterialTheme.typography.titleMedium)
-            AppTextField(tomtom, { tomtom = it }, "Ключ API")
-            AppTextField(tLimit, { tLimit = it.filter(Char::isDigit) }, "Маршрутов в день")
-            Text("Сегодня маршрутов: ${ApiKeys.used(ctx, "tomtom")}. Слой пробок включается в «Слоях».", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
-            SwitchRow("Маршрут на машине с учётом пробок", "иначе — OSRM без пробок", ttRoute) { ttRoute = it; MapPrefs.setBool(ctx, "tomtom_route", it) }
-        }
         PillButton("Сохранить", {
-            ApiKeys.set(ctx, "google", google); ApiKeys.set(ctx, "tomtom", tomtom)
-            gLimit.toIntOrNull()?.let { ApiKeys.setLimit(ctx, "google", it) }; tLimit.toIntOrNull()?.let { ApiKeys.setLimit(ctx, "tomtom", it) }
+            ApiKeys.set(ctx, "google", google)
+            gLimit.toIntOrNull()?.let { ApiKeys.setLimit(ctx, "google", it) }
             onChanged(); Toast.makeText(ctx, "Сохранено", Toast.LENGTH_SHORT).show()
         }, Modifier.fillMaxWidth())
         Text("Google: в консоли ограничь ключ «Приложения Android» (пакет и SHA-1 — в Настройках → О приложении) и API «Places API (New)». Waze: кнопка в карточке и маршруте открывает навигацию в Waze.",

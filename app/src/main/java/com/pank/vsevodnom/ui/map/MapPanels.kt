@@ -104,7 +104,7 @@ internal fun FullScreen(title: String, onDismiss: () -> Unit, actions: @Composab
 }
 
 @Composable
-private fun ActionChip(icon: ImageVector, text: String, bg: Color = Pal.Card, fg: Color = Pal.Ink, onClick: () -> Unit) {
+private fun ActionChip(icon: ImageVector, text: String, bg: Color = Color(0xFFEDEAE4), fg: Color = Pal.Ink, onClick: () -> Unit) {
     Row(Modifier.clip(RoundedCornerShape(14.dp)).background(bg).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = fg, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(text, style = MaterialTheme.typography.labelLarge, color = fg)
     }
@@ -192,13 +192,16 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             if (RoutePlan.active) {
                 ActionChip(Icons.Rounded.SportsScore, "Сюда", Pal.Sky, Pal.SkyInk) { onRoute("to", spot) }
                 ActionChip(Icons.Rounded.AddLocationAlt, "Остановка", Pal.Butter, Pal.ButterInk) { onRoute("stop", spot) }
-                ActionChip(Icons.Rounded.TripOrigin, "Отсюда", Pal.Card, Pal.Ink) { onRoute("from", spot) }
-            } else ActionChip(Icons.Rounded.Directions, "Маршрут сюда", Pal.Sky, Pal.SkyInk) { onRoute("to", spot) }
+                ActionChip(Icons.Rounded.TripOrigin, "Отсюда", Color(0xFFDCEBFA), Pal.SkyInk) { onRoute("from", spot) }
+            } else {
+                ActionChip(Icons.Rounded.SportsScore, "Сюда", Pal.Sky, Pal.SkyInk) { onRoute("to", spot) }
+                ActionChip(Icons.Rounded.TripOrigin, "Отсюда", Color(0xFFDCEBFA), Pal.SkyInk) { onRoute("from", spot) }
+            }
             ActionChip(Icons.Rounded.Navigation, "Waze", Color(0xFFDDF4FB), Color(0xFF1B7A99)) { waze(ctx, t.lat, t.lon) }
             g?.phone?.let { ph -> ActionChip(Icons.Rounded.Call, "Позвонить") { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$ph"))) } } }
-            ActionChip(Icons.Rounded.Share, "Поделиться") { share(ctx, title, t.lat, t.lon) }
+            ActionChip(Icons.Rounded.Share, "Поделиться", Pal.Lilac, Pal.LilacInk) { share(ctx, title, t.lat, t.lon) }
             if (t.place != null) ActionChip(Icons.Rounded.DeleteOutline, "Удалить", Pal.Rose, Pal.RoseInk) { askDelete = true }
-            ActionChip(Icons.Rounded.MoreHoriz, "Ещё") { more = true }
+            ActionChip(Icons.Rounded.MoreHoriz, "Ещё", Pal.Butter, Pal.ButterInk) { more = true }
         }
         if (askDelete && t.place != null) AlertDialog(onDismissRequest = { askDelete = false }, title = { Text("Удалить метку «${t.place.name}»?") },
             confirmButton = { TextButton({ val pl = t.place; AppScope.io.launch { AppDb.get(ctx).map().deletePlace(pl) }; askDelete = false; onClose() }) { Text("Удалить", color = Pal.RoseInk) } },
@@ -471,41 +474,102 @@ internal fun shareFile(ctx: Context, name: String, text: String, mime: String) {
 }
 
 @Composable
-internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, onFit: () -> Unit, color: String = "", onColor: (String) -> Unit = {}) {
-    var stats by remember { mutableStateOf(false) }
+internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, onFit: () -> Unit, color: String = "", onColor: (String) -> Unit = {}, onEditRoute: (Track) -> Unit = {}) {
     val ctx = LocalContext.current
     var edit by remember { mutableStateOf(false) }
+    var expanded by remember(t.id) { mutableStateOf(false) }
+    var colorMenu by remember { mutableStateOf(false) }
+    var askDelete by remember { mutableStateOf(false) }
     val pts = remember(t.id, t.points) { Osm.decode(t.points) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 10.dp).shadow(8.dp, RoundedCornerShape(20.dp)).clip(RoundedCornerShape(20.dp)).background(Pal.Card).padding(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(12.dp).clip(CircleShape).background(if (t.color != 0) Color(t.color) else Color(0xFF6A55A8)))
-            Spacer(Modifier.width(8.dp))
+    val st = remember(t.id, t.points) { TrackMath.stats(pts) }
+    val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+    val col = if (t.color != 0) Color(t.color) else Color(0xFF6A55A8)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 8.dp).shadow(10.dp, RoundedCornerShape(22.dp)).clip(RoundedCornerShape(22.dp)).background(Pal.Card)) {
+        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(start = 16.dp, top = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(14.dp).clip(CircleShape).background(col)); Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(t.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(t.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2)
                 Text(Instant.ofEpochMilli(t.startedAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")) + " · " + folderPath(t.folderId, folders),
                     style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
             }
+            IconButton({ expanded = !expanded }) { Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess, "Подробнее", tint = Pal.Muted) }
             IconButton(onClose) { Icon(Icons.Rounded.Close, "Закрыть", tint = Pal.Muted) }
         }
-        Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Stat("Путь", MapPrefs.dist(ctx, t.distanceM))
-            if (t.endedAt > t.startedAt) Stat("Время", fmtDur(t.endedAt - t.startedAt))
-            if (t.endedAt > t.startedAt + 60_000) Stat("Средняя", MapPrefs.speed(ctx, (t.distanceM / ((t.endedAt - t.startedAt) / 3600_000.0) / 1000).toFloat()).let { "${it.first} ${it.second}" })
-            Stat("Точек", pts.size.toString())
+            if (st.movingMs > 0) Stat("В движении", fmtDur(st.movingMs))
+            if (st.movingAvg > 0) Stat("Средняя", "%.1f %s".format(st.movingAvg, MapPrefs.speed(ctx, 0f).second))
+            if (!st.minAlt.isNaN()) Stat("Подъём", "%.0f м".format(st.ascent))
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionChip(Icons.Rounded.Edit, "Изменить", Pal.Ink, Color.White) { edit = true }
+            ActionChip(Icons.Rounded.DeleteOutline, "Удалить", Pal.Rose, Pal.RoseInk) { askDelete = true }
             ActionChip(Icons.Rounded.ZoomOutMap, "Весь трек", Pal.Sky, Pal.SkyInk, onFit)
-            ActionChip(Icons.Rounded.QueryStats, "Статистика", Pal.Lilac, Pal.LilacInk) { stats = true }
-            listOf("alt" to "Высота", "speed" to "Скорость", "slope" to "Уклон").forEach { (k, n) ->
-                ActionChip(Icons.Rounded.Palette, n, if (color == k) Pal.Butter else Pal.Card, if (color == k) Pal.ButterInk else Pal.Ink) { onColor(if (color == k) "" else k) }
+            Box {
+                Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Pal.Butter).clickable { colorMenu = true }.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(18.dp).clip(CircleShape).background(col).border(2.dp, Color.White, CircleShape)); Spacer(Modifier.width(6.dp))
+                    Text(when (color) { "alt" -> "По высоте"; "speed" -> "По скорости"; "slope" -> "По перепадам"; else -> "Цвет" }, style = MaterialTheme.typography.labelLarge, color = Pal.ButterInk)
+                }
+                DropdownMenu(colorMenu, { colorMenu = false }) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        MAP_COLORS.drop(1).take(6).forEach { c -> Box(Modifier.size(28.dp).clip(CircleShape).background(Color(c)).clickable {
+                            AppScope.io.launch { AppDb.get(ctx).map().upsertTrack(t.copy(color = c)) }; onColor(""); colorMenu = false }) }
+                    }
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        MAP_COLORS.drop(7).forEach { c -> Box(Modifier.size(28.dp).clip(CircleShape).background(Color(c)).clickable {
+                            AppScope.io.launch { AppDb.get(ctx).map().upsertTrack(t.copy(color = c)) }; onColor(""); colorMenu = false }) }
+                    }
+                    HorizontalDivider()
+                    val hasAlt = !st.minAlt.isNaN(); val hasSpeed = st.speed.any { !it.isNaN() }
+                    DropdownMenuItem({ Text("По высоте" + if (!hasAlt) " — нет высот в треке" else "") }, { onColor("alt"); colorMenu = false }, enabled = hasAlt, leadingIcon = { Icon(Icons.Rounded.Terrain, null) })
+                    DropdownMenuItem({ Text("По скорости" + if (!hasSpeed) " — нет времени в треке" else "") }, { onColor("speed"); colorMenu = false }, enabled = hasSpeed, leadingIcon = { Icon(Icons.Rounded.Speed, null) })
+                    DropdownMenuItem({ Text("По перепадам высот") }, { onColor("slope"); colorMenu = false }, enabled = hasAlt, leadingIcon = { Icon(Icons.Rounded.TrendingUp, null) })
+                    DropdownMenuItem({ Text("Без раскраски") }, { onColor(""); colorMenu = false })
+                }
             }
-            ActionChip(Icons.Rounded.Edit, "Изменить") { edit = true }
-            ActionChip(Icons.Rounded.IosShare, "GPX") { shareFile(ctx, t.name + ".gpx", GeoFiles.gpxOf(emptyList(), listOf(t)), "application/gpx+xml") }
-            pts.lastOrNull()?.let { e -> ActionChip(Icons.Rounded.Navigation, "Waze к концу") { waze(ctx, e.lat, e.lon) } }
+            pts.firstOrNull()?.let { a -> ActionChip(Icons.Rounded.Navigation, "Waze к началу", Color(0xFFDDF4FB), Color(0xFF1B7A99)) { waze(ctx, a.lat, a.lon) } }
+            pts.lastOrNull()?.let { e -> ActionChip(Icons.Rounded.SportsScore, "Waze к концу", Color(0xFFDDF4FB), Color(0xFF1B7A99)) { waze(ctx, e.lat, e.lon) } }
+            ActionChip(Icons.Rounded.IosShare, "GPX", Pal.Lilac, Pal.LilacInk) { shareFile(ctx, t.name + ".gpx", GeoFiles.gpxOf(emptyList(), listOf(t)), "application/gpx+xml") }
         }
+        if (expanded) Column(Modifier.fillMaxWidth().heightIn(max = (screenH * 0.5f).dp).verticalScroll(rememberScrollState()).background(Pal.Bg).padding(12.dp)) { TrackStatsContent(t) }
     }
-    if (edit) TrackEditor(t, folders) { edit = false; onClose() }
-    if (stats) TrackStatsScreen(t) { stats = false }
+    if (askDelete) AlertDialog(onDismissRequest = { askDelete = false }, title = { Text("Удалить трек «${t.name}»?") },
+        confirmButton = { TextButton({ AppScope.io.launch { AppDb.get(ctx).map().deleteTrack(t) }; askDelete = false; onClose() }) { Text("Удалить", color = Pal.RoseInk) } },
+        dismissButton = { TextButton({ askDelete = false }) { Text("Отмена") } })
+    if (edit) TrackEditPanel(t, folders, onDismiss = { edit = false }, onEditRoute = { edit = false; onEditRoute(t) })
+}
+
+/** Правка трека: название, папка, направление; для построенных маршрутов — старт, финиш, остановки, транспорт. */
+@Composable
+private fun TrackEditPanel(t: Track, folders: List<MapFolder>, onDismiss: () -> Unit, onEditRoute: () -> Unit) {
+    val ctx = LocalContext.current
+    var name by remember { mutableStateOf(t.name) }
+    var folder by remember { mutableStateOf(t.folderId) }
+    var open by remember { mutableStateOf(false) }
+    BottomPanel(onDismiss) {
+        Text("Трек", style = MaterialTheme.typography.titleLarge)
+        AppTextField(name, { name = it }, "Название")
+        Box {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Card).clickable { open = true }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Folder, null, tint = Pal.ButterInk); Spacer(Modifier.width(8.dp))
+                Text(folderPath(folder, folders), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f)); Icon(Icons.Rounded.ArrowDropDown, null, tint = Pal.Muted)
+            }
+            DropdownMenu(open, { open = false }) {
+                DropdownMenuItem({ Text("Без папки") }, { folder = null; open = false })
+                folders.sortedBy { folderPath(it.id, folders).lowercase() }.forEach { f -> DropdownMenuItem({ Text(folderPath(f.id, folders)) }, { folder = f.id; open = false }) }
+            }
+        }
+        MenuRow(Icons.Rounded.AltRoute, "Изменить маршрут", sub = "старт, финиш, остановки (порядок), транспорт") { onEditRoute() }
+        MenuRow(Icons.Rounded.SwapHoriz, "Развернуть направление", sub = "старт и финиш меняются местами") {
+            AppScope.io.launch {
+                val pts = Osm.decode(t.points).reversed()
+                val meta = routeWay(t)?.let { (m, w) -> org.json.JSONObject().put("mode", m).put("way", org.json.JSONArray(w.reversed().map { org.json.JSONObject().put("name", it.name).put("lat", it.lat).put("lon", it.lon) })).toString() } ?: t.meta
+                AppDb.get(ctx).map().upsertTrack(t.copy(points = Osm.encode(pts), meta = meta))
+            }
+            onDismiss()
+        }
+        PillButton("Сохранить", { AppScope.io.launch { AppDb.get(ctx).map().upsertTrack(t.copy(name = name.trim().ifBlank { t.name }, folderId = folder)) }; onDismiss() }, Modifier.fillMaxWidth())
+    }
 }
 
 @Composable
@@ -546,22 +610,8 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
         AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
             SwitchRow("Тени рельефа", "горы и холмы объёмнее", hill) { hill = it; set("hillshade", it) }
             SwitchRow("Линии высот", "через 20 м, подписи через 100 м", contours) { contours = it; set("contours", it) }
-            SwitchRow("Рельеф мира", "цветная карта мира на мелком масштабе", relief) { relief = it; set("relief", it) }
             SwitchRow("3D-дома", "объёмные здания вблизи; на слабой графике может подтормаживать", b3d) { b3d = it; set("buildings3d", it) }
-            SwitchRow("Метро", "линии цветом и станции (Киев, Харьков, Днепр)", metro) { metro = it; set("metro", it) }
             SwitchRow("Онлайн-карта за границей", "весь мир при интернете; без него — то, что уже в кэше", worldOn) { worldOn = it; set("world_online", it) }
-            if (ApiKeys.tomtom(ctx).isNotBlank()) SwitchRow("Пробки (TomTom)", "загруженность дорог, ДТП и перекрытия; нужен интернет", traffic) {
-                traffic = it; set("traffic", it)
-                if (it) scope.launch {
-                    val msg = withContext(Dispatchers.IO) { runCatching {
-                        val c = java.net.URL(TomTom.flowTiles(ApiKeys.tomtom(ctx)).replace("{z}", "12").replace("{x}", "2394").replace("{y}", "1386")).openConnection() as java.net.HttpURLConnection
-                        c.connectTimeout = 8000; c.readTimeout = 8000
-                        when (c.responseCode) { 200 -> "TomTom ответил — пробки видны с масштаба ~6 км, на дорогах с движением"; 403 -> "TomTom: ключ не подходит для Traffic API (403) — проверь продукт «Traffic» в кабинете"; else -> "TomTom: код ${c.responseCode}" }
-                    }.getOrElse { "TomTom недоступен: ${it.message}" } }
-                    Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
-                }
-            }
-            else Text("Пробки — после ввода ключа TomTom (Настройки → Ключи и сервисы).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp))
             Text("Слои рельефа работают для скачанных стран.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp, 12.dp, 10.dp))
         }
         SectionLabel("Офлайн-карты")

@@ -80,8 +80,10 @@ private fun setupOverlays(style: Style) {
     listOf("u-tracks", "u-sel", "u-rec", "u-route", "u-places", "u-pin", "u-stops", "u-ruler").forEach(::src)
     style.addLayer(LineLayer("u-route-l", "u-route").withProperties(PF.lineColor("#3E6FA8"), PF.lineWidth(5f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.85f)))
     style.addLayer(LineLayer("u-tracks-l", "u-tracks").withProperties(PF.lineColor(Expression.toColor(Expression.get("color"))), PF.lineWidth(4f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.9f)))
-    style.addLayer(LineLayer("u-sel-l", "u-sel").withProperties(PF.lineColor("#FFFFFF"), PF.lineWidth(9f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.9f)))
-    style.addLayer(LineLayer("u-sel-l2", "u-sel").withProperties(PF.lineColor(Expression.toColor(Expression.get("color"))), PF.lineWidth(5.5f), PF.lineCap("round"), PF.lineJoin("round")))
+    // выбранный трек: заметно толще, с белой окантовкой и стрелками направления (от старта к финишу)
+    style.addLayer(LineLayer("u-sel-l", "u-sel").withProperties(PF.lineColor("#FFFFFF"), PF.lineWidth(13f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.95f)))
+    style.addLayer(LineLayer("u-sel-l2", "u-sel").withProperties(PF.lineColor(Expression.toColor(Expression.get("color"))), PF.lineWidth(8.5f), PF.lineCap("round"), PF.lineJoin("round")))
+    style.addLayer(SymbolLayer("u-sel-arrows", "u-sel").withProperties(PF.symbolPlacement("line"), PF.symbolSpacing(70f), PF.iconImage("trk-arrow"), PF.iconAllowOverlap(true), PF.iconIgnorePlacement(true), PF.iconRotationAlignment("map")))
     style.addLayer(LineLayer("u-rec-l", "u-rec").withProperties(PF.lineColor("#D8456A"), PF.lineWidth(5f), PF.lineCap("round"), PF.lineJoin("round")))
     style.addLayer(CircleLayer("u-stops-c", "u-stops").withProperties(PF.circleRadius(11f), PF.circleColor(Expression.toColor(Expression.get("c"))), PF.circleStrokeColor("#FFFFFF"), PF.circleStrokeWidth(2.5f)))
     style.addLayer(SymbolLayer("u-stops-t", "u-stops").withProperties(PF.textField(Expression.get("t")), PF.textFont(arrayOf("Noto Sans Bold")), PF.textSize(11f), PF.textColor("#FFFFFF"), PF.textAllowOverlap(true), PF.textIgnorePlacement(true)))
@@ -123,6 +125,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var target by remember { mutableStateOf<MapTarget?>(null) }
     var selTrack by remember { mutableStateOf<Track?>(null) }
     var pickStop by remember { mutableStateOf<Int?>(null) }
+    var searchFor by remember { mutableStateOf<Int?>(null) }        // поиск для точки маршрута: индекс или −1 — новая остановка
     var trackColor by remember { mutableStateOf("") }      // раскраска выбранного трека: alt | speed | slope        // выбор точки маршрута на карте: индекс или −1 — новая остановка
     val nav = Nav.session
     var renameTrack by remember { mutableStateOf<Track?>(null) }
@@ -184,7 +187,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     // ---------- карта ----------
     LaunchedEffect(Unit) {
         OnlineMaps.applyCacheLimit(ctx)
-        launch { OfflineMaps.loadCatalog(ctx); OfflineMaps.resume(ctx); OfflineMaps.autoWorld(ctx) }
+        launch { OfflineMaps.loadCatalog(ctx); OfflineMaps.resume(ctx); OfflineMaps.autoWorld(ctx); OfflineMaps.ensureExtras(ctx) }
         view.getMapAsync { m ->
             map = m
             m.cameraPosition = camera(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), prefs.getFloat("zoom", 11f).toDouble())
@@ -255,7 +258,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         val opts = MapStyle.opts(ctx)
         style = null
         m.setStyle(Style.Builder().fromJson(MapStyle.build(ctx, opts))) { st ->
-            st.addImage("pin", pinBitmap(density))
+            st.addImage("pin", pinBitmap(density)); st.addImage("trk-arrow", arrowBitmap(density))
             setupOverlays(st); style = st
             m.isDebugActive = prefs.getBoolean("dev_tiles", false)
             if (hasLoc(ctx)) {
@@ -429,7 +432,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         if (lc.lastKnownLocation == null) Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()
         when {
             // карта повёрнута и я не «привязан» — сперва просто на север
-            locMode == 0 && abs(((bearing + 540f) % 360f) - 180f) < 178.5f -> m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 350)
+            locMode == 0 && abs(((bearing + 540f) % 360f) - 180f) > 1.5f -> m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 350)
             locMode == 0 -> { lc.cameraMode = CameraMode.TRACKING; lc.zoomWhileTracking(maxOf(m.cameraPosition.zoom, 15.5), 700); locMode = 1 }
             locMode == 1 -> { lc.cameraMode = CameraMode.TRACKING_COMPASS; locMode = 2 }
             else -> {
@@ -510,17 +513,24 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             else if (RoutePlan.active && target == null && selTrack == null) RoutePlannerBottom(myLoc, places, onGo = {
                 RoutePlan.route?.let { r -> val way = listOfNotNull(myLoc) + RoutePlan.points.drop(1).filterNotNull().map { GeoPt(it.lat, it.lon, 0) }
                     startNav(r, RoutePlan.dest?.name ?: "", way); RoutePlan.close() }
-            }, onPickMap = { i -> pickStop = i })
+            }, onPickMap = { i -> pickStop = i }, onSearch = { i -> searchFor = i; sheet = MapSheet.SEARCH })
             target?.let { t ->
                 PlaceCard(t, myLoc, folders, onClose = { closeAll() }, onRoute = { kind, sp -> RoutePlan.open(ctx); when (kind) { "from" -> RoutePlan.setFrom(sp); "stop" -> RoutePlan.addStop(sp); else -> RoutePlan.setTo(sp) }; closeAll() }, onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl, if (t.place == null) mapOf("edit" to "1") else emptyMap())) })
             }
-            selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }, color = trackColor, onColor = { trackColor = it }) }
+            selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }, color = trackColor, onColor = { trackColor = it },
+                onEditRoute = { tr -> closeAll(); RoutePlan.load(tr) }) }
         }
     }
 
     when (sheet) {
-        MapSheet.SEARCH -> SearchScreen(map?.cameraPosition?.target, places, tracks, onDismiss = { sheet = MapSheet.NONE }) { hit ->
+        MapSheet.SEARCH -> SearchScreen(map?.cameraPosition?.target, places, tracks, onDismiss = { sheet = MapSheet.NONE; searchFor = null }) { hit ->
             sheet = MapSheet.NONE
+            searchFor?.let { i ->
+                val sp = MapPrefs.Spot(hit.name, hit.lat, hit.lon, hit.address)
+                when (i) { -1 -> RoutePlan.addStop(sp); 0 -> RoutePlan.setFrom(sp); else -> { RoutePlan.points[i] = sp; RoutePlan.rev++ } }
+                searchFor = null
+                return@SearchScreen
+            }
             MapPrefs.addRecent(ctx, MapPrefs.Spot(hit.name, hit.lat, hit.lon, hit.address))
             fly(hit.lat, hit.lon, if (hit.kind.startsWith("place:city")) 12.0 else if (hit.kind.startsWith("place:")) 14.0 else 17.0)
             val pl = places.firstOrNull { it.lat == hit.lat && it.lon == hit.lon && it.name == hit.name }
@@ -562,7 +572,7 @@ internal fun MapBtn(icon: ImageVector, d: String, size: Dp = 48.dp, active: Bool
 /** Кнопка «где я»: стрелка контуром — свободно, залитая — карта за мной, компас — карта крутится по компасу. */
 @Composable
 private fun LocButton(mode: Int, bearing: Float, onClick: () -> Unit) {
-    Box(Modifier.size(52.dp).shadow(4.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(if (mode != 0) Pal.Sky else Pal.Card).clickable(onClick = onClick),
+    Box(Modifier.size(48.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(if (mode != 0) Pal.Sky else Pal.Card).clickable(onClick = onClick),
         contentAlignment = Alignment.Center) {
         when {
             mode == 2 -> Canvas(Modifier.size(28.dp).rotate(-bearing)) {
@@ -686,5 +696,17 @@ internal fun poiBitmap(ctx: Context, cls: String, d: Float): android.graphics.Bi
     p.color = android.graphics.Color.WHITE
     paths.forEach { dd -> runCatching { c.drawPath(androidx.core.graphics.PathParser.createPathFromPathData(dd), p) } }
     c.restore()
+    return b
+}
+
+
+/** Белая стрелка-шеврон для направления трека (смотрит вдоль линии). */
+internal fun arrowBitmap(d: Float): android.graphics.Bitmap {
+    val w = (12 * d).toInt(); val h = (12 * d).toInt()
+    val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(b)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE; style = android.graphics.Paint.Style.STROKE; strokeWidth = 2.2f * d; strokeCap = android.graphics.Paint.Cap.ROUND; strokeJoin = android.graphics.Paint.Join.ROUND }
+    val path = android.graphics.Path().apply { moveTo(w * 0.3f, h * 0.18f); lineTo(w * 0.72f, h * 0.5f); lineTo(w * 0.3f, h * 0.82f) }
+    c.drawPath(path, p)
     return b
 }

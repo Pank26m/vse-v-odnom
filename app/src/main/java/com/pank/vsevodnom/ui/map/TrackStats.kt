@@ -97,11 +97,18 @@ private fun hms(ms: Long): String { val s = ms / 1000; return "%02d:%02d:%02d".f
 
 @Composable
 internal fun TrackStatsScreen(t: Track, onDismiss: () -> Unit) {
-    val ctx = LocalContext.current
-    val pts = remember(t.id) { Osm.decode(t.points) }
-    val s = remember(t.id) { TrackMath.stats(pts) }
     FullScreen(t.name, onDismiss) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { TrackStatsContent(t) }
+    }
+}
+
+/** Вся статистика трека: числа, графики, остановки маршрута. */
+@Composable
+internal fun TrackStatsContent(t: Track) {
+    val ctx = LocalContext.current
+    val pts = remember(t.id, t.points) { Osm.decode(t.points) }
+    val s = remember(t.id, t.points) { TrackMath.stats(pts) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Создан " + Instant.ofEpochMilli(t.startedAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")), style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
             AppCard(Modifier.fillMaxWidth()) {
                 Group("Расстояние", listOf(MapPrefs.dist(ctx, s.dist) to "Всего", MapPrefs.dist(ctx, s.upDist) to "Вверх", MapPrefs.dist(ctx, s.downDist) to "Вниз"))
@@ -112,9 +119,21 @@ internal fun TrackStatsScreen(t: Track, onDismiss: () -> Unit) {
             }
             if (s.alt.any { !it.isNaN() }) Chart("Высота", s.cum, s.alt, "м", Color(0xFF2E9FB8))
             if (s.speed.any { !it.isNaN() }) Chart("Скорость", s.cum, s.speed, MapPrefs.speed(ctx, 0f).second, Color(0xFFE09A1B))
-        }
+            routeWay(t)?.let { (mode, way) ->
+                AppCard(Modifier.fillMaxWidth()) {
+                    Text("Маршрут · " + mapOf("car" to "авто", "bike" to "велосипед", "foot" to "пешком", "line" to "по прямой")[mode].orEmpty(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    way.forEachIndexed { i, w -> Text((if (i == 0) "Старт: " else if (i == way.size - 1) "Финиш: " else "${RoutePlan.label(i - 1)}. ") + w.name, style = MaterialTheme.typography.bodyMedium) }
+                }
+            }
     }
 }
+
+/** Точки построенного маршрута из Track.meta: способ и список (старт, остановки, финиш). */
+internal fun routeWay(t: Track): Pair<String, List<MapPrefs.Spot>>? = runCatching {
+    if (t.meta.isBlank()) return null
+    val o = org.json.JSONObject(t.meta); val a = o.getJSONArray("way")
+    o.optString("mode", "bike") to (0 until a.length()).map { a.getJSONObject(it).let { w -> MapPrefs.Spot(w.optString("name"), w.getDouble("lat"), w.getDouble("lon")) } }
+}.getOrNull()
 
 @Composable
 private fun Group(title: String, items: List<Pair<String, String>>) {

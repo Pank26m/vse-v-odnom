@@ -42,7 +42,7 @@ object GeoFiles {
 
     private fun gpx(input: InputStream, root: Node) {
         val p = Xml.newPullParser(); p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false); p.setInput(input, null)
-        var lat = 0.0; var lon = 0.0; var name = ""; var desc = ""; var t: String? = null
+        var lat = 0.0; var lon = 0.0; var name = ""; var desc = ""; var t: String? = null; var ele = Double.NaN
         var inWpt = false; var inTrk = false; var trkName = ""; val pts = ArrayList<GeoPt>()
         val text = StringBuilder()
         while (p.eventType != XmlPullParser.END_DOCUMENT) {
@@ -52,7 +52,7 @@ object GeoFiles {
                     when (p.name) {
                         "wpt" -> { inWpt = true; name = ""; desc = ""; lat = p.getAttributeValue(null, "lat").toDouble(); lon = p.getAttributeValue(null, "lon").toDouble() }
                         "trk", "rte" -> { inTrk = true; trkName = ""; pts.clear() }
-                        "trkpt", "rtept" -> { lat = p.getAttributeValue(null, "lat").toDouble(); lon = p.getAttributeValue(null, "lon").toDouble(); t = null }
+                        "trkpt", "rtept" -> { lat = p.getAttributeValue(null, "lat").toDouble(); lon = p.getAttributeValue(null, "lon").toDouble(); t = null; ele = Double.NaN }
                     }
                 }
                 XmlPullParser.TEXT -> text.append(p.text)
@@ -62,8 +62,9 @@ object GeoFiles {
                         "name" -> if (inWpt) name = s else if (inTrk && trkName.isEmpty()) trkName = s
                         "desc", "cmt" -> if (inWpt && desc.isEmpty()) desc = s
                         "time" -> t = s
+                        "ele" -> ele = s.toDoubleOrNull() ?: Double.NaN
                         "wpt" -> { root.places += Place(name = name.ifBlank { "Метка" }, lat = lat, lon = lon, note = desc); inWpt = false }
-                        "trkpt", "rtept" -> pts += GeoPt(lat, lon, time(t))
+                        "trkpt", "rtept" -> pts += GeoPt(lat, lon, time(t), ele)
                         "trk", "rte" -> { if (pts.size >= 2) root.tracks += trkName.ifBlank { "Трек" } to pts.toList(); inTrk = false }
                     }
                     text.setLength(0)
@@ -74,7 +75,7 @@ object GeoFiles {
     }
 
     private fun coords(s: String): List<GeoPt> = s.trim().split(Regex("\\s+")).mapNotNull { c ->
-        val a = c.split(','); if (a.size < 2) null else runCatching { GeoPt(a[1].toDouble(), a[0].toDouble(), 0) }.getOrNull()
+        val a = c.split(','); if (a.size < 2) null else runCatching { GeoPt(a[1].toDouble(), a[0].toDouble(), 0, a.getOrNull(2)?.toDoubleOrNull() ?: Double.NaN) }.getOrNull()
     }
 
     private fun kml(input: InputStream, root: Node) {
@@ -101,7 +102,7 @@ object GeoFiles {
                         "description" -> if (inPm && pmDesc.isEmpty()) pmDesc = s.replace(Regex("<[^>]+>"), " ").trim()
                         "coordinates" -> if (inPm) { val c = coords(s); if (c.size == 1 && line.isEmpty()) point = c[0] else { point = null; line += c } }
                         "when" -> if (inPm) gxWhen += time(s)
-                        "coord" -> if (inPm) s.split(Regex("\\s+")).takeIf { it.size >= 2 }?.let { a -> runCatching { line += GeoPt(a[1].toDouble(), a[0].toDouble(), gxWhen.getOrElse(line.size) { 0 }) } }
+                        "coord" -> if (inPm) s.split(Regex("\\s+")).takeIf { it.size >= 2 }?.let { a -> runCatching { line += GeoPt(a[1].toDouble(), a[0].toDouble(), gxWhen.getOrElse(line.size) { 0 }, a.getOrNull(2)?.toDoubleOrNull() ?: Double.NaN) } }
                         "Placemark" -> {
                             val node = stack.last()
                             if (line.size >= 2) node.tracks += pmName.ifBlank { "Трек" } to line.toList()
@@ -163,7 +164,7 @@ object GeoFiles {
         places.forEach { p -> sb.append("<wpt lat=\"${f6(p.lat)}\" lon=\"${f6(p.lon)}\"><name>${esc(p.name)}</name>${if (p.note.isNotBlank()) "<desc>${esc(p.note)}</desc>" else ""}</wpt>\n") }
         tracks.forEach { t ->
             sb.append("<trk><name>${esc(t.name)}</name><trkseg>\n")
-            Osm.decode(t.points).forEach { pt -> sb.append("<trkpt lat=\"${f6(pt.lat)}\" lon=\"${f6(pt.lon)}\">${if (pt.t > 0) "<time>${Instant.ofEpochMilli(pt.t)}</time>" else ""}</trkpt>\n") }
+            Osm.decode(t.points).forEach { pt -> sb.append("<trkpt lat=\"${f6(pt.lat)}\" lon=\"${f6(pt.lon)}\">${if (!pt.alt.isNaN()) "<ele>%.1f</ele>".format(java.util.Locale.US, pt.alt) else ""}${if (pt.t > 0) "<time>${Instant.ofEpochMilli(pt.t)}</time>" else ""}</trkpt>\n") }
             sb.append("</trkseg></trk>\n")
         }
         sb.append("</gpx>\n")

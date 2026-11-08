@@ -29,7 +29,6 @@ object MapStyle {
         val lang: String = "local",           // local | ru | en
         val online: OnlineMaps.Source? = null,
         val worldLabels: Boolean = true,
-        val traffic: String? = null,          // ключ TomTom, если слой пробок включён
         val buildings3d: Boolean = false,
         val hiddenPoi: Set<String> = emptySet(),   // скрытые группы значков (POI_GROUPS)
         val houseNumbers: Boolean = true,
@@ -52,6 +51,7 @@ object MapStyle {
         "museum" to PoiGroup("Музеи, памятники, церкви", 0xFF26A69A.toInt(), "building-castle", listOf("museum", "monument", "castle", "attraction", "place_of_worship", "memorial", "historic", "ruins")),
         "housenumbers" to PoiGroup("Номера и названия зданий", 0xFF6D4C41.toInt(), "home", emptyList()),
         "transit" to PoiGroup("Общественный транспорт", 0xFF78909C.toInt(), "bus", listOf("bus", "tram", "ferry_terminal", "bus_stop", "bus_station", "harbor")),
+        "metro" to PoiGroup("Линии метро", 0xFFE53935.toInt(), "train", emptyList()),
         "entrances" to PoiGroup("Подъезды и входы", 0xFF8D6E63.toInt(), "home-2", emptyList()),
         "stopnames" to PoiGroup("Названия остановок", 0xFF78909C.toInt(), "tag", emptyList()),
         "post" to PoiGroup("Отделения почты, почтоматы", 0xFF43A047.toInt(), "package", listOf("post", "parcel_locker", "post_office")),
@@ -94,15 +94,14 @@ object MapStyle {
         val online = p.getString("online_id", null)?.let { id -> OnlineMaps.all(ctx).firstOrNull { it.id == id } }
         return Opts(
             Variant.entries.firstOrNull { it.key == p.getString("variant", "car") } ?: Variant.CAR,
-            p.getBoolean("hillshade", true), p.getBoolean("contours", true), p.getBoolean("relief", true),
+            p.getBoolean("hillshade", true), p.getBoolean("contours", true), true,
             p.getString("lang", "local") ?: "local", if (p.getBoolean("use_online", false)) online else null,
-            traffic = com.pank.vsevodnom.data.ApiKeys.tomtom(ctx).takeIf { it.isNotBlank() && p.getBoolean("traffic", false) },
             buildings3d = p.getBoolean("buildings3d", false),
             hiddenPoi = p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet(),
             houseNumbers = "housenumbers" !in (p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet()),
             stopNames = "stopnames" !in (p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet()),
             worldOnline = p.getBoolean("world_online", true),
-            metro = p.getBoolean("metro", true),
+            metro = "metro" !in (p.getStringSet("hidden_poi", DEFAULT_HIDDEN) ?: emptySet()),
         )
     }
 
@@ -251,15 +250,6 @@ object MapStyle {
             }
         } else terrain(o, input.files, sources, layers)
 
-        // пробки TomTom — поверх дорог, под подписями
-        o.traffic?.let { k ->
-            sources.put("tt-flow", JSONObject().put("type", "raster").put("tileSize", 256).put("minzoom", 6).put("maxzoom", 18).put("attribution", "© TomTom")
-                .put("tiles", JSONArray().put(com.pank.vsevodnom.data.TomTom.flowTiles(k))))
-            sources.put("tt-inc", JSONObject().put("type", "raster").put("tileSize", 256).put("minzoom", 8).put("maxzoom", 18)
-                .put("tiles", JSONArray().put(com.pank.vsevodnom.data.TomTom.incidentTiles(k))))
-            layers.put(JSONObject().put("id", "tt-flow").put("type", "raster").put("source", "tt-flow").put("minzoom", 6).put("paint", JSONObject().put("raster-opacity", 0.85)))
-            layers.put(JSONObject().put("id", "tt-inc").put("type", "raster").put("source", "tt-inc").put("minzoom", 9))
-        }
         // мир: границы
         val wl = input.worldLabels
         val within = if (shapeGeoms.isNotEmpty()) JSONArray().put("!").put(JSONArray().put("within").put(shapesGeo(shapeGeoms))) else null
