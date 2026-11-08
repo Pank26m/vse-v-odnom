@@ -60,6 +60,7 @@ for line in sys.stdin:
             if k == "building" and not p.get("addr:housenumber") and p[k] in ("yes", "house", "residential", "apartments"): break
             feats.append([name, alt, f"{k}:{p[k]}", lat, lon, 7]); break
 print("places", len(places), "features", len(feats), "addresses", len(addrs), flush=True)
+if len(feats) < 1000: sys.exit("слишком мало объектов — не перезаписываю поиск")
 
 # ближайший населённый пункт: сетка 0.1°, город «дотягивается» дальше деревни
 grid = {}

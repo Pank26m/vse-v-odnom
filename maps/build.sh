@@ -19,7 +19,7 @@ gh release download "$REL" -p catalog.json -D work --clobber 2>/dev/null || echo
 ASSETS=$(gh release view "$REL" --json assets -q '.assets[].name' 2>/dev/null || true)
 have() { grep -qx "$1" <<<"$ASSETS" || grep -q "^$1\.part" <<<"$ASSETS"; }
 # версия способа сборки частей: если поднять — часть пересоберётся (рельеф v1 был испорчен багом границы)
-declare -A PART_VER=([map]=3 [dem]=2 [contours]=3 [search]=2)   # map v3 / search v2 — обрезка строго по границе страны   # contours v2 — tippecanoe терял линии   # map v1 — без моря на крупных масштабах
+declare -A PART_VER=([map]=3 [dem]=2 [contours]=3 [search]=3)   # map v3 / search v2 — обрезка строго по границе страны   # contours v2 — tippecanoe терял линии   # map v1 — без моря на крупных масштабах
 outdated() { python3 -c "import json,sys; c=next((c for c in json.load(open('work/catalog.json'))['countries'] if c['id']==sys.argv[1]),{}); sys.exit(0 if c.get(sys.argv[2]+'_ver',1) < int(sys.argv[3]) else 1)" "$1" "$2" "${PART_VER[$2]}"; }
 forced() { [ "${FORCE:-}" = "$1" ] || [ "${FORCE:-}" = all ]; }
 
@@ -62,7 +62,11 @@ if ! have world-labels.mbtiles || labels_old || [ "${FORCE_WORLD:-0}" = 1 ]; the
 fi
 
 PLANETILER=work/planetiler.jar
-[ -f $PLANETILER ] || curl -sSL -o $PLANETILER https://github.com/onthegomap/planetiler/releases/latest/download/planetiler.jar
+for k in 1 2 3; do
+  unzip -tq $PLANETILER >/dev/null 2>&1 && break
+  curl -fsSL --retry 3 -o $PLANETILER https://github.com/onthegomap/planetiler/releases/latest/download/planetiler.jar || sleep 20
+done
+unzip -tq $PLANETILER >/dev/null 2>&1 || log "ОШИБКА: planetiler.jar не скачался"
 
 routing_part() {
   local ID=$1
@@ -141,7 +145,9 @@ PY
     if osmium getid -r "$PBF" "r$RELID" -o work/border.osm.pbf --overwrite 2>>work/osmium.log \
        && osmium export work/border.osm.pbf -f geojson --geometry-types=polygon -o work/border.geojson --overwrite 2>>work/osmium.log \
        && python3 border.py work/border.geojson "$OUT/$ID.json" "$NAME" >> "$REPORT" 2>&1 \
-       && osmium extract -p work/border.geojson -s smart "$PBF" -o "work/$ID-clip.osm.pbf" --overwrite 2>>work/osmium.log; then
+       && mv "$OUT/$ID-clip.geojson" work/border-clean.geojson \
+       && osmium extract -p work/border-clean.geojson -s smart "$PBF" -o "work/$ID-clip.osm.pbf" --overwrite 2>>work/osmium.log \
+       && [ $(stat -c %s "work/$ID-clip.osm.pbf") -gt 50000000 ]; then
       PBF="work/$ID-clip.osm.pbf"; log "$ID: обрезано по границе $(du -h "$PBF" | cut -f1)"
     else log "ОШИБКА: граница r$RELID — оставляю выгрузку Geofabrik"; tail -5 work/osmium.log >> "$REPORT"; fi
   fi
