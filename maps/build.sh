@@ -18,6 +18,9 @@ gh release view "$REL" >/dev/null 2>&1 || gh release create "$REL" --title "Оф
 gh release download "$REL" -p catalog.json -D work --clobber 2>/dev/null || echo '{"countries":[]}' > work/catalog.json
 ASSETS=$(gh release view "$REL" --json assets -q '.assets[].name' 2>/dev/null || true)
 have() { grep -qx "$1" <<<"$ASSETS" || grep -q "^$1\.part" <<<"$ASSETS"; }
+# версия способа сборки частей: если поднять — часть пересоберётся (рельеф v1 был испорчен багом границы)
+declare -A PART_VER=([map]=1 [dem]=2 [contours]=2 [search]=1)
+outdated() { python3 -c "import json,sys; c=next((c for c in json.load(open('work/catalog.json'))['countries'] if c['id']==sys.argv[1]),{}); sys.exit(0 if c.get(sys.argv[2]+'_ver',1) < int(sys.argv[3]) else 1)" "$1" "$2" "${PART_VER[$2]}"; }
 forced() { [ "${FORCE:-}" = "$1" ] || [ "${FORCE:-}" = all ]; }
 
 # ---------- мир ----------
@@ -67,7 +70,7 @@ while IFS='|' read -r ID NAME PATHS <&3; do
   NEED=()
   for part in map dem contours search; do
     case $part in map) f="$ID.mbtiles";; dem) f="$ID-dem.mbtiles";; contours) f="$ID-contours.mbtiles";; search) f="$ID-search.db";; esac
-    if ! have "$f" || forced "$ID"; then NEED+=("$part"); fi
+    if ! have "$f" || forced "$ID" || outdated "$ID" "$part"; then NEED+=("$part"); fi
   done
   if [ ${#NEED[@]} -eq 0 ]; then log "$ID: всё собрано, пропускаю"; continue; fi
   log "$ID ($NAME): нужно ${NEED[*]}"
@@ -141,9 +144,11 @@ PY
     [ -f "$f" ] || continue
     if [ $(stat -c %s "$f") -gt 1900000000 ]; then split -b 1900000000 -d -a 2 "$f" "$f.part" && rm "$f"; fi
   done
-  python3 - "$ID" "$NAME" "${BUILT[*]:-}" <<'PY'
+  python3 - "$ID" "$NAME" "${BUILT[*]:-}" "map=${PART_VER[map]} dem=${PART_VER[dem]} contours=${PART_VER[contours]} search=${PART_VER[search]}" <<'PY'
 import json, os, glob, sys, datetime
 cid, name, built = sys.argv[1], sys.argv[2], sys.argv[3].split()
+VER = dict(kv.split("=") for kv in sys.argv[4].split())
+VER = {k: int(v) for k, v in VER.items()}
 cat = json.load(open("work/catalog.json"))
 old = next((c for c in cat["countries"] if c["id"] == cid), {})
 names = {"map": f"{cid}.mbtiles", "dem": f"{cid}-dem.mbtiles", "contours": f"{cid}-contours.mbtiles", "search": f"{cid}-search.db"}
@@ -153,7 +158,7 @@ def files(base):
 meta = json.load(open(f"out/{cid}.json"))
 entry = dict(old); entry.update({"id": cid, "name": name, "bbox": meta["bbox"], "shape": f"{cid}.json"})
 for k in names:
-    if k in built: entry[k] = files(names[k]); entry[k + "_built"] = datetime.date.today().isoformat()
+    if k in built: entry[k] = files(names[k]); entry[k + "_built"] = datetime.date.today().isoformat(); entry[k + "_ver"] = VER[k]
     else: entry.setdefault(k, [])
 entry["built"] = max([entry.get(k + "_built", "") for k in names] + [old.get("built", "")])
 entry["size"] = sum(f["size"] for k in names for f in entry.get(k, []))
