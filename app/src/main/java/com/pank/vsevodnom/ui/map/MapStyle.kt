@@ -56,13 +56,21 @@ object MapStyle {
         else -> JSONArray("""["coalesce",["get","name_ru"],["get","name"]]""")
     }
 
+    /** Дырка должна идти по часовой (внешнее кольцо мира — против): MapLibre различает кольца по направлению. */
+    private fun ccwOff(r: JSONArray): JSONArray {
+        var a = 0.0
+        for (i in 0 until r.length() - 1) { val p = r.getJSONArray(i); val q = r.getJSONArray(i + 1); a += p.getDouble(0) * q.getDouble(1) - q.getDouble(0) * p.getDouble(1) }
+        if (a <= 0) return r
+        val out = JSONArray(); for (i in r.length() - 1 downTo 0) out.put(r.get(i)); return out
+    }
+
     /** Мир минус скачанные страны: внешнее кольцо — весь мир, дырки — границы стран. */
     private fun hatchGeo(shapes: List<JSONObject>): JSONObject {
         val world = JSONArray("[[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]]")
         val rings = JSONArray().put(world)
         shapes.forEach { g ->
             val polys = if (g.getString("type") == "Polygon") JSONArray().put(g.getJSONArray("coordinates")) else g.getJSONArray("coordinates")
-            for (i in 0 until polys.length()) rings.put(polys.getJSONArray(i).getJSONArray(0))
+            for (i in 0 until polys.length()) rings.put(ccwOff(polys.getJSONArray(i).getJSONArray(0)))
         }
         return JSONObject().put("type", "Feature").put("properties", JSONObject())
             .put("geometry", JSONObject().put("type", "Polygon").put("coordinates", rings))
@@ -131,7 +139,7 @@ object MapStyle {
 
         if (o.online == null) {
             countries.forEach { c -> sources.put("omt_$c", JSONObject().put("type", "vector").put("url", "mbtiles://" + input.files[c]!!["map"])) }
-            val hillAfter = "landcover_sand"
+            val hillAfter = "landuse_school"   // тени — под водой и дорогами
             nonSymbol.forEach { l ->
                 countries.forEach { c -> layers.put(copyFor(l, c)) }
                 if (l.getString("id") == hillAfter) terrain(o, input.files, sources, layers)
