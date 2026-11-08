@@ -21,7 +21,7 @@ class MapStyleTest {
     @Test fun styles() {
         val out = File("build/map-style").apply { mkdirs() }
         for (v in MapStyle.Variant.entries) for (c in listOf(false, true)) for (lang in listOf("local", "ru")) {
-            val s = JSONObject(MapStyle.compose(input(v.key, c), MapStyle.Opts(variant = v, lang = lang)))
+            val s = JSONObject(MapStyle.compose(input(v.key, c), MapStyle.Opts(variant = v, lang = lang, hiddenPoi = if (lang == "ru") MapStyle.DEFAULT_HIDDEN else setOf("food", "transport"))))
             val ids = (0 until s.getJSONArray("layers").length()).map { s.getJSONArray("layers").getJSONObject(it).getString("id") }
             assertEquals("дубли id слоёв", ids.size, ids.toSet().size)
             assertTrue(ids.contains("world"))

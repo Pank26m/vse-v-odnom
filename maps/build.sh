@@ -111,6 +111,8 @@ while IFS='|' read -r ID NAME PATHS RELID <&3; do
     case $part in map) f="$ID.mbtiles";; dem) f="$ID-dem.mbtiles";; contours) f="$ID-contours.mbtiles";; search) f="$ID-search.db";; esac
     if ! have "$f" || forced "$ID" || outdated "$ID" "$part"; then NEED+=("$part"); fi
   done
+  # подъезды и метро собираются из выгрузки — если их ещё нет в каталоге, выгрузку тоже качаем
+  python3 -c "import json,sys; c=next((c for c in json.load(open('work/catalog.json'))['countries'] if c['id']==sys.argv[1]),{}); sys.exit(0 if c.get('entrances') else 1)" "$ID" || NEED+=(extra)
   if [ ${#NEED[@]} -eq 0 ]; then log "$ID: всё собрано"; routing_part "$ID"; continue; fi
   log "$ID ($NAME): нужно ${NEED[*]}"
   needs() { [[ " ${NEED[*]} " == *" $1 "* ]]; }
@@ -121,7 +123,7 @@ while IFS='|' read -r ID NAME PATHS RELID <&3; do
   for P in "${PARTS[@]}"; do
     F="work/$(basename "$P")"
     curl -sSL --retry 3 -o "$F.poly" "https://download.geofabrik.de/$P.poly"; POLYS+=("$F.poly")
-    if needs map || needs search; then
+    if needs map || needs search || needs extra; then
       curl -sSL --retry 3 -o "$F.osm.pbf" "https://download.geofabrik.de/$P-latest.osm.pbf" || { log "ОШИБКА: скачать $P"; continue 2; }
       PBFS+=("$F.osm.pbf"); log "$ID: скачано $P $(du -h "$F.osm.pbf" | cut -f1)"
     fi
@@ -129,7 +131,7 @@ while IFS='|' read -r ID NAME PATHS RELID <&3; do
   # Крым: если граница Geofabrik его не включает — докачиваем и склеиваем
   if [ "$ID" = ukraine ] && ! python3 -c "import sys; sys.path.insert(0,'.'); from poly import to_geojson, contains; sys.exit(0 if contains(to_geojson(['work/ukraine.poly']), 34.16, 44.50) else 1)"; then
     curl -sSL -o work/crimea.poly https://download.geofabrik.de/russia/crimean-fed-district.poly && POLYS+=(work/crimea.poly) && log "$ID: Крым в границе"
-    if needs map || needs search; then
+    if needs map || needs search || needs extra; then
       curl -sSL -o work/crimea.osm.pbf https://download.geofabrik.de/russia/crimean-fed-district-latest.osm.pbf && PBFS+=(work/crimea.osm.pbf) && log "$ID: добавлен Крым"
     fi
   fi
@@ -150,6 +152,12 @@ PY
        && [ $(stat -c %s "work/$ID-clip.osm.pbf") -gt 50000000 ]; then
       PBF="work/$ID-clip.osm.pbf"; log "$ID: обрезано по границе $(du -h "$PBF" | cut -f1)"
     else log "ОШИБКА: граница r$RELID — оставляю выгрузку Geofabrik"; tail -5 work/osmium.log >> "$REPORT"; fi
+  fi
+  # подъезды: входы с номерами (в схеме OpenMapTiles их нет) — отдельный маленький слой
+  if [ -n "$PBF" ]; then
+    osmium tags-filter "$PBF" n/entrance -o work/entr.osm.pbf --overwrite 2>>work/osmium.log \
+      && osmium export work/entr.osm.pbf -f geojsonseq -o - 2>>work/osmium.log | python3 entrances.py "$OUT/$ID-entrances.mbtiles" >> "$REPORT" 2>&1 \
+      && log "$ID: подъезды $(du -h "$OUT/$ID-entrances.mbtiles" | cut -f1)" || log "ОШИБКА: подъезды"
   fi
   # метро: линии с цветами и станции
   if [ -n "$PBF" ]; then
@@ -222,6 +230,7 @@ def files(base):
 meta = json.load(open(f"out/{cid}.json"))
 entry = dict(old); entry.update({"id": cid, "name": name, "bbox": meta["bbox"], "shape": f"{cid}.json"})
 if os.path.exists(f"out/{cid}-metro.json"): entry["metro"] = f"{cid}-metro.json"
+if os.path.exists(f"out/{cid}-entrances.mbtiles"): entry["entrances"] = f"{cid}-entrances.mbtiles"
 for k in names:
     if k in built: entry[k] = files(names[k]); entry[k + "_built"] = datetime.date.today().isoformat(); entry[k + "_ver"] = VER[k]
     else: entry.setdefault(k, [])
@@ -230,7 +239,7 @@ entry["size"] = sum(f["size"] for k in names for f in entry.get(k, []))
 cat["countries"] = [c for c in cat["countries"] if c["id"] != cid] + [entry]
 json.dump(cat, open("work/catalog.json", "w"), ensure_ascii=False, indent=1)
 PY
-  shopt -s nullglob; FILES=("$OUT/$ID.json" $OUT/$ID-metro.json $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*); shopt -u nullglob
+  shopt -s nullglob; FILES=("$OUT/$ID.json" $OUT/$ID-metro.json $OUT/$ID-entrances.mbtiles $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*); shopt -u nullglob
   up "${FILES[@]}"
   rm -f $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*
 

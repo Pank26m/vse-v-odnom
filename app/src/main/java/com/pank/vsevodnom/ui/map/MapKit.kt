@@ -52,7 +52,7 @@ object MapKit {
         val lc = map.locationComponent
         if (!lc.isLocationComponentActivated) {
             lc.activateLocationComponent(LocationComponentActivationOptions.builder(ctx, style)
-                .locationComponentOptions(org.maplibre.android.location.LocationComponentOptions.builder(ctx).compassAnimationEnabled(true).trackingAnimationDurationMultiplier(0.6f).build())
+                .locationComponentOptions(org.maplibre.android.location.LocationComponentOptions.builder(ctx).compassAnimationEnabled(false).trackingAnimationDurationMultiplier(0.25f).build())
                 .build())
             lc.compassEngine = SmoothCompass(ctx)
         }
@@ -156,7 +156,7 @@ class SmoothCompass(ctx: Context) : org.maplibre.android.location.CompassEngine,
         android.hardware.SensorManager.getOrientation(rr, o)
         val h = ((Math.toDegrees(o[0].toDouble()) + 360) % 360).toFloat()
         var d = h - heading; if (d > 180) d -= 360; if (d < -180) d += 360
-        heading = (heading + d * 0.35f + 360) % 360           // мягкое сглаживание без задержки в полсекунды
+        heading = (heading + d * 0.65f + 360) % 360           // лёгкое сглаживание дрожи, без «льда»
         if (sent.isNaN() || kotlin.math.abs(((heading - sent + 540) % 360) - 180) >= 0.7f) { sent = heading; listeners.forEach { it.onCompassChanged(heading) } }
     }
 }

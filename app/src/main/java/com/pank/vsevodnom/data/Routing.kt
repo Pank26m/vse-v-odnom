@@ -22,9 +22,11 @@ object Routing {
     data class Step(val index: Int, val cmd: Int, val exit: Int = 0)
     data class Route(val points: List<GeoPt>, val meters: Double, val seconds: Double, val delay: Double = 0.0, val steps: List<Step> = emptyList(), val source: String = "")
 
-    suspend fun route(mode: String, from: GeoPt, to: GeoPt): Route = withContext(Dispatchers.IO) {
+    suspend fun route(mode: String, way: List<GeoPt>, avoidToll: Boolean = false, avoidFerry: Boolean = false): Route = withContext(Dispatchers.IO) {
         val profile = when (mode) { "bike" -> "routed-bike"; "foot" -> "routed-foot"; else -> "routed-car" }
-        val url = String.format(Locale.US, "https://routing.openstreetmap.de/%s/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson&steps=true", profile, from.lon, from.lat, to.lon, to.lat)
+        val ex = listOfNotNull("toll".takeIf { avoidToll && mode == "car" }, "ferry".takeIf { avoidFerry && mode == "car" }).joinToString(",")
+        val url = String.format(Locale.US, "https://routing.openstreetmap.de/%s/route/v1/driving/%s?overview=full&geometries=geojson&steps=true", profile,
+            way.joinToString(";") { String.format(Locale.US, "%.6f,%.6f", it.lon, it.lat) }) + if (ex.isNotEmpty()) "&exclude=$ex" else ""
         val c = URL(url).openConnection() as HttpURLConnection
         c.setRequestProperty("User-Agent", "VseVOdnom/0.16 (personal Android app)")
         c.connectTimeout = 10_000; c.readTimeout = 20_000

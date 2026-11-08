@@ -31,7 +31,8 @@ object OfflineMaps {
     val KIND_NAMES = mapOf("map" to "Карта", "dem" to "Рельеф", "contours" to "Линии высот", "search" to "Поиск", "routing" to "Маршруты")
 
     data class Part(val file: String, val size: Long)
-    data class Country(val id: String, val name: String, val bbox: List<Double>, val built: String, val parts: Map<String, List<Part>>, val shape: String) {
+    data class Country(val id: String, val name: String, val bbox: List<Double>, val built: String, val parts: Map<String, List<Part>>, val shape: String,
+                       val partBuilt: Map<String, String> = emptyMap(), val metro: String? = null) {
         fun size(kinds: Collection<String> = KINDS) = kinds.sumOf { k -> parts[k].orEmpty().sumOf { it.size } }
     }
     data class Catalog(val countries: List<Country>, val world: Part?, val labels: Part?)
@@ -78,7 +79,12 @@ object OfflineMaps {
         val o = runCatching { JSONObject(prefs(ctx).getString("installed", "{}")!!) }.getOrDefault(JSONObject())
         val old = o.optJSONObject(id)?.optJSONArray("parts")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
         val all = (old + kinds).distinct()
-        if (all.isEmpty()) o.remove(id) else o.put(id, JSONObject().put("built", built).put("parts", JSONArray(all)))
+        val e = o.optJSONObject(id) ?: JSONObject()
+        if (all.isEmpty()) o.remove(id) else {
+            e.put("built", built).put("parts", JSONArray(all))
+            catalog?.countries?.firstOrNull { it.id == id }?.let { c -> kinds.forEach { k -> e.put("b_$k", c.partBuilt[k] ?: built) } }
+            o.put(id, e)
+        }
         prefs(ctx).edit().putString("installed", o.toString()).apply()
         version++
     }
@@ -88,6 +94,7 @@ object OfflineMaps {
     fun segmentsDir(ctx: Context) = File(dir(ctx), "segments4").apply { mkdirs() }
     fun file(ctx: Context, id: String, kind: String) = File(dir(ctx), fileName(id, kind))
     fun shapeFile(ctx: Context, id: String) = File(dir(ctx), "$id.json")
+    fun metroFile(ctx: Context, id: String) = File(dir(ctx), "$id-metro.json")
 
     /** Рельеф мира: скачанный (z0…6) или встроенный в приложение (z0…4). */
     fun worldRelief(ctx: Context): File {
@@ -117,7 +124,8 @@ object OfflineMaps {
         val list = (0 until arr.length()).map { i ->
             val c = arr.getJSONObject(i); val bb = c.optJSONArray("bbox")
             Country(c.getString("id"), c.optString("name", c.getString("id")), (0 until (bb?.length() ?: 0)).map { bb!!.getDouble(it) },
-                c.optString("built"), KINDS.associateWith { parts(c.optJSONArray(it)) }, c.optString("shape", c.getString("id") + ".json"))
+                c.optString("built"), KINDS.associateWith { parts(c.optJSONArray(it)) }, c.optString("shape", c.getString("id") + ".json"),
+                KINDS.associateWith { k -> c.optString(k + "_built", c.optString("built")) }, c.optString("metro").ifBlank { null })
         }
         fun one(k: String) = o.optJSONObject(k)?.let { Part(it.getString("file"), it.optLong("size")) }
         return Catalog(list.sortedBy { it.name }, one("world"), one("labels"))
@@ -135,10 +143,13 @@ object OfflineMaps {
         }.onFailure { if (catalog == null) catalogError = if (Net.online) "Каталог карт пока недоступен" else "Нет интернета" }
     }
 
-    fun updateAvailable(ctx: Context, c: Country): Boolean {
-        val inst = installed(ctx)[c.id] ?: return false
-        return c.built.isNotEmpty() && c.built > inst.first
+    /** Какие из скачанных частей обновились на сервере (сравнение дат сборки по каждой части). */
+    fun outdatedParts(ctx: Context, c: Country): Set<String> {
+        val inst = installed(ctx)[c.id] ?: return emptySet()
+        val e = runCatching { JSONObject(prefs(ctx).getString("installed", "{}")!!).optJSONObject(c.id) }.getOrNull() ?: return emptySet()
+        return inst.second.filter { k -> val have = e.optString("b_$k", inst.first); val now = c.partBuilt[k].orEmpty(); now.isNotEmpty() && now > have }.toSet()
     }
+    fun updateAvailable(ctx: Context, c: Country): Boolean = outdatedParts(ctx, c).isNotEmpty()
 
     // ---------- загрузка ----------
     private val active = HashMap<String, List<Long>>()
@@ -146,10 +157,11 @@ object OfflineMaps {
     /** Скачать части страны (или «world»/«labels»). Части больше 2 ГБ приходят кусками и склеиваются. */
     fun download(ctx: Context, c: Country, kinds: Set<String>) {
         val files = kinds.associateWith { c.parts[it].orEmpty() }.filterValues { it.isNotEmpty() }
-        val parts = files.values.flatten() + Part(c.shape, 0)
+        val parts = files.values.flatten() + Part(c.shape, 0) + listOfNotNull(c.metro?.let { Part(it, 0) })
         val ids = enqueue(ctx, c.id, parts) ?: return
-        savePending(ctx, c.id, JSONObject().put("type", "country").put("kinds", JSONArray(files.keys.toList())).put("ids", JSONArray(ids)).put("total", parts.sumOf { it.size }))
-        watch(ctx, c.id, ids, parts.sumOf { it.size }) { finishCountry(ctx, c, files.keys) }
+        savePending(ctx, c.id, JSONObject().put("type", "country").put("kinds", JSONArray(files.keys.toList())).put("ids", JSONArray(ids))
+            .put("files", JSONArray(parts.map { it.file })).put("total", parts.sumOf { it.size }))
+        watch(ctx, c.id, ids, parts, parts.sumOf { it.size }) { finishCountry(ctx, c, files.keys) }
     }
 
     private fun finishCountry(ctx: Context, c: Country, kinds: Set<String>) {
@@ -169,13 +181,14 @@ object OfflineMaps {
             }
         }
         File(dir(ctx), c.shape + ".dl").renameTo(shapeFile(ctx, c.id).also { it.delete() })
+        c.metro?.let { m -> File(dir(ctx), "$m.dl").takeIf { it.exists() }?.renameTo(metroFile(ctx, c.id).also { it.delete() }) }
         markInstalled(ctx, c.id, c.built, kinds)
     }
 
     fun downloadWorld(ctx: Context, p: Part, key: String) {
         val ids = enqueue(ctx, key, listOf(p)) ?: return
         savePending(ctx, key, JSONObject().put("type", "world").put("file", p.file).put("ids", JSONArray(ids)).put("total", p.size))
-        watch(ctx, key, ids, p.size) { finishWorld(ctx, p.file) }
+        watch(ctx, key, ids, listOf(p), p.size) { finishWorld(ctx, p.file) }
     }
 
     private fun finishWorld(ctx: Context, file: String) { File(dir(ctx), "$file.dl").renameTo(File(dir(ctx), file).also { it.delete() }); version++ }
@@ -203,11 +216,12 @@ object OfflineMaps {
             if (active.containsKey(key)) return@forEach
             val o = p.getJSONObject(key); val a = o.getJSONArray("ids"); val ids = (0 until a.length()).map { a.getLong(it) }
             when (o.optString("type")) {
-                "world" -> { val f = o.getString("file"); watch(ctx, key, ids, o.optLong("total")) { finishWorld(ctx, f) } }
+                "world" -> { val f = o.getString("file"); watch(ctx, key, ids, listOf(Part(f, o.optLong("total"))), o.optLong("total")) { finishWorld(ctx, f) } }
                 else -> {
                     val c = cat.countries.firstOrNull { it.id == key } ?: run { savePending(ctx, key, null); return@forEach }
                     val k = o.getJSONArray("kinds"); val kinds = (0 until k.length()).map { k.getString(it) }.toSet()
-                    watch(ctx, key, ids, o.optLong("total")) { finishCountry(ctx, c, kinds) }
+                    val fl = o.optJSONArray("files")?.let { a -> (0 until a.length()).map { Part(a.getString(it), 0) } } ?: ids.map { Part("", 0) }
+                    watch(ctx, key, ids, fl, o.optLong("total")) { finishCountry(ctx, c, kinds) }
                 }
             }
         }
@@ -215,36 +229,50 @@ object OfflineMaps {
 
     private fun enqueue(ctx: Context, key: String, parts: List<Part>): List<Long>? {
         if (active.containsKey(key)) return null
-        val dm = ctx.getSystemService(DownloadManager::class.java)
-        val d = dir(ctx)
-        return parts.map { p ->
-            File(d, p.file + ".dl").delete()
-            dm.enqueue(DownloadManager.Request(Uri.parse(BASE + p.file))
-                .setTitle("Карты: ${p.file}")
-                .setDestinationUri(Uri.fromFile(File(d, p.file + ".dl")))
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                .setAllowedOverMetered(true))
-        }
+        return parts.map { p -> enqueueOne(ctx, p) }
     }
 
-    private fun watch(ctx: Context, key: String, ids: List<Long>, totalBytes: Long, onDone: () -> Unit) {
+    /** Одна часть. Уже скачанную целиком (размер совпал) не качаем заново — id = -1. */
+    private fun enqueueOne(ctx: Context, p: Part): Long {
+        val f = File(dir(ctx), p.file + ".dl")
+        if (p.size > 0 && f.length() == p.size) return -1L
+        f.delete()
+        return ctx.getSystemService(DownloadManager::class.java).enqueue(DownloadManager.Request(Uri.parse(BASE + p.file))
+            .setTitle("Карты: ${p.file}")
+            .setDestinationUri(Uri.fromFile(f))
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            .setAllowedOverMetered(true))
+    }
+
+    private fun watch(ctx: Context, key: String, ids0: List<Long>, parts: List<Part>, totalBytes: Long, onDone: () -> Unit) {
         val dm = ctx.getSystemService(DownloadManager::class.java)
-        active[key] = ids; progress[key] = 0f
+        val ids = ids0.toMutableList()
+        val tries = IntArray(ids.size)
+        active[key] = ids; progress[key] = 0f; lastError = null
         val total = totalBytes.coerceAtLeast(1)
         AppScope.io.launch {
-            var failedMsg: String? = null
             while (true) {
-                var done = 0L; var ok = 0; var failed = false
-                dm.query(DownloadManager.Query().setFilterById(*ids.toLongArray()))?.use { cur ->
-                    if (cur.count < ids.size) failed = true
-                    while (cur.moveToNext()) {
-                        val st = cur.getInt(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                        done += cur.getLong(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0)
-                        if (st == DownloadManager.STATUS_SUCCESSFUL) ok++
-                        if (st == DownloadManager.STATUS_FAILED) { failed = true; failedMsg = "код " + cur.getInt(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)) }
+                var done = 0L; var ok = 0; var gaveUp: String? = null
+                for (i in ids.indices) {
+                    val id = ids[i]
+                    if (id == -1L) { ok++; done += parts.getOrNull(i)?.size ?: 0; continue }
+                    val row = dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
+                        if (c.moveToFirst()) Triple(c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)), c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)), c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))) else null
                     }
-                } ?: run { failed = true }
-                if (failed) { ids.forEach { runCatching { dm.remove(it) } }; lastError = "Загрузка прервалась" + (failedMsg?.let { " ($it)" } ?: ""); break }
+                    when {
+                        row == null -> gaveUp = "загрузка отменена"
+                        row.first == DownloadManager.STATUS_SUCCESSFUL -> { ok++; done += row.second.coerceAtLeast(0) }
+                        row.first == DownloadManager.STATUS_FAILED -> {
+                            // сервер GitHub иногда отвечает 502 — перезапускаем только эту часть, до 3 раз
+                            runCatching { dm.remove(id) }
+                            val p = parts.getOrNull(i)
+                            if (p != null && p.file.isNotEmpty() && tries[i] < 3) { tries[i]++; ids[i] = enqueueOne(ctx, p) }
+                            else gaveUp = "код ${row.third}"
+                        }
+                        else -> done += row.second.coerceAtLeast(0)
+                    }
+                }
+                if (gaveUp != null) { lastError = "Загрузка прервалась ($gaveUp). Скачанные части сохранены — нажми ещё раз, докачаются остальные."; break }
                 progress[key] = (done.toFloat() / total).coerceIn(0f, 0.99f)
                 if (ok == ids.size) { runCatching { onDone() }.onFailure { lastError = "Не удалось сохранить: ${it.message}" }; break }
                 delay(1000)
@@ -259,7 +287,7 @@ object OfflineMaps {
 
     fun cancel(ctx: Context, key: String) {
         val dm = ctx.getSystemService(DownloadManager::class.java)
-        active[key]?.forEach { runCatching { dm.remove(it) } }
+        active[key]?.forEach { if (it >= 0) runCatching { dm.remove(it) } }
     }
 
     fun delete(ctx: Context, id: String, kinds: Set<String> = KINDS.toSet()) {

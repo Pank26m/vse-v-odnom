@@ -63,6 +63,7 @@ import org.maplibre.geojson.Point
 import kotlin.math.floor
 import kotlin.math.log10
 import kotlin.math.pow
+import kotlin.math.abs
 
 internal fun hasLoc(ctx: Context) = TrackService.canStart(ctx)
 
@@ -76,12 +77,16 @@ internal const val TRACK_COLOR = "#6A55A8"
 /** Слои пользователя поверх карты: треки, метки, булавка, запись, маршрут. */
 private fun setupOverlays(style: Style) {
     fun src(id: String) { if (style.getSource(id) == null) style.addSource(GeoJsonSource(id, FeatureCollection.fromFeatures(emptyList()))) }
-    listOf("u-tracks", "u-sel", "u-rec", "u-route", "u-places", "u-pin").forEach(::src)
+    listOf("u-tracks", "u-sel", "u-rec", "u-route", "u-places", "u-pin", "u-stops", "u-ruler").forEach(::src)
     style.addLayer(LineLayer("u-route-l", "u-route").withProperties(PF.lineColor("#3E6FA8"), PF.lineWidth(5f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.85f)))
     style.addLayer(LineLayer("u-tracks-l", "u-tracks").withProperties(PF.lineColor(Expression.toColor(Expression.get("color"))), PF.lineWidth(4f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.9f)))
     style.addLayer(LineLayer("u-sel-l", "u-sel").withProperties(PF.lineColor("#FFFFFF"), PF.lineWidth(9f), PF.lineCap("round"), PF.lineJoin("round"), PF.lineOpacity(0.9f)))
     style.addLayer(LineLayer("u-sel-l2", "u-sel").withProperties(PF.lineColor(Expression.toColor(Expression.get("color"))), PF.lineWidth(5.5f), PF.lineCap("round"), PF.lineJoin("round")))
     style.addLayer(LineLayer("u-rec-l", "u-rec").withProperties(PF.lineColor("#D8456A"), PF.lineWidth(5f), PF.lineCap("round"), PF.lineJoin("round")))
+    style.addLayer(CircleLayer("u-stops-c", "u-stops").withProperties(PF.circleRadius(11f), PF.circleColor(Expression.toColor(Expression.get("c"))), PF.circleStrokeColor("#FFFFFF"), PF.circleStrokeWidth(2.5f)))
+    style.addLayer(SymbolLayer("u-stops-t", "u-stops").withProperties(PF.textField(Expression.get("t")), PF.textFont(arrayOf("Noto Sans Bold")), PF.textSize(11f), PF.textColor("#FFFFFF"), PF.textAllowOverlap(true), PF.textIgnorePlacement(true)))
+    style.addLayer(SymbolLayer("u-ruler-t", "u-ruler").withProperties(PF.textField(Expression.get("t")), PF.textFont(arrayOf("Noto Sans Bold")), PF.textSize(12.5f), PF.textColor("#3E6FA8"),
+        PF.textHaloColor("#FFFFFF"), PF.textHaloWidth(2f), PF.textAnchor("bottom"), PF.textOffset(arrayOf(0f, -0.8f)), PF.textAllowOverlap(true)))
     style.addLayer(CircleLayer("u-places-c", "u-places").withProperties(PF.circleRadius(7.5f), PF.circleColor(Expression.toColor(Expression.get("color"))), PF.circleStrokeColor("#FFFFFF"), PF.circleStrokeWidth(2.5f)))
     style.addLayer(SymbolLayer("u-places-t", "u-places").withProperties(PF.textField(Expression.get("name")), PF.textFont(arrayOf("Noto Sans Bold")), PF.textSize(11.5f),
         PF.textColor("#2B2A33"), PF.textHaloColor("#FFFFFF"), PF.textHaloWidth(1.5f), PF.textAnchor("top"), PF.textOffset(arrayOf(0f, 0.9f)), PF.textOptional(true)).withProperties().apply { minZoom = 11f })
@@ -99,7 +104,7 @@ internal fun visibleFolders(folders: List<MapFolder>): Set<Long> {
     return folders.filter { ok(it) }.map { it.id }.toSet()
 }
 
-enum class MapSheet { NONE, SEARCH, COLLECTIONS, LAYERS, ROUTE, SETTINGS }
+enum class MapSheet { NONE, SEARCH, COLLECTIONS, LAYERS, SETTINGS }
 
 @Composable
 fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
@@ -117,10 +122,8 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var settingsStart by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf<MapTarget?>(null) }
     var selTrack by remember { mutableStateOf<Track?>(null) }
-    var routeTo by remember { mutableStateOf<MapPrefs.Spot?>(null) }
-    var routeLine by remember { mutableStateOf<List<GeoPt>>(emptyList()) }
-    var routeInfo by remember { mutableStateOf("") }
-    var lastRoute by remember { mutableStateOf<Triple<Routing.Route, String, Boolean>?>(null) }   // маршрут, куда, от моего места
+    var pickStop by remember { mutableStateOf<Int?>(null) }
+    var trackColor by remember { mutableStateOf("") }      // раскраска выбранного трека: alt | speed | slope        // выбор точки маршрута на карте: индекс или −1 — новая остановка
     val nav = Nav.session
     var renameTrack by remember { mutableStateOf<Track?>(null) }
     val rec by TrackService.recording.collectAsState()
@@ -140,7 +143,6 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var scaleBar by remember { mutableStateOf(60.dp to "") }
     var trackListener by remember { mutableStateOf(false) }
     var rerouting by remember { mutableStateOf(false) }
-    var show3d by remember { mutableStateOf(false) }
     var rerouteAt by remember { mutableStateOf<GeoPt?>(null) }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -154,6 +156,15 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         if (locMode != 0) { runCatching { m.locationComponent.cameraMode = CameraMode.NONE }; locMode = 0 }
         m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), z ?: maxOf(m.cameraPosition.zoom, 15.5)), 650)
     }
+    /** Показать точку выше центра — низ экрана занят карточкой места. */
+    fun flyAbove(lat: Double, lon: Double, z: Double? = null) {
+        val m = map ?: return
+        if (locMode != 0) { runCatching { m.locationComponent.cameraMode = CameraMode.NONE }; locMode = 0 }
+        val h = view.height.toDouble()
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(org.maplibre.android.camera.CameraPosition.Builder()
+            .target(LatLng(lat, lon)).zoom(z ?: maxOf(m.cameraPosition.zoom, 15.5)).bearing(m.cameraPosition.bearing)
+            .padding(0.0, 0.0, 0.0, h * 0.45).build()), 650)
+    }
     fun fit(pts: List<GeoPt>) {
         val m = map ?: return
         if (pts.size == 1) { fly(pts[0].lat, pts[0].lon); return }
@@ -165,7 +176,10 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
     fun pin(lat: Double?, lon: Double?) { style?.setFeatures("u-pin", if (lat == null || lon == null) emptyList() else listOf(Feature.fromGeometry(Point.fromLngLat(lon, lat)))) }
     fun open(t: MapTarget) { selTrack = null; target = t; pin(if (t.place == null) t.lat else null, t.lon) }
-    fun closeAll() { target = null; selTrack = null; pin(null, null) }
+    fun closeAll() {
+        target = null; selTrack = null; pin(null, null)
+        map?.let { m -> if ((m.cameraPosition.padding?.getOrNull(3) ?: 0.0) > 0) m.easeCamera(CameraUpdateFactory.paddingTo(0.0, 0.0, 0.0, 0.0), 300) }
+    }
 
     // ---------- карта ----------
     LaunchedEffect(Unit) {
@@ -179,6 +193,16 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             m.uiSettings.isAttributionEnabled = true
             m.uiSettings.setAttributionMargins((8 * density).toInt(), 0, 0, (4 * density).toInt())
             m.setMinZoomPreference(1.0)
+            // плавность: до 120 кадров (Pixel 8 Pro), быстрее зум щипком; наклон двумя пальцами легче отличить от поворота
+            runCatching { view.setMaximumFps(120) }
+            runCatching {
+                m.uiSettings.zoomRate = 1.25f
+                val g = m.gesturesManager
+                g.rotateGestureDetector.angleThreshold = 18f
+                g.shoveGestureDetector.pixelDeltaThreshold = 10f * density
+                g.shoveGestureDetector.maxShoveAngle = 45f
+            }
+            view.addOnStyleImageMissingListener { id -> if (id.startsWith("p:")) m.style?.let { st -> runCatching { st.addImage(id, poiBitmap(ctx, id.removePrefix("p:"), density)) } } }
             fun scale() {
                 val c = m.cameraPosition; val lat = c.target?.latitude ?: 50.0
                 bearing = c.bearing.toFloat(); zoomNow = c.zoom.toFloat()
@@ -289,20 +313,57 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         }
         style?.setFeatures("u-tracks", feats)
     }
-    LaunchedEffect(style, selTrack) {
+    LaunchedEffect(style, selTrack, trackColor) {
         val t = selTrack; val pts = t?.let { Osm.decode(it.points) }.orEmpty()
-        style?.setFeatures("u-sel", if (pts.size >= 2) listOf(Feature.fromGeometry(line(pts)).also { it.addNumberProperty("id", t!!.id); it.addStringProperty("color", colorHex(t.color, TRACK_COLOR)) }) else emptyList())
+        val feats = if (pts.size < 2) emptyList() else if (trackColor.isEmpty()) listOf(Feature.fromGeometry(line(pts)).also { it.addNumberProperty("id", t!!.id); it.addStringProperty("color", colorHex(t.color, TRACK_COLOR)) })
+        else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            // раскраска по высоте / скорости / уклону: отрезки цветом от зелёного к красному
+            val v = TrackMath.values(TrackMath.stats(pts), trackColor)
+            val ok = v.filter { !it.isNaN() }.sorted()
+            if (ok.size < 2) return@withContext listOf(Feature.fromGeometry(line(pts)).also { it.addNumberProperty("id", t!!.id); it.addStringProperty("color", colorHex(t.color, TRACK_COLOR)) })
+            val lo = ok[(ok.size * 0.03).toInt()]; val hi = ok[(ok.size * 0.97).toInt().coerceAtMost(ok.size - 1)].coerceAtLeast(lo + 0.1)
+            val step = maxOf(1, pts.size / 600)
+            (0 until pts.size - 1 step step).map { i ->
+                val j = minOf(i + step, pts.size - 1)
+                val c = TrackMath.ramp(((v[i].takeIf { !it.isNaN() } ?: lo) - lo) / (hi - lo))
+                Feature.fromGeometry(line(pts.subList(i, j + 1))).also { it.addNumberProperty("id", t!!.id); it.addStringProperty("color", colorHex(c, TRACK_COLOR)) }
+            }
+        }
+        style?.setFeatures("u-sel", feats)
     }
     LaunchedEffect(style, recPts) { style?.setFeatures("u-rec", if (recPts.size >= 2) listOf(Feature.fromGeometry(line(recPts))) else emptyList()) }
-    LaunchedEffect(style, routeLine) { style?.setFeatures("u-route", if (routeLine.size >= 2) listOf(Feature.fromGeometry(line(routeLine))) else emptyList()) }
-    // маршрут «по прямой» обновляется вместе с моим местом
-    LaunchedEffect(routeTo, myLoc) {
-        val to = routeTo ?: run { if (routeInfo.startsWith("По прямой")) { routeLine = emptyList(); routeInfo = "" }; return@LaunchedEffect }
-        val me = myLoc ?: return@LaunchedEffect
-        if (routeInfo.isEmpty() || routeInfo.startsWith("По прямой")) {
-            routeLine = listOf(me, GeoPt(to.lat, to.lon, 0))
-            routeInfo = "По прямой · " + MapPrefs.dist(ctx, Osm.distance(me, GeoPt(to.lat, to.lon, 0)))
+    // план маршрута: строим сам, когда есть начало и конец
+    val needMe = RoutePlan.active && RoutePlan.points.first() == null && myLoc == null
+    LaunchedEffect(RoutePlan.active, RoutePlan.rev, RoutePlan.mode, needMe) {
+        if (!RoutePlan.active) { RoutePlan.route = null; return@LaunchedEffect }
+        val pts = RoutePlan.points.toList()
+        val start = pts.first()?.let { GeoPt(it.lat, it.lon, 0) } ?: myLoc
+        val end = pts.last()
+        if (end == null || start == null) { RoutePlan.route = null; RoutePlan.error = if (end != null) "Жду моё место (геолокация)…" else null; return@LaunchedEffect }
+        val way = listOf(start) + pts.drop(1).filterNotNull().map { GeoPt(it.lat, it.lon, 0) }
+        RoutePlan.error = null
+        if (RoutePlan.mode == "line") {
+            var d = 0.0; for (k in 1 until way.size) d += Osm.distance(way[k - 1], way[k])
+            RoutePlan.route = Routing.Route(way, d, 0.0, source = "line"); fit(way); return@LaunchedEffect
         }
+        RoutePlan.busy = true
+        runCatching { Nav.best(ctx, RoutePlan.mode, way) }
+            .onSuccess { RoutePlan.route = it; fit(it.points) }
+            .onFailure { RoutePlan.route = null; RoutePlan.error = it.message ?: "Маршрут не построен" }
+        RoutePlan.busy = false
+    }
+    LaunchedEffect(style, RoutePlan.route, RoutePlan.rev, RoutePlan.active) {
+        val st = style ?: return@LaunchedEffect
+        if (Nav.session != null) return@LaunchedEffect
+        val rt = RoutePlan.route.takeIf { RoutePlan.active }
+        st.setFeatures("u-route", if (rt != null && rt.points.size >= 2) listOf(Feature.fromGeometry(line(rt.points))) else emptyList())
+        val stops = if (!RoutePlan.active) emptyList() else RoutePlan.points.mapIndexedNotNull { i, sp -> sp?.let {
+            Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)).also { f ->
+                f.addStringProperty("t", when (i) { 0 -> ""; RoutePlan.points.size - 1 -> "★"; else -> RoutePlan.label(i - 1) })
+                f.addStringProperty("c", when (i) { 0 -> "#3E6FA8"; RoutePlan.points.size - 1 -> "#E5484D"; else -> "#E09A1B" })
+            } } }
+        st.setFeatures("u-stops", stops)
+        st.setFeatures("u-ruler", if (rt?.source == "line") rulerMarks(ctx, rt.points).map { (p, t) -> Feature.fromGeometry(Point.fromLngLat(p.lon, p.lat)).also { it.addStringProperty("t", t) } } else emptyList())
     }
     // трек сохранён: если автосохранение выключено — спросить имя и папку
     // пришло извне: ссылка Google Карт → метка, файл .ms / GPX / KML
@@ -324,9 +385,9 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         else Toast.makeText(ctx, "Трек сохранён в коллекции", Toast.LENGTH_SHORT).show()
     }
 
-    fun startNav(r: Routing.Route, name: String) {
+    fun startNav(r: Routing.Route, name: String, way: List<GeoPt> = emptyList()) {
         Nav.initVoice(ctx); Nav.muted = !MapPrefs.bool(ctx, "voice", true)
-        Nav.session = Nav.Session(r, MapPrefs.navMode(ctx), name); Nav.status = null
+        Nav.session = Nav.Session(r, MapPrefs.navMode(ctx), name, way.ifEmpty { listOfNotNull(r.points.firstOrNull(), r.points.lastOrNull()) }); Nav.status = null
         target = null; selTrack = null; pin(null, null)
         view.keepScreenOn = true
         runCatching {
@@ -344,14 +405,16 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             lc.renderMode = org.maplibre.android.location.modes.RenderMode.COMPASS; lc.cameraMode = CameraMode.NONE; locMode = 0
             map!!.animateCamera(CameraUpdateFactory.newCameraPosition(org.maplibre.android.camera.CameraPosition.Builder(map!!.cameraPosition).tilt(0.0).bearing(0.0).build()), 600)
         }
-        routeTo = null; routeLine = emptyList(); routeInfo = ""; lastRoute = null
+        style?.setFeatures("u-route", emptyList())
     }
     fun rerouteNav(from: GeoPt) {
         val s = Nav.session ?: return; val to = s.route.points.lastOrNull() ?: return
+        // оставшиеся остановки — те, что ещё впереди по маршруту
+        val ahead = s.way.drop(1).dropLast(1).filter { w -> s.cum[Routing.nearestIndex(s.route.points, w.lat, w.lon)] > s.along + 30 }
         rerouting = true
         scope.launch {
-            runCatching { Nav.best(ctx, s.mode, from, to) }.onSuccess { r ->
-                if (Nav.session === s) { Nav.session = Nav.Session(r, s.mode, s.destName); Nav.say("Маршрут перестроен") }
+            runCatching { Nav.best(ctx, s.mode, listOf(from) + ahead + to) }.onSuccess { r ->
+                if (Nav.session === s) { Nav.session = Nav.Session(r, s.mode, s.destName, listOf(from) + ahead + to); Nav.say("Маршрут перестроен") }
             }
             rerouting = false
         }
@@ -365,6 +428,8 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         val lc = m.locationComponent
         if (lc.lastKnownLocation == null) Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()
         when {
+            // карта повёрнута и я не «привязан» — сперва просто на север
+            locMode == 0 && abs(((bearing + 540f) % 360f) - 180f) < 178.5f -> m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 350)
             locMode == 0 -> { lc.cameraMode = CameraMode.TRACKING; lc.zoomWhileTracking(maxOf(m.cameraPosition.zoom, 15.5), 700); locMode = 1 }
             locMode == 1 -> { lc.cameraMode = CameraMode.TRACKING_COMPASS; locMode = 2 }
             else -> {
@@ -386,8 +451,10 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
 
         if (nav != null) NavBanner(Modifier.align(Alignment.TopCenter))
         // ---- слева сверху: скорость | высота, поиск, коллекции ----
-        if (nav == null) Column(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 12.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(Modifier.shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(horizontal = 12.dp, vertical = 7.dp),
+        if (nav == null && RoutePlan.active) Box(Modifier.align(Alignment.TopCenter)) { RoutePlannerTop(onClose = { RoutePlan.close() }, onSettings = { settingsStart = "nav"; sheet = MapSheet.SETTINGS }) }
+        if (nav == null && !RoutePlan.active) Column(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 12.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.height(48.dp).widthIn(min = 106.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card)
+                .clickable(interactionSource = null, indication = null) {}.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically) {
                 val (sv, su) = speed?.let { MapPrefs.speed(ctx, it) } ?: ("—" to MapPrefs.speed(ctx, 0f).second)
                 val (av, au) = alt?.let { MapPrefs.alt(ctx, it) } ?: ("—" to MapPrefs.alt(ctx, 0.0).second)
@@ -399,10 +466,9 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             MapBtn(Icons.Rounded.Bookmarks, "Коллекции") { sheet = MapSheet.COLLECTIONS }
         }
         // ---- справа сверху: слои, маршрут, запись ----
-        if (nav == null) Column(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 12.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.End) {
+        if (nav == null && !RoutePlan.active) Column(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 12.dp, top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.End) {
             MapBtn(Icons.Rounded.Layers, "Слои") { sheet = MapSheet.LAYERS }
-            MapBtn(Icons.Rounded.Directions, "Маршрут", active = routeTo != null) { sheet = MapSheet.ROUTE }
-            MapBtn(Icons.Rounded.Landscape, "3D-рельеф") { show3d = true }
+            MapBtn(Icons.Rounded.Directions, "Маршрут", active = RoutePlan.active) { RoutePlan.open(ctx) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AnimatedVisibility(rec, enter = fadeIn(), exit = fadeOut()) {
                     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -441,12 +507,14 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 MapBtn(Icons.Rounded.Settings, "Настройки карты") { settingsStart = null; sheet = MapSheet.SETTINGS }
             }
             if (nav != null) NavBottom(nav, onStop = { stopNav() })
-            else if (routeTo != null && target == null && selTrack == null) RouteStrip(routeTo!!, routeInfo, onOpen = { sheet = MapSheet.ROUTE },
-                onGo = lastRoute?.takeIf { it.third && it.first.steps.isNotEmpty() }?.let { lr -> { startNav(lr.first, lr.second) } }) { routeTo = null; routeLine = emptyList(); routeInfo = ""; lastRoute = null }
+            else if (RoutePlan.active && target == null && selTrack == null) RoutePlannerBottom(myLoc, places, onGo = {
+                RoutePlan.route?.let { r -> val way = listOfNotNull(myLoc) + RoutePlan.points.drop(1).filterNotNull().map { GeoPt(it.lat, it.lon, 0) }
+                    startNav(r, RoutePlan.dest?.name ?: "", way); RoutePlan.close() }
+            }, onPickMap = { i -> pickStop = i })
             target?.let { t ->
-                PlaceCard(t, myLoc, folders, onClose = { closeAll() }, onRoute = { s -> routeTo = s; routeInfo = ""; sheet = MapSheet.ROUTE }, onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl, if (t.place == null) mapOf("edit" to "1") else emptyMap())) })
+                PlaceCard(t, myLoc, folders, onClose = { closeAll() }, onRoute = { kind, sp -> RoutePlan.open(ctx); when (kind) { "from" -> RoutePlan.setFrom(sp); "stop" -> RoutePlan.addStop(sp); else -> RoutePlan.setTo(sp) }; closeAll() }, onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl, if (t.place == null) mapOf("edit" to "1") else emptyMap())) })
             }
-            selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }) }
+            selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }, color = trackColor, onColor = { trackColor = it }) }
         }
     }
 
@@ -460,20 +528,21 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         }
         MapSheet.COLLECTIONS -> CollectionsScreen(places, tracks, folders, showAll, onShowAll = { showAll = it; prefs.edit().putBoolean("show_collections", it).apply() },
             onDismiss = { sheet = MapSheet.NONE },
-            onPlace = { pl -> sheet = MapSheet.NONE; fly(pl.lat, pl.lon, 16.5); open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl)) },
+            onPlace = { pl -> sheet = MapSheet.NONE; flyAbove(pl.lat, pl.lon, 16.5); open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl)) },
             onTrack = { t -> sheet = MapSheet.NONE; target = null; pin(null, null); selTrack = t; fit(Osm.decode(t.points)) },
             onShowFolder = { pts -> sheet = MapSheet.NONE; if (!showAll) { showAll = true; prefs.edit().putBoolean("show_collections", true).apply() }; fit(pts) })
-        MapSheet.LAYERS -> LayersPanel(onDismiss = { sheet = MapSheet.NONE }, onChanged = { styleTick++ }, onSettings = { settingsStart = "downloads"; sheet = MapSheet.SETTINGS },
-            on3D = { sheet = MapSheet.NONE; show3d = true })
-        MapSheet.ROUTE -> RoutePanel(routeTo, myLoc, places, onDismiss = { sheet = MapSheet.NONE }, onTarget = { routeTo = it; routeInfo = "" },
-            onLine = { pts, info -> routeLine = pts; routeInfo = info; lastRoute = null; if (pts.size >= 2) fit(pts) },
-            onRoute = { r, name, fromMe -> lastRoute = r?.let { Triple(it, name, fromMe) } },
-            onClear = { routeTo = null; routeLine = emptyList(); routeInfo = "" })
+        MapSheet.LAYERS -> LayersPanel(onDismiss = { sheet = MapSheet.NONE }, onChanged = { styleTick++ }, onSettings = { settingsStart = "downloads"; sheet = MapSheet.SETTINGS })
         MapSheet.SETTINGS -> MapSettingsScreen(onDismiss = { sheet = MapSheet.NONE; settingsStart = null }, onChanged = { styleTick++ }, start = settingsStart)
         MapSheet.NONE -> {}
     }
     renameTrack?.let { t -> TrackEditor(t, folders) { renameTrack = null } }
-    if (show3d) map?.cameraPosition?.let { c -> Terrain3DScreen(c.target?.latitude ?: 48.16, c.target?.longitude ?: 24.5, c.zoom, c.bearing) { show3d = false } }
+    pickStop?.let { i ->
+        MapPointPicker(onDismiss = { pickStop = null }) { (n, la, lo) ->
+            val sp = MapPrefs.Spot(n, la, lo, "точка на карте")
+            when (i) { -1 -> RoutePlan.addStop(sp); 0 -> RoutePlan.setFrom(sp); else -> { RoutePlan.points[i] = sp; RoutePlan.rev++ } }
+            pickStop = null
+        }
+    }
 }
 
 @Composable
@@ -525,21 +594,6 @@ private fun ScaleBar(width: Dp, label: String) {
     }
 }
 
-@Composable
-private fun RouteStrip(to: MapPrefs.Spot, info: String, onOpen: () -> Unit, onGo: (() -> Unit)? = null, onClear: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 10.dp).shadow(6.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(Pal.Card).clickable(onClick = onOpen).padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Rounded.Directions, null, tint = Pal.SkyInk)
-        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            Text(to.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-            if (info.isNotBlank()) Text(info, style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
-        }
-        if (onGo != null) Box(Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xFF2F7D57)).clickable(onClick = onGo).padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Text("Поехали", color = Color.White, style = MaterialTheme.typography.labelLarge)
-        }
-        IconButton(onClear) { Icon(Icons.Rounded.Close, "Убрать маршрут") }
-    }
-}
 
 /** Красная метка «как везде» для выбранной точки. */
 internal fun pinBitmap(d: Float): android.graphics.Bitmap {
@@ -613,4 +667,24 @@ private fun NavBottom(s: Nav.Session, onStop: () -> Unit) {
             Text("Завершить", color = Pal.RoseInk, style = MaterialTheme.typography.labelLarge)
         }
     }
+}
+
+/** Значок заведения: кружок цвета группы с белой иконкой Tabler — у всех одинаковый размер и стиль. */
+internal fun poiBitmap(ctx: Context, cls: String, d: Float): android.graphics.Bitmap {
+    val g = MapStyle.groupOf(cls)
+    val icon = MapStyle.CLASS_ICON[cls] ?: g.icon
+    val size = (22 * d).toInt()
+    val b = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(b)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    p.color = android.graphics.Color.WHITE; c.drawCircle(size / 2f, size / 2f, size / 2f, p)
+    p.color = g.color; c.drawCircle(size / 2f, size / 2f, size / 2f - 1.5f * d, p)
+    val paths = com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second["map-pin"].orEmpty()
+    val s = size * 0.6f / 24f
+    c.save(); c.translate(size * 0.2f, size * 0.2f); c.scale(s, s)
+    p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 2.2f; p.strokeCap = android.graphics.Paint.Cap.ROUND; p.strokeJoin = android.graphics.Paint.Join.ROUND
+    p.color = android.graphics.Color.WHITE
+    paths.forEach { dd -> runCatching { c.drawPath(androidx.core.graphics.PathParser.createPathFromPathData(dd), p) } }
+    c.restore()
+    return b
 }

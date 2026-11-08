@@ -33,7 +33,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-data class GeoPt(val lat: Double, val lon: Double, val t: Long)
+/** Точка трека/маршрута: широта, долгота, время (мс, 0 — нет), высота (м, NaN — нет), скорость (км/ч, <0 — нет). */
+data class GeoPt(val lat: Double, val lon: Double, val t: Long, val alt: Double = Double.NaN, val spd: Float = -1f)
 
 data class GeoHit(val name: String, val address: String, val lat: Double, val lon: Double, val kind: String = "")
 
@@ -82,8 +83,14 @@ object Osm {
         return 2 * 6371008.8 * Math.asin(Math.sqrt(h.coerceIn(0.0, 1.0)))
     }
 
-    fun encode(p: List<GeoPt>) = p.joinToString(";") { "%.6f,%.6f,%d".format(java.util.Locale.US, it.lat, it.lon, it.t / 1000) }
-    fun decode(s: String) = s.split(';').mapNotNull { e -> e.split(',').takeIf { it.size >= 2 }?.let { GeoPt(it[0].toDouble(), it[1].toDouble(), (it.getOrNull(2)?.toLongOrNull() ?: 0) * 1000) } }
+    /** «lat,lon,tSec[,alt[,kmh]]» через «;» — старые треки без высоты читаются как раньше. */
+    fun encode(p: List<GeoPt>) = p.joinToString(";") {
+        val base = "%.6f,%.6f,%d".format(java.util.Locale.US, it.lat, it.lon, it.t / 1000)
+        when { !it.alt.isNaN() && it.spd >= 0 -> base + ",%.1f,%.1f".format(java.util.Locale.US, it.alt, it.spd); !it.alt.isNaN() -> base + ",%.1f".format(java.util.Locale.US, it.alt); else -> base }
+    }
+    fun decode(s: String) = s.split(';').mapNotNull { e -> e.split(',').takeIf { it.size >= 2 }?.let {
+        runCatching { GeoPt(it[0].toDouble(), it[1].toDouble(), (it.getOrNull(2)?.toLongOrNull() ?: 0) * 1000, it.getOrNull(3)?.toDoubleOrNull() ?: Double.NaN, it.getOrNull(4)?.toFloatOrNull() ?: -1f) }.getOrNull()
+    } }
 }
 
 fun fmtKm(m: Double) = if (m < 1000) "${m.toInt()} м" else "%.2f км".format(m / 1000).replace('.', ',')
@@ -130,7 +137,8 @@ class TrackService : Service(), LocationListener {
 
     override fun onLocationChanged(l: Location) {
         if (l.hasAccuracy() && l.accuracy > 35) return
-        val p = GeoPt(l.latitude, l.longitude, l.time)
+        val alt = if (Build.VERSION.SDK_INT >= 34 && l.hasMslAltitude()) l.mslAltitudeMeters else if (l.hasAltitude()) l.altitude else Double.NaN
+        val p = GeoPt(l.latitude, l.longitude, l.time, alt, if (l.hasSpeed()) l.speed * 3.6f else -1f)
         val prev = points.value.lastOrNull()
         if (prev != null) {
             val d = Osm.distance(prev, p)

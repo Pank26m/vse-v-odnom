@@ -149,13 +149,14 @@ object TomTom {
     fun flowTiles(key: String) = "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?tileSize=256&key=$key"
     fun incidentTiles(key: String) = "https://api.tomtom.com/traffic/map/4/tile/incidents/s3/{z}/{x}/{y}.png?tileSize=256&key=$key"
 
-    suspend fun route(ctx: Context, mode: String, from: GeoPt, to: GeoPt): Routing.Route = withContext(Dispatchers.IO) {
+    suspend fun route(ctx: Context, mode: String, way: List<GeoPt>, avoidToll: Boolean = false, avoidFerry: Boolean = false): Routing.Route = withContext(Dispatchers.IO) {
         val key = ApiKeys.tomtom(ctx)
         if (key.isBlank()) throw LimitException("Нет ключа TomTom")
         if (!ApiKeys.take(ctx, "tomtom")) throw LimitException("Лимит TomTom на сегодня исчерпан")
         val tm = when (mode) { "bike" -> "bicycle"; "foot" -> "pedestrian"; else -> "car" }
-        val url = String.format(Locale.US, "https://api.tomtom.com/routing/1/calculateRoute/%.6f,%.6f:%.6f,%.6f/json?traffic=true&travelMode=%s&routeType=fastest&instructionsType=coded&language=ru-RU&key=%s",
-            from.lat, from.lon, to.lat, to.lon, tm, URLEncoder.encode(key, "UTF-8"))
+        val locs = way.joinToString(":") { String.format(Locale.US, "%.6f,%.6f", it.lat, it.lon) }
+        val avoid = listOfNotNull("&avoid=tollRoads".takeIf { avoidToll }, "&avoid=ferries".takeIf { avoidFerry }).joinToString("")
+        val url = "https://api.tomtom.com/routing/1/calculateRoute/$locs/json?traffic=true&travelMode=$tm&routeType=fastest&instructionsType=coded&language=ru-RU$avoid&key=" + URLEncoder.encode(key, "UTF-8")
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 10_000; c.readTimeout = 20_000
         if (c.responseCode !in 200..299) throw Exception("TomTom: код ${c.responseCode}")

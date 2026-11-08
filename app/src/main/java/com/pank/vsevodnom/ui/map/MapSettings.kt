@@ -40,7 +40,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
                 MenuRow(Icons.Rounded.Backup, "Резервные копии", sub = "все метки и треки — в файл KML и обратно") { page = "backup" }
                 MenuRow(Icons.Rounded.SdCard, "Хранилище карт", sub = "память телефона или карта памяти") { page = "storage" }
                 MenuRow(Icons.Rounded.Straighten, "Единицы измерения", sub = "расстояние, высота, координаты") { page = "units" }
-                MenuRow(Icons.Rounded.FilterList, "Что показывать на карте", sub = "значки заведений по группам") { page = "filter" }
+                MenuRow(Icons.Rounded.FilterList, "Объекты на карте", sub = "какие значки показывать, номера домов, остановки") { page = "filter" }
                 MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "Google (места, отзывы), TomTom (пробки), лимиты") { page = "keys" }
                 MenuRow(Icons.Rounded.Lock, "Конфиденциальность", sub = "история, работа без интернета") { page = "privacy" }
                 MenuRow(Icons.Rounded.Code, "Для разработчиков") { page = "dev" }
@@ -128,7 +128,8 @@ private fun DownloadsPage(onBack: () -> Unit) {
                     val missing = OfflineMaps.KINDS.filter { c.parts[it].orEmpty().isNotEmpty() && inst?.second?.contains(it) != true }
                     if (inst == null) PillButton("Скачать · ${OfflineMaps.human(c.size())}", { ask = c }, Modifier.weight(1f))
                     else {
-                        if (OfflineMaps.updateAvailable(ctx, c)) PillButton("Обновить", { OfflineMaps.download(ctx, c, inst.second); tick++ }, Modifier.weight(1f))
+                        val upd = OfflineMaps.outdatedParts(ctx, c)
+                        if (upd.isNotEmpty()) PillButton("Обновить · ${OfflineMaps.human(c.size(upd))}", { OfflineMaps.download(ctx, c, upd); tick++ }, Modifier.weight(1f))
                         else if (missing.isNotEmpty()) PillButton("Докачать · ${OfflineMaps.human(c.size(missing))}", { OfflineMaps.download(ctx, c, missing.toSet()); tick++ }, Modifier.weight(1f), bg = Pal.Lilac, fg = Pal.LilacInk)
                         PillButton("Удалить", { OfflineSearch.closeAll(); OfflineMaps.delete(ctx, c.id); tick++ }, Modifier.weight(1f), bg = Pal.Rose, fg = Pal.RoseInk)
                     }
@@ -216,6 +217,8 @@ private fun NavPage(onBack: () -> Unit) {
     var mode by remember { mutableStateOf(MapPrefs.navMode(ctx)) }
     var voice by remember { mutableStateOf(MapPrefs.bool(ctx, "voice", true)) }
     var preferOff by remember { mutableStateOf(MapPrefs.bool(ctx, "prefer_offline_route", false)) }
+    var avoidToll by remember { mutableStateOf(MapPrefs.bool(ctx, "avoid_toll", false)) }
+    var avoidFerry by remember { mutableStateOf(MapPrefs.bool(ctx, "avoid_ferry", false)) }
     var autozoom by remember { mutableStateOf(MapPrefs.bool(ctx, "autozoom", true)) }
     var autosave by remember { mutableStateOf(MapPrefs.bool(ctx, "autosave_track", true)) }
     var onlineNav by remember { mutableStateOf(MapPrefs.bool(ctx, "online_nav", true)) }
@@ -227,6 +230,8 @@ private fun NavPage(onBack: () -> Unit) {
         AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
             SwitchRow("Голосовые подсказки", "«Через 300 метров поверните направо» — голосом телефона", voice) { voice = it; MapPrefs.setBool(ctx, "voice", it); Nav.muted = !it }
             SwitchRow("Предпочитать офлайн-маршруты", "строить на телефоне даже с интернетом (без пробок)", preferOff, enabled = Nav.offlineAvailable(ctx)) { preferOff = it; MapPrefs.setBool(ctx, "prefer_offline_route", it) }
+            SwitchRow("Избегать платных дорог", "офлайн, TomTom и OSRM", avoidToll) { avoidToll = it; MapPrefs.setBool(ctx, "avoid_toll", it) }
+            SwitchRow("Избегать паромов", "TomTom и OSRM (офлайн-профиль паромы и так не любит)", avoidFerry) { avoidFerry = it; MapPrefs.setBool(ctx, "avoid_ferry", it) }
             SwitchRow("Автомасштаб", "в движении карта сама отдаляется по скорости", autozoom) { autozoom = it; MapPrefs.setBool(ctx, "autozoom", it) }
             SwitchRow("Онлайн-маршруты", "строить по дорогам через интернет (OSRM)", onlineNav) { onlineNav = it; MapPrefs.setBool(ctx, "online_nav", it) }
             SwitchRow("Автосохранение трека", "после «Стоп» трек сразу в коллекции; выкл. — спросить имя", autosave) { autosave = it; MapPrefs.setBool(ctx, "autosave_track", it) }
@@ -395,17 +400,25 @@ private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
 private fun FilterPage(onChanged: () -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val p = MapPrefs.p(ctx)
-    var hidden by remember { mutableStateOf(p.getStringSet("hidden_poi", setOf("parking", "other"))!!.toSet()) }
-    Page("Что показывать на карте", onBack) {
-        Text("Выключенные группы значков не рисуются (подписи улиц и домов остаются).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
-        AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
-            MapStyle.POI_GROUPS.forEach { (k, v) ->
-                SwitchRow(v.first, null, k !in hidden) { on -> hidden = if (on) hidden - k else hidden + k; p.edit().putStringSet("hidden_poi", hidden).apply(); onChanged() }
+    var hidden by remember { mutableStateOf(p.getStringSet("hidden_poi", MapStyle.DEFAULT_HIDDEN)!!.toSet()) }
+    fun save(h: Set<String>) { hidden = h; p.edit().putStringSet("hidden_poi", h).apply(); onChanged() }
+    Page("Объекты на карте", onBack) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pal.Card)) {
+            MapStyle.POI_GROUPS.entries.forEachIndexed { i, (k, g) ->
+                val on = k !in hidden
+                Row(Modifier.fillMaxWidth().clickable { save(if (on) hidden + k else hidden - k) }.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape).background(androidx.compose.ui.graphics.Color(g.color)), contentAlignment = Alignment.Center) {
+                        com.pank.vsevodnom.ui.money.TablerIcons.vector(ctx, g.icon)?.let { Icon(it, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp)) }
+                    }
+                    Text(g.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(horizontal = 14.dp))
+                    if (on) Icon(Icons.Rounded.Check, "Показано", tint = Pal.SkyInk)
+                }
+                if (i < MapStyle.POI_GROUPS.size - 1) HorizontalDivider(color = Pal.Line, modifier = Modifier.padding(start = 60.dp))
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PillButton("Всё", { hidden = emptySet(); p.edit().putStringSet("hidden_poi", hidden).apply(); onChanged() }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
-            PillButton("Минимум", { hidden = MapStyle.POI_GROUPS.keys - setOf("food", "health", "transport"); p.edit().putStringSet("hidden_poi", hidden).apply(); onChanged() }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+            PillButton("Показать всё", { save(emptySet()) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+            PillButton("Как было", { save(MapStyle.DEFAULT_HIDDEN) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
         }
     }
 }

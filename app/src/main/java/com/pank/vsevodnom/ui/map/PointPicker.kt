@@ -40,7 +40,7 @@ fun MapPointPicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double
                 map = m
                 m.cameraPosition = camera(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), maxOf(prefs.getFloat("zoom", 13f).toDouble(), 13.0))
                 m.setStyle(org.maplibre.android.maps.Style.Builder().fromJson(MapStyle.build(ctx, MapStyle.opts(ctx)))) { s ->
-                    s.addImage("hatch", MapStyle.hatchBitmap(ctx.resources.displayMetrics.density))
+                    view.addOnStyleImageMissingListener { id -> if (id.startsWith("p:")) runCatching { s.addImage(id, poiBitmap(ctx, id.removePrefix("p:"), ctx.resources.displayMetrics.density)) } }
                     if (com.pank.vsevodnom.data.TrackService.canStart(ctx)) MapKit.enableLocation(ctx, m, s, false)
                 }
                 m.addOnCameraIdleListener {

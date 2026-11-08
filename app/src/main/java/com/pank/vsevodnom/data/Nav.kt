@@ -39,33 +39,36 @@ object Nav {
 
     fun offlineAvailable(ctx: Context) = OfflineMaps.installed(ctx).any { "routing" in it.value.second }
 
-    suspend fun offlineRoute(ctx: Context, mode: String, from: GeoPt, to: GeoPt): Routing.Route = withContext(Dispatchers.Default) {
+    suspend fun offlineRoute(ctx: Context, mode: String, way: List<GeoPt>, avoidToll: Boolean = false): Routing.Route = withContext(Dispatchers.Default) {
         val prof = File(profiles(ctx), when (mode) { "bike" -> "trekking.brf"; "foot" -> "hiking-mountain.brf"; else -> "car-vario.brf" })
         val rc = RoutingContext()
         rc.localFunction = prof.absolutePath
         rc.turnInstructionMode = 9      // в профиле «1 = авто по источнику» оставляет подсказки выключенными
         rc.memoryclass = runCatching { ctx.getSystemService(ActivityManager::class.java).largeMemoryClass }.getOrDefault(128)
         fun node(p: GeoPt, n: String) = OsmNodeNamed().apply { name = n; ilon = ((p.lon + 180.0) * 1e6 + 0.5).toInt(); ilat = ((p.lat + 90.0) * 1e6 + 0.5).toInt() }
-        val engine = RoutingEngine(null, null, OfflineMaps.segmentsDir(ctx), arrayListOf(node(from, "from"), node(to, "to")), rc)
+        if (avoidToll && mode == "car") rc.keyValues = hashMapOf("avoid_toll" to "1")
+        val wpts = ArrayList(way.mapIndexed { i, p -> node(p, if (i == 0) "from" else if (i == way.size - 1) "to" else "via$i") })
+        val engine = RoutingEngine(null, null, OfflineMaps.segmentsDir(ctx), wpts, rc)
         engine.quite = true
         engine.doRun(60_000)
         val t = engine.foundTrack ?: throw Exception(engine.errorMessage?.let { msg ->
             if (msg.contains("datafile", true) || msg.contains("not found", true)) "Нет офлайн-данных маршрутов для этого места (Загрузка карт → Маршруты)" else "Офлайн-маршрут: $msg"
         } ?: "Офлайн-маршрут не найден")
-        val pts = t.nodes.map { GeoPt(it.iLat / 1e6 - 90.0, it.iLon / 1e6 - 180.0, 0) }
+        val pts = t.nodes.map { GeoPt(it.iLat / 1e6 - 90.0, it.iLon / 1e6 - 180.0, 0, it.elev.takeIf { e -> e > -1000 } ?: Double.NaN) }
         val steps = HintAccess.hints(t).map { Routing.Step(it[1].coerceIn(0, pts.size - 1), it[0], it[2]) }.filter { it.cmd != C } + Routing.Step(pts.size - 1, END)
         Routing.Route(pts, t.distance.toDouble(), t.totalSeconds.toDouble(), steps = steps, source = "офлайн")
     }
 
     /** Лучший доступный маршрут: офлайн (если есть данные и выбрано), иначе TomTom (авто) / OSRM. */
-    suspend fun best(ctx: Context, mode: String, from: GeoPt, to: GeoPt): Routing.Route {
+    suspend fun best(ctx: Context, mode: String, way: List<GeoPt>): Routing.Route {
+        val toll = MapPrefsBridge.bool(ctx, "avoid_toll", false); val ferry = MapPrefsBridge.bool(ctx, "avoid_ferry", false)
         val preferOffline = !Net.online || MapPrefsBridge.offlineOnly(ctx) || MapPrefsBridge.bool(ctx, "prefer_offline_route", false)
-        if (offlineAvailable(ctx) && (preferOffline || !MapPrefsBridge.bool(ctx, "online_nav", true))) runCatching { return offlineRoute(ctx, mode, from, to) }
+        if (offlineAvailable(ctx) && (preferOffline || !MapPrefsBridge.bool(ctx, "online_nav", true))) runCatching { return offlineRoute(ctx, mode, way, toll) }
         if (Net.online && !MapPrefsBridge.offlineOnly(ctx)) {
-            if (mode == "car" && ApiKeys.tomtom(ctx).isNotBlank() && MapPrefsBridge.bool(ctx, "tomtom_route", true)) runCatching { return TomTom.route(ctx, mode, from, to) }
-            runCatching { return Routing.route(mode, from, to) }
+            if (mode == "car" && ApiKeys.tomtom(ctx).isNotBlank() && MapPrefsBridge.bool(ctx, "tomtom_route", true)) runCatching { return TomTom.route(ctx, mode, way, toll, ferry) }
+            runCatching { return Routing.route(mode, way, toll, ferry) }
         }
-        if (offlineAvailable(ctx)) return offlineRoute(ctx, mode, from, to)
+        if (offlineAvailable(ctx)) return offlineRoute(ctx, mode, way, toll)
         throw Exception(if (Net.online) "Маршрут не построен" else "Нет интернета и офлайн-данных маршрутов (Загрузка карт → Маршруты)")
     }
 
@@ -83,7 +86,7 @@ object Nav {
 
     // ---------------- ведение ----------------
 
-    class Session(val route: Routing.Route, val mode: String, val destName: String) {
+    class Session(val route: Routing.Route, val mode: String, val destName: String, val way: List<GeoPt> = emptyList()) {
         val cum = DoubleArray(route.points.size).also { c -> for (i in 1 until c.size) c[i] = c[i - 1] + Osm.distance(route.points[i - 1], route.points[i]) }
         var seg = 0                 // текущий отрезок
         var along = 0.0             // пройдено по маршруту, м
