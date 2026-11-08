@@ -34,7 +34,7 @@ mkdir -p data/sources
 fetch() { [ -s "$2" ] || curl -sSL --retry 8 --retry-delay 30 --retry-all-errors --connect-timeout 60 -o "$2.tmp" "$1" && mv "$2.tmp" "$2" 2>/dev/null; [ -s "$2" ]; }
 WATER=data/sources/water-polygons-split-3857.zip
 fetch_water() { [ -s "$WATER" ] || curl -sSL --retry 1 --retry-delay 20 --connect-timeout 40 --max-time 900 -o "$WATER.tmp" https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip && mv "$WATER.tmp" "$WATER" 2>/dev/null; [ -s "$WATER" ]; }
-fetch_water || log "osmdata.openstreetmap.de недоступен — моря будут из Natural Earth (грубее у берега)"
+fetch_water || log "osmdata.openstreetmap.de недоступен — море строится из береговой линии каждой страны"
 fetch https://naciscdn.org/naturalearth/packages/natural_earth_vector.sqlite.zip data/sources/natural_earth_vector.sqlite.zip || log "ОШИБКА: natural earth"
 fetch https://github.com/acalcutt/osm-lakelines/releases/download/v12/lake_centerline.shp.zip data/sources/lake_centerline.shp.zip || log "ОШИБКА: lake centerlines"
 # если мировых полигонов моря нет — строим море для каждой страны из её береговой линии (coast_water.py)
