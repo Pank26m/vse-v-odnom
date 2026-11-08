@@ -62,13 +62,46 @@ fi
 PLANETILER=work/planetiler.jar
 [ -f $PLANETILER ] || curl -sSL -o $PLANETILER https://github.com/onthegomap/planetiler/releases/latest/download/planetiler.jar
 
+routing_part() {
+  local ID=$1
+  [ -f "$OUT/$ID.json" ] || gh release download "$REL" -p "$ID.json" -D "$OUT" --clobber || return 0
+  # маршруты офлайн: готовые сегменты BRouter (квадраты 5°, лицензия данных ODbL) — зеркалим в релиз
+  python3 - "$ID" > work/rd5.txt <<'PY'
+import json, sys, math
+c = json.load(open(f"out/{sys.argv[1]}.json")); w, s, e, n = c["bbox"]
+for lon in range(int(math.floor(w / 5) * 5), int(math.floor(e / 5) * 5) + 1, 5):
+    for lat in range(int(math.floor(s / 5) * 5), int(math.floor(n / 5) * 5) + 1, 5):
+        print(("E%d" % lon if lon >= 0 else "W%d" % -lon) + "_" + ("N%d" % lat if lat >= 0 else "S%d" % -lat) + ".rd5")
+PY
+  RD=()
+  while read -r R; do
+    if have "$R" && [ "${FORCE_ROUTING:-0}" != 1 ]; then RD+=("$R"); continue; fi
+    if curl -fsSL --retry 3 --connect-timeout 30 -o "$OUT/$R" "https://brouter.de/brouter/segments4/$R"; then up "$OUT/$R"; RD+=("$R"); rm -f "$OUT/$R"
+    else log "$ID: нет сегмента $R (море или ошибка)"; fi
+  done < work/rd5.txt
+  log "$ID: сегменты маршрутов: ${RD[*]:-нет}"
+  ASSETS=$(gh release view "$REL" --json assets -q '.assets[].name' 2>/dev/null || true)
+  gh release view "$REL" --json assets > work/assets.json
+  python3 - "$ID" "${RD[*]:-}" <<'PY'
+import json, sys
+cid, names = sys.argv[1], sys.argv[2].split()
+sizes = {a["name"]: a["size"] for a in json.load(open("work/assets.json"))["assets"]}
+cat = json.load(open("work/catalog.json"))
+for c in cat["countries"]:
+    if c["id"] == cid:
+        c["routing"] = [{"file": n, "size": sizes.get(n, 0)} for n in names if n in sizes]
+        c["size"] = sum(f["size"] for k in ("map", "dem", "contours", "search", "routing") for f in c.get(k, []))
+json.dump(cat, open("work/catalog.json", "w"), ensure_ascii=False, indent=1)
+PY
+}
+
 while IFS='|' read -r ID NAME PATHS <&3; do
   NEED=()
   for part in map dem contours search; do
     case $part in map) f="$ID.mbtiles";; dem) f="$ID-dem.mbtiles";; contours) f="$ID-contours.mbtiles";; search) f="$ID-search.db";; esac
     if ! have "$f" || forced "$ID" || outdated "$ID" "$part"; then NEED+=("$part"); fi
   done
-  if [ ${#NEED[@]} -eq 0 ]; then log "$ID: всё собрано, пропускаю"; continue; fi
+  if [ ${#NEED[@]} -eq 0 ]; then log "$ID: всё собрано"; routing_part "$ID"; continue; fi
   log "$ID ($NAME): нужно ${NEED[*]}"
   needs() { [[ " ${NEED[*]} " == *" $1 "* ]]; }
 
@@ -173,6 +206,8 @@ PY
   shopt -s nullglob; FILES=("$OUT/$ID.json" $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*); shopt -u nullglob
   up "${FILES[@]}"
   rm -f $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*
+
+  routing_part "$ID"
 done 3< <(grep -v '^#' countries.txt | grep -v '^\s*$')
 
 python3 - <<'PY'
