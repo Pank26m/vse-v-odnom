@@ -10,7 +10,8 @@ import java.io.File
 
 /** Стиль офлайн-карты: собирается без ошибок; файлы для проверки валидатором MapLibre — в build/map-style/. */
 class MapStyleTest {
-    private val shape = JSONObject("""{"type":"MultiPolygon","coordinates":[[[[22.1,48.4],[40.2,48.4],[40.2,52.4],[22.1,52.4],[22.1,48.4]]],[[[32.5,44.4],[36.6,44.4],[36.6,46.2],[32.5,46.2],[32.5,44.4]]]]}""")
+    // для стенда можно подставить настоящую границу: UA_SHAPE=путь/к/ukraine.json
+    private val shape = System.getenv("UA_SHAPE")?.let { JSONObject(File(it).readText()).getJSONObject("geometry") } ?: JSONObject("""{"type":"MultiPolygon","coordinates":[[[[22.1,48.4],[40.2,48.4],[40.2,52.4],[22.1,52.4],[22.1,48.4]]],[[[32.5,44.4],[36.6,44.4],[36.6,46.2],[32.5,46.2],[32.5,44.4]]]]}""")
 
     private fun input(v: String, countries: Boolean) = MapStyle.Input(
         File("src/main/assets/map/$v.json").readText(), "/data/world-z4.mbtiles", if (countries) "/data/world-labels.mbtiles" else null,

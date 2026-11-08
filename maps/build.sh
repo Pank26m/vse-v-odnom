@@ -19,7 +19,7 @@ gh release download "$REL" -p catalog.json -D work --clobber 2>/dev/null || echo
 ASSETS=$(gh release view "$REL" --json assets -q '.assets[].name' 2>/dev/null || true)
 have() { grep -qx "$1" <<<"$ASSETS" || grep -q "^$1\.part" <<<"$ASSETS"; }
 # версия способа сборки частей: если поднять — часть пересоберётся (рельеф v1 был испорчен багом границы)
-declare -A PART_VER=([map]=1 [dem]=2 [contours]=2 [search]=1)
+declare -A PART_VER=([map]=2 [dem]=2 [contours]=2 [search]=1)   # map v1 — без моря на крупных масштабах
 outdated() { python3 -c "import json,sys; c=next((c for c in json.load(open('work/catalog.json'))['countries'] if c['id']==sys.argv[1]),{}); sys.exit(0 if c.get(sys.argv[2]+'_ver',1) < int(sys.argv[3]) else 1)" "$1" "$2" "${PART_VER[$2]}"; }
 forced() { [ "${FORCE:-}" = "$1" ] || [ "${FORCE:-}" = all ]; }
 
@@ -37,13 +37,8 @@ fetch_water() { [ -s "$WATER" ] || curl -sSL --retry 1 --retry-delay 20 --connec
 fetch_water || log "osmdata.openstreetmap.de недоступен — моря будут из Natural Earth (грубее у берега)"
 fetch https://naciscdn.org/naturalearth/packages/natural_earth_vector.sqlite.zip data/sources/natural_earth_vector.sqlite.zip || log "ОШИБКА: natural earth"
 fetch https://github.com/acalcutt/osm-lakelines/releases/download/v12/lake_centerline.shp.zip data/sources/lake_centerline.shp.zip || log "ОШИБКА: lake centerlines"
-if [ ! -s "$WATER" ]; then
-  # запасной вариант: океаны и моря Natural Earth 10m в проекции 3857 (Planetiler читает любой shapefile в zip)
-  WATER=work/water-ne.zip; rm -rf work/wne && mkdir -p work/wne
-  unzip -o -q -j data/sources/natural_earth_vector.sqlite.zip '*.sqlite' -d work \
-   && ogr2ogr -f "ESRI Shapefile" -t_srs EPSG:3857 -clipsrc -179.9 -85 179.9 85 work/wne/water_polygons.shp work/natural_earth_vector.sqlite ne_10m_ocean -nlt MULTIPOLYGON \
-   && (cd work/wne && zip -q -r ../water-ne.zip .) && log "моря: Natural Earth $(du -h $WATER | cut -f1)" || log "ОШИБКА: моря из Natural Earth"
-fi
+# если мировых полигонов моря нет — строим море для каждой страны из её береговой линии (coast_water.py)
+COAST_WATER=0; [ -s "$WATER" ] || COAST_WATER=1
 log "источники: $(du -sh data/sources | cut -f1)"
 
 NE=work/natural_earth_vector.sqlite
@@ -104,6 +99,14 @@ PY
   if [ ${#PBFS[@]} -gt 1 ]; then osmium merge "${PBFS[@]}" -o "work/$ID-merged.osm.pbf" --overwrite && PBF="work/$ID-merged.osm.pbf"; elif [ ${#PBFS[@]} -eq 1 ]; then PBF="${PBFS[0]}"; fi
 
   BUILT=()
+  if needs map && [ $COAST_WATER = 1 ]; then
+    log "$ID: море из береговой линии OSM"
+    rm -rf work/cw && mkdir -p work/cw
+    if osmium tags-filter "$PBF" w/natural=coastline -o work/coast.osm.pbf --overwrite \
+       && osmium export work/coast.osm.pbf -f geojsonseq -o - 2>>work/osmium.log | python3 coast_water.py "$OUT/$ID.json" work/cw >> "$REPORT" 2>&1 \
+       && (cd work/cw && zip -q -r ../water-$ID.zip .); then WATER=work/water-$ID.zip
+    else log "ОШИБКА: море из берега — карта будет без моря на крупных масштабах"; WATER=work/none.zip; fi
+  fi
   if needs map; then
     log "$ID: векторная карта (Planetiler)"
     if java -Xmx12g -jar $PLANETILER --osm-path="$PBF" --water_polygons_path="$WATER" --output="$OUT/$ID.mbtiles" --force \
