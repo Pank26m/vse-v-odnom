@@ -19,14 +19,16 @@ gh release download "$REL" -p catalog.json -D work --clobber 2>/dev/null || echo
 ASSETS=$(gh release view "$REL" --json assets -q '.assets[].name' 2>/dev/null || true)
 have() { grep -qx "$1" <<<"$ASSETS" || grep -q "^$1\.part" <<<"$ASSETS"; }
 # версия способа сборки частей: если поднять — часть пересоберётся (рельеф v1 был испорчен багом границы)
-declare -A PART_VER=([map]=2 [dem]=2 [contours]=3 [search]=1)   # contours v2 — tippecanoe терял линии   # map v1 — без моря на крупных масштабах
+declare -A PART_VER=([map]=3 [dem]=2 [contours]=3 [search]=2)   # map v3 / search v2 — обрезка строго по границе страны   # contours v2 — tippecanoe терял линии   # map v1 — без моря на крупных масштабах
 outdated() { python3 -c "import json,sys; c=next((c for c in json.load(open('work/catalog.json'))['countries'] if c['id']==sys.argv[1]),{}); sys.exit(0 if c.get(sys.argv[2]+'_ver',1) < int(sys.argv[3]) else 1)" "$1" "$2" "${PART_VER[$2]}"; }
 forced() { [ "${FORCE:-}" = "$1" ] || [ "${FORCE:-}" = all ]; }
 
 # ---------- мир ----------
-if ! have world-relief.mbtiles || [ "${FORCE_WORLD:-0}" = 1 ]; then
+WORLD_VER=2   # v2 — до z7 (подробнее, ~60 МБ)
+world_old() { python3 -c "import json,sys; sys.exit(0 if json.load(open('work/catalog.json')).get('world_ver',1) < $WORLD_VER else 1)"; }
+if ! have world-relief.mbtiles || world_old || [ "${FORCE_WORLD:-0}" = 1 ]; then
   log "рельеф мира: старт"
-  python3 world.py "$OUT/world-relief.mbtiles" 6 > work/world.log 2>&1 && log "рельеф мира: $(du -h $OUT/world-relief.mbtiles | cut -f1)" && up "$OUT/world-relief.mbtiles" || { log "ОШИБКА: рельеф мира"; tail -5 work/world.log >> "$REPORT"; }
+  python3 world.py "$OUT/world-relief.mbtiles" 7 > work/world.log 2>&1 && log "рельеф мира: $(du -h $OUT/world-relief.mbtiles | cut -f1)" && up "$OUT/world-relief.mbtiles" || { log "ОШИБКА: рельеф мира"; tail -5 work/world.log >> "$REPORT"; }
 fi
 
 # источники Planetiler качаем сами — с повторами (osmdata.openstreetmap.de бывает медленным)
@@ -99,7 +101,7 @@ json.dump(cat, open("work/catalog.json", "w"), ensure_ascii=False, indent=1)
 PY
 }
 
-while IFS='|' read -r ID NAME PATHS <&3; do
+while IFS='|' read -r ID NAME PATHS RELID <&3; do
   NEED=()
   for part in map dem contours search; do
     case $part in map) f="$ID.mbtiles";; dem) f="$ID-dem.mbtiles";; contours) f="$ID-contours.mbtiles";; search) f="$ID-search.db";; esac
@@ -134,6 +136,20 @@ d = json.load(open(sys.argv[1])); d["name"] = sys.argv[2]; json.dump(d, open(sys
 PY
   PBF=""
   if [ ${#PBFS[@]} -gt 1 ]; then osmium merge "${PBFS[@]}" -o "work/$ID-merged.osm.pbf" --overwrite && PBF="work/$ID-merged.osm.pbf"; elif [ ${#PBFS[@]} -eq 1 ]; then PBF="${PBFS[0]}"; fi
+  # точная граница страны (relation admin_level=2): по ней режем данные — за границей карта онлайн
+  if [ -n "${RELID:-}" ] && [ -n "$PBF" ]; then
+    if osmium getid -r "$PBF" "r$RELID" -o work/border.osm.pbf --overwrite 2>>work/osmium.log \
+       && osmium export work/border.osm.pbf -f geojson --geometry-types=polygon -o work/border.geojson --overwrite 2>>work/osmium.log \
+       && python3 border.py work/border.geojson "$OUT/$ID.json" "$NAME" >> "$REPORT" 2>&1 \
+       && osmium extract -p work/border.geojson -s smart "$PBF" -o "work/$ID-clip.osm.pbf" --overwrite 2>>work/osmium.log; then
+      PBF="work/$ID-clip.osm.pbf"; log "$ID: обрезано по границе $(du -h "$PBF" | cut -f1)"
+    else log "ОШИБКА: граница r$RELID — оставляю выгрузку Geofabrik"; tail -5 work/osmium.log >> "$REPORT"; fi
+  fi
+  # метро: линии с цветами и станции
+  if [ -n "$PBF" ]; then
+    osmium tags-filter "$PBF" r/route=subway,light_rail n/station=subway -o work/metro.osm.pbf --overwrite 2>>work/osmium.log \
+      && python3 metro.py work/metro.osm.pbf "$OUT/$ID-metro.json" >> "$REPORT" 2>&1 && log "$ID: метро $(du -h "$OUT/$ID-metro.json" | cut -f1)" || log "ОШИБКА: метро"
+  fi
 
   BUILT=()
   if needs map && [ $COAST_WATER = 1 ]; then
@@ -199,6 +215,7 @@ def files(base):
     return [{"file": os.path.basename(p), "size": os.path.getsize(p)} for p in parts]
 meta = json.load(open(f"out/{cid}.json"))
 entry = dict(old); entry.update({"id": cid, "name": name, "bbox": meta["bbox"], "shape": f"{cid}.json"})
+if os.path.exists(f"out/{cid}-metro.json"): entry["metro"] = f"{cid}-metro.json"
 for k in names:
     if k in built: entry[k] = files(names[k]); entry[k + "_built"] = datetime.date.today().isoformat(); entry[k + "_ver"] = VER[k]
     else: entry.setdefault(k, [])
@@ -207,7 +224,7 @@ entry["size"] = sum(f["size"] for k in names for f in entry.get(k, []))
 cat["countries"] = [c for c in cat["countries"] if c["id"] != cid] + [entry]
 json.dump(cat, open("work/catalog.json", "w"), ensure_ascii=False, indent=1)
 PY
-  shopt -s nullglob; FILES=("$OUT/$ID.json" $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*); shopt -u nullglob
+  shopt -s nullglob; FILES=("$OUT/$ID.json" $OUT/$ID-metro.json $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*); shopt -u nullglob
   up "${FILES[@]}"
   rm -f $OUT/$ID.mbtiles* $OUT/$ID-*.mbtiles* $OUT/$ID-search.db*
 
@@ -221,6 +238,7 @@ assets = {a["name"]: a["size"] for a in json.loads(subprocess.run(["gh", "releas
 for k, f in (("world", "world-relief.mbtiles"), ("labels", "world-labels.mbtiles")):
     if os.path.exists(f"out/{f}"):
         cat[k] = {"file": f, "size": os.path.getsize(f"out/{f}")}
+        if k == "world": cat["world_ver"] = 2
         if k == "labels": cat["labels_ver"] = 2
     elif f in assets: cat[k] = {"file": f, "size": assets[f]}
 json.dump(cat, open("out/catalog.json", "w"), ensure_ascii=False, indent=1)

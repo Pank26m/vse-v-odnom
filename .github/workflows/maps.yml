@@ -41,8 +41,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pip install -q --break-system-packages mapbox-vector-tile shapely scikit-image scipy || pip install -q mapbox-vector-tile shapely scikit-image scipy
-          python3 -c "import osgeo, numpy, PIL, mapbox_vector_tile, shapely, skimage, scipy" && bash maps/build.sh
+          pip install -q --break-system-packages mapbox-vector-tile shapely scikit-image scipy osmium || pip install -q mapbox-vector-tile shapely scikit-image scipy osmium
+          python3 -c "import osgeo, numpy, PIL, mapbox_vector_tile, shapely, skimage, scipy, osmium" && bash maps/build.sh
       - name: Отчёт при ошибке
         if: failure()
         env:

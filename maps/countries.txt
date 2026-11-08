@@ -1,2 +1,2 @@
 # id|название|путь Geofabrik (через + можно склеить несколько выгрузок)
-ukraine|Украина|europe/ukraine
+ukraine|Украина|europe/ukraine|60199
