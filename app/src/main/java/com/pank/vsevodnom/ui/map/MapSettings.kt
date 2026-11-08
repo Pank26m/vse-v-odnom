@@ -214,7 +214,8 @@ private fun CachePage(onBack: () -> Unit) {
 private fun NavPage(onBack: () -> Unit) {
     val ctx = LocalContext.current
     var mode by remember { mutableStateOf(MapPrefs.navMode(ctx)) }
-    var voice by remember { mutableStateOf(MapPrefs.bool(ctx, "voice", false)) }
+    var voice by remember { mutableStateOf(MapPrefs.bool(ctx, "voice", true)) }
+    var preferOff by remember { mutableStateOf(MapPrefs.bool(ctx, "prefer_offline_route", false)) }
     var autozoom by remember { mutableStateOf(MapPrefs.bool(ctx, "autozoom", true)) }
     var autosave by remember { mutableStateOf(MapPrefs.bool(ctx, "autosave_track", true)) }
     var onlineNav by remember { mutableStateOf(MapPrefs.bool(ctx, "online_nav", true)) }
@@ -224,7 +225,8 @@ private fun NavPage(onBack: () -> Unit) {
     Page("Навигация", onBack) {
         Choice("Способ передвижения по умолчанию", listOf("car" to "На машине", "bike" to "На велосипеде", "foot" to "Пешком", "line" to "По прямой"), mode) { mode = it; MapPrefs.setStr(ctx, "nav_mode", it) }
         AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
-            SwitchRow("Голосовые подсказки", "появятся вместе с навигацией по шагам (этап 2)", voice, enabled = false) { voice = it; MapPrefs.setBool(ctx, "voice", it) }
+            SwitchRow("Голосовые подсказки", "«Через 300 метров поверните направо» — голосом телефона", voice) { voice = it; MapPrefs.setBool(ctx, "voice", it); Nav.muted = !it }
+            SwitchRow("Предпочитать офлайн-маршруты", "строить на телефоне даже с интернетом (без пробок)", preferOff, enabled = Nav.offlineAvailable(ctx)) { preferOff = it; MapPrefs.setBool(ctx, "prefer_offline_route", it) }
             SwitchRow("Автомасштаб", "в движении карта сама отдаляется по скорости", autozoom) { autozoom = it; MapPrefs.setBool(ctx, "autozoom", it) }
             SwitchRow("Онлайн-маршруты", "строить по дорогам через интернет (OSRM)", onlineNav) { onlineNav = it; MapPrefs.setBool(ctx, "online_nav", it) }
             SwitchRow("Автосохранение трека", "после «Стоп» трек сразу в коллекции; выкл. — спросить имя", autosave) { autosave = it; MapPrefs.setBool(ctx, "autosave_track", it) }

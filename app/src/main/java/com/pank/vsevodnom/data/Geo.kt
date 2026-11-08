@@ -75,8 +75,11 @@ object Osm {
         (0 until arr.length()).map { hit(arr.getJSONObject(it)) }
     }
 
+    /** Расстояние по большому кругу, м (своя формула — работает и в JVM-тестах). */
     fun distance(a: GeoPt, b: GeoPt): Double {
-        val r = FloatArray(1); Location.distanceBetween(a.lat, a.lon, b.lat, b.lon, r); return r[0].toDouble()
+        val dLat = Math.toRadians(b.lat - a.lat); val dLon = Math.toRadians(b.lon - a.lon)
+        val h = Math.sin(dLat / 2).let { it * it } + Math.cos(Math.toRadians(a.lat)) * Math.cos(Math.toRadians(b.lat)) * Math.sin(dLon / 2).let { it * it }
+        return 2 * 6371008.8 * Math.asin(Math.sqrt(h.coerceIn(0.0, 1.0)))
     }
 
     fun encode(p: List<GeoPt>) = p.joinToString(";") { "%.6f,%.6f,%d".format(java.util.Locale.US, it.lat, it.lon, it.t / 1000) }

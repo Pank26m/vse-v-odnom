@@ -68,10 +68,14 @@ routing_part() {
   # маршруты офлайн: готовые сегменты BRouter (квадраты 5°, лицензия данных ODbL) — зеркалим в релиз
   python3 - "$ID" > work/rd5.txt <<'PY'
 import json, sys, math
-c = json.load(open(f"out/{sys.argv[1]}.json")); w, s, e, n = c["bbox"]
+sys.path.insert(0, ".")
+from poly import contains
+c = json.load(open(f"out/{sys.argv[1]}.json")); w, s, e, n = c["bbox"]; g = c["geometry"]
 for lon in range(int(math.floor(w / 5) * 5), int(math.floor(e / 5) * 5) + 1, 5):
     for lat in range(int(math.floor(s / 5) * 5), int(math.floor(n / 5) * 5) + 1, 5):
-        print(("E%d" % lon if lon >= 0 else "W%d" % -lon) + "_" + ("N%d" % lat if lat >= 0 else "S%d" % -lat) + ".rd5")
+        # квадрат нужен, только если в нём есть часть страны (проверка по сетке 0.1°)
+        if any(contains(g, lon + i / 10, lat + j / 10) for i in range(51) for j in range(51)):
+            print(("E%d" % lon if lon >= 0 else "W%d" % -lon) + "_" + ("N%d" % lat if lat >= 0 else "S%d" % -lat) + ".rd5")
 PY
   RD=()
   while read -r R; do

@@ -6,6 +6,8 @@ plugins {
 }
 
 android {
+    // движок маршрутов BRouter (MIT, исходники в app/src/brouter — см. BROUTER_LICENSE)
+    sourceSets["main"].java.srcDir("src/brouter/java")
     namespace = "com.pank.vsevodnom"
     compileSdk = 35
 

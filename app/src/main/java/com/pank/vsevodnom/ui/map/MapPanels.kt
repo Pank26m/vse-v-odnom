@@ -498,7 +498,7 @@ private fun Stat(label: String, v: String) {
 // ---------------- слои ----------------
 
 @Composable
-internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSettings: () -> Unit) {
+internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSettings: () -> Unit, on3D: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val p = remember { MapPrefs.p(ctx) }
     var useOnline by remember { mutableStateOf(p.getBoolean("use_online", false)) }
@@ -532,7 +532,8 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
             SwitchRow("Номера домов", null, houseNum) { houseNum = it; set("housenumbers", it) }
             if (ApiKeys.tomtom(ctx).isNotBlank()) SwitchRow("Пробки (TomTom)", "загруженность дорог, ДТП и перекрытия; нужен интернет", traffic) { traffic = it; set("traffic", it) }
             else Text("Пробки — после ввода ключа TomTom (Настройки → Ключи и сервисы).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp))
-            Text("3D-рельеф — в третьем этапе. Слои работают для скачанных стран.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp, 12.dp, 10.dp))
+            if (on3D != null) MenuRow(Icons.Rounded.Landscape, "Открыть 3D-рельеф", sub = "горы объёмом, наклон и вращение; для скачанных стран") { on3D() }
+            Text("Слои рельефа работают для скачанных стран.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp, 12.dp, 10.dp))
         }
         SectionLabel("Офлайн-карты")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -592,7 +593,7 @@ internal fun SwitchRow(title: String, sub: String?, value: Boolean, enabled: Boo
 // ---------------- маршрут ----------------
 
 @Composable
-internal fun RoutePanel(to: MapPrefs.Spot?, me: GeoPt?, places: List<Place>, onDismiss: () -> Unit, onTarget: (MapPrefs.Spot) -> Unit, onLine: (List<GeoPt>, String) -> Unit, onClear: () -> Unit) {
+internal fun RoutePanel(to: MapPrefs.Spot?, me: GeoPt?, places: List<Place>, onDismiss: () -> Unit, onTarget: (MapPrefs.Spot) -> Unit, onLine: (List<GeoPt>, String) -> Unit, onClear: () -> Unit, onRoute: (Routing.Route?, String, Boolean) -> Unit = { _, _, _ -> }) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var dest by remember { mutableStateOf(to) }
@@ -651,16 +652,15 @@ internal fun RoutePanel(to: MapPrefs.Spot?, me: GeoPt?, places: List<Place>, onD
                 val d = dest ?: return@PillButton
                 if (mode == "line") { straight(d); return@PillButton }
                 val f = start() ?: run { Toast.makeText(ctx, "Нет моего места — включи геолокацию или выбери «Откуда»", Toast.LENGTH_SHORT).show(); return@PillButton }
-                if (!Net.online || !MapPrefs.bool(ctx, "online_nav", true) || MapPrefs.offlineOnly(ctx)) {
-                    Toast.makeText(ctx, "Офлайн-маршруты по дорогам будут в этапе 2б. Пока — прямая линия или Waze.", Toast.LENGTH_LONG).show(); straight(d); return@PillButton
-                }
                 busy = true
                 scope.launch {
                     val to2 = GeoPt(d.lat, d.lon, 0)
-                    val useTT = ApiKeys.tomtom(ctx).isNotBlank() && MapPrefs.bool(ctx, "tomtom_route", true)
-                    runCatching { if (useTT) runCatching { TomTom.route(ctx, mode, f, to2) }.getOrElse { Routing.route(mode, f, to2) } else Routing.route(mode, f, to2) }
-                        .onSuccess { r -> onLine(r.points, MapPrefs.dist(ctx, r.meters) + " · " + fmtDur((r.seconds * 1000).toLong()) + (if (r.delay >= 60) " · пробки +" + fmtDur((r.delay * 1000).toLong()) else "") + (if (useTT && mode == "car") " · с пробками" else " · по дорогам")); onDismiss() }
-                        .onFailure { Toast.makeText(ctx, "Сервер маршрутов не ответил — рисую по прямой", Toast.LENGTH_SHORT).show(); straight(d) }
+                    runCatching { Nav.best(ctx, mode, f, to2) }
+                        .onSuccess { r ->
+                            onLine(r.points, MapPrefs.dist(ctx, r.meters) + " · " + fmtDur((r.seconds * 1000).toLong()) + (if (r.delay >= 60) " · пробки +" + fmtDur((r.delay * 1000).toLong()) else "") + " · " + r.source)
+                            onRoute(r, d.name, from == null); onDismiss()
+                        }
+                        .onFailure { Toast.makeText(ctx, (it.message ?: "Маршрут не построен") + " — рисую по прямой", Toast.LENGTH_LONG).show(); straight(d) }
                     busy = false
                 }
             }, Modifier.weight(1f), enabled = dest != null)
@@ -699,7 +699,7 @@ internal fun RoutePanel(to: MapPrefs.Spot?, me: GeoPt?, places: List<Place>, onD
                 MenuRow(Icons.Rounded.Place, pl.name, sub = me?.let { MapPrefs.dist(ctx, Osm.distance(it, GeoPt(pl.lat, pl.lon, 0))) }) { pick(MapPrefs.Spot(pl.name, pl.lat, pl.lon, "Моя метка")) }
             }
         }
-        Text("Маршрут на машине — TomTom с пробками (если есть ключ), иначе OSRM. Без интернета — по прямой.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+        Text(if (Nav.offlineAvailable(ctx)) "Есть офлайн-маршруты: без интернета строятся на телефоне. С интернетом на машине — TomTom с пробками." else "Офлайн-маршруты: Настройки карты → Загрузка карт → часть «Маршруты». Сейчас — онлайн (TomTom/OSRM).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
     }
     pickFor?.let { which ->
         MapPointPicker(onDismiss = { pickFor = null }) { (n, la, lo) ->

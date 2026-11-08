@@ -154,7 +154,7 @@ object TomTom {
         if (key.isBlank()) throw LimitException("Нет ключа TomTom")
         if (!ApiKeys.take(ctx, "tomtom")) throw LimitException("Лимит TomTom на сегодня исчерпан")
         val tm = when (mode) { "bike" -> "bicycle"; "foot" -> "pedestrian"; else -> "car" }
-        val url = String.format(Locale.US, "https://api.tomtom.com/routing/1/calculateRoute/%.6f,%.6f:%.6f,%.6f/json?traffic=true&travelMode=%s&routeType=fastest&key=%s",
+        val url = String.format(Locale.US, "https://api.tomtom.com/routing/1/calculateRoute/%.6f,%.6f:%.6f,%.6f/json?traffic=true&travelMode=%s&routeType=fastest&instructionsType=coded&language=ru-RU&key=%s",
             from.lat, from.lon, to.lat, to.lon, tm, URLEncoder.encode(key, "UTF-8"))
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 10_000; c.readTimeout = 20_000
@@ -164,6 +164,24 @@ object TomTom {
         val pts = ArrayList<GeoPt>()
         val legs = r.getJSONArray("legs")
         for (i in 0 until legs.length()) { val a = legs.getJSONObject(i).getJSONArray("points"); for (j in 0 until a.length()) a.getJSONObject(j).let { pts += GeoPt(it.getDouble("latitude"), it.getDouble("longitude"), 0) } }
-        Routing.Route(pts, s.getDouble("lengthInMeters"), s.getDouble("travelTimeInSeconds"), s.optDouble("trafficDelayInSeconds", 0.0))
+        val steps = ArrayList<Routing.Step>()
+        r.optJSONObject("guidance")?.optJSONArray("instructions")?.let { a ->
+            for (i in 0 until a.length()) {
+                val ins = a.getJSONObject(i)
+                val m = ins.optString("maneuver")
+                val cmd = when {
+                    m == "ARRIVE" || m == "ARRIVE_LEFT" || m == "ARRIVE_RIGHT" -> Nav.END
+                    m.startsWith("ROUNDABOUT") -> Nav.RNDB
+                    m == "TURN_LEFT" -> Nav.TL; m == "TURN_RIGHT" -> Nav.TR
+                    m == "SHARP_LEFT" -> Nav.TSHL; m == "SHARP_RIGHT" -> Nav.TSHR
+                    m == "BEAR_LEFT" -> Nav.TSLL; m == "BEAR_RIGHT" -> Nav.TSLR
+                    m == "KEEP_LEFT" || m == "MOTORWAY_EXIT_LEFT" -> Nav.KL; m == "KEEP_RIGHT" || m == "MOTORWAY_EXIT_RIGHT" -> Nav.KR
+                    m == "MAKE_UTURN" || m == "TRY_MAKE_UTURN" -> Nav.TU
+                    else -> 0
+                }
+                if (cmd != 0) steps += Routing.Step(ins.optInt("pointIndex").coerceIn(0, maxOf(0, pts.size - 1)), cmd, ins.optInt("roundaboutExitNumber", 0))
+            }
+        }
+        Routing.Route(pts, s.getDouble("lengthInMeters"), s.getDouble("travelTimeInSeconds"), s.optDouble("trafficDelayInSeconds", 0.0), steps, "TomTom")
     }
 }

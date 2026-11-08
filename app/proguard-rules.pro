@@ -20,3 +20,11 @@
 # MapLibre: нативное ядро карты обращается к Java-слою через JNI
 -keep class org.maplibre.** { *; }
 -dontwarn org.maplibre.**
+
+# BRouter (офлайн-маршруты): модель пути создаётся по имени класса (RoutingContext.pathModel)
+-keep class btools.router.** { *; }
+-keep class btools.mapaccess.** { *; }
+-keep class btools.expressions.** { *; }
+-keep class btools.codec.** { *; }
+-keep class btools.util.** { *; }
+-dontwarn btools.**

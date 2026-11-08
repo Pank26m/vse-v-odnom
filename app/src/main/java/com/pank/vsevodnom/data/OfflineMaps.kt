@@ -27,8 +27,8 @@ import java.net.URL
  */
 object OfflineMaps {
     const val BASE = "https://github.com/Pank26m/vse-v-odnom/releases/download/maps-v1/"
-    val KINDS = listOf("map", "dem", "contours", "search")
-    val KIND_NAMES = mapOf("map" to "Карта", "dem" to "Рельеф", "contours" to "Линии высот", "search" to "Поиск")
+    val KINDS = listOf("map", "dem", "contours", "search", "routing")
+    val KIND_NAMES = mapOf("map" to "Карта", "dem" to "Рельеф", "contours" to "Линии высот", "search" to "Поиск", "routing" to "Маршруты")
 
     data class Part(val file: String, val size: Long)
     data class Country(val id: String, val name: String, val bbox: List<Double>, val built: String, val parts: Map<String, List<Part>>, val shape: String) {
@@ -83,7 +83,9 @@ object OfflineMaps {
         version++
     }
 
-    fun fileName(id: String, kind: String) = when (kind) { "map" -> "$id.mbtiles"; "dem" -> "$id-dem.mbtiles"; "contours" -> "$id-contours.mbtiles"; "search" -> "$id-search.db"; else -> "$id.$kind" }
+    fun fileName(id: String, kind: String) = when (kind) { "map" -> "$id.mbtiles"; "dem" -> "$id-dem.mbtiles"; "contours" -> "$id-contours.mbtiles"; "search" -> "$id-search.db"; "routing" -> "$id-routing.ok"; else -> "$id.$kind" }
+    /** Сегменты BRouter (общие для стран): maps/segments4 (файлы .rd5). */
+    fun segmentsDir(ctx: Context) = File(dir(ctx), "segments4").apply { mkdirs() }
     fun file(ctx: Context, id: String, kind: String) = File(dir(ctx), fileName(id, kind))
     fun shapeFile(ctx: Context, id: String) = File(dir(ctx), "$id.json")
 
@@ -155,7 +157,10 @@ object OfflineMaps {
         kinds.forEach { k ->
             val parts = c.parts[k].orEmpty()
             val target = file(ctx, c.id, k)
-            if (parts.size == 1) File(dir(ctx), parts[0].file + ".dl").renameTo(target.also { it.delete() })
+            if (k == "routing") {
+                parts.forEach { p -> File(dir(ctx), p.file + ".dl").renameTo(File(segmentsDir(ctx), p.file).also { it.delete() }) }
+                target.writeText(parts.joinToString("\n") { it.file })
+            } else if (parts.size == 1) File(dir(ctx), parts[0].file + ".dl").renameTo(target.also { it.delete() })
             else if (parts.size > 1) {
                 val tmp = File(target.path + ".join")
                 tmp.outputStream().use { out -> parts.forEach { p -> File(dir(ctx), p.file + ".dl").inputStream().use { it.copyTo(out) } } }
@@ -258,6 +263,7 @@ object OfflineMaps {
     }
 
     fun delete(ctx: Context, id: String, kinds: Set<String> = KINDS.toSet()) {
+        if ("routing" in kinds) runCatching { file(ctx, id, "routing").readLines().forEach { File(segmentsDir(ctx), it.trim()).delete() } }
         kinds.forEach { file(ctx, id, it).delete() }
         val o = runCatching { JSONObject(prefs(ctx).getString("installed", "{}")!!) }.getOrDefault(JSONObject())
         o.optJSONObject(id)?.let { e ->
