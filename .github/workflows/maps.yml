@@ -40,7 +40,9 @@ jobs:
       - name: Сборка
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -c "import osgeo, numpy, PIL" && bash maps/build.sh
+        run: |
+          pip install -q --break-system-packages mapbox-vector-tile shapely || pip install -q mapbox-vector-tile shapely
+          python3 -c "import osgeo, numpy, PIL, mapbox_vector_tile, shapely" && bash maps/build.sh
       - name: Отчёт при ошибке
         if: failure()
         env:

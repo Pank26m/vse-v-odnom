@@ -53,12 +53,13 @@ get_ne() {
   [ -f $z ] || { mkdir -p data/sources; curl -sSL --retry 3 -o $z https://naciscdn.org/naturalearth/packages/natural_earth_vector.sqlite.zip; }
   unzip -o -q -j $z '*.sqlite' -d work; [ -f $NE ]
 }
-if ! have world-labels.mbtiles || [ "${FORCE_WORLD:-0}" = 1 ]; then
+LABELS_VER=2   # v1 (tippecanoe) терял большинство подписей на мелких масштабах
+labels_old() { python3 -c "import json,sys; sys.exit(0 if json.load(open('work/catalog.json')).get('labels_ver',1) < $LABELS_VER else 1)"; }
+if ! have world-labels.mbtiles || labels_old || [ "${FORCE_WORLD:-0}" = 1 ]; then
   log "подписи мира: старт"
   mkdir -p work/wl
   if get_ne && python3 world_labels.py $NE work/wl >> "$REPORT" 2>&1 \
-     && tippecanoe -q -o "$OUT/world-labels.mbtiles" -Z0 -z7 -r1 --force --no-feature-limit --no-tile-size-limit --simplification=6 \
-        -n "Подписи мира" -A "Natural Earth" -L country:work/wl/country.geojsonl -L city:work/wl/city.geojsonl -L boundary:work/wl/boundary.geojsonl; then
+     && python3 world_tiles.py work/wl "$OUT/world-labels.mbtiles" >> "$REPORT" 2>&1; then
     log "подписи мира: $(du -h $OUT/world-labels.mbtiles | cut -f1)"; up "$OUT/world-labels.mbtiles"
   else log "ОШИБКА: подписи мира"; fi
 fi
@@ -175,7 +176,9 @@ import json, os, subprocess
 cat = json.load(open("work/catalog.json"))
 assets = {a["name"]: a["size"] for a in json.loads(subprocess.run(["gh", "release", "view", "maps-v1", "--json", "assets"], capture_output=True, text=True).stdout or '{"assets":[]}')["assets"]}
 for k, f in (("world", "world-relief.mbtiles"), ("labels", "world-labels.mbtiles")):
-    if os.path.exists(f"out/{f}"): cat[k] = {"file": f, "size": os.path.getsize(f"out/{f}")}
+    if os.path.exists(f"out/{f}"):
+        cat[k] = {"file": f, "size": os.path.getsize(f"out/{f}")}
+        if k == "labels": cat["labels_ver"] = 2
     elif f in assets: cat[k] = {"file": f, "size": assets[f]}
 json.dump(cat, open("out/catalog.json", "w"), ensure_ascii=False, indent=1)
 PY
