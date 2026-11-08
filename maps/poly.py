@@ -18,10 +18,11 @@ def simplify(pts, eps):
     if len(pts) < 4: return pts
     keep = [False] * len(pts); keep[0] = keep[-1] = True; stack = [(0, len(pts) - 1)]
     while stack:
-        a, b = stack.pop(); ax, ay = pts[a]; bx, by = pts[b]; dx, dy = bx - ax, by - ay; L = (dx * dx + dy * dy) ** 0.5 or 1e-12
+        a, b = stack.pop(); ax, ay = pts[a]; bx, by = pts[b]; dx, dy = bx - ax, by - ay; L = (dx * dx + dy * dy) ** 0.5
         best, bi = -1, -1
         for i in range(a + 1, b):
-            d = abs(dy * (pts[i][0] - ax) - dx * (pts[i][1] - ay)) / L
+            # у замкнутого кольца концы совпадают — тогда меряем расстояние до точки, а не до отрезка
+            d = abs(dy * (pts[i][0] - ax) - dx * (pts[i][1] - ay)) / L if L > 1e-12 else ((pts[i][0] - ax) ** 2 + (pts[i][1] - ay) ** 2) ** 0.5
             if d > best: best, bi = d, i
         if best > eps: keep[bi] = True; stack += [(a, bi), (bi, b)]
     return [p for p, k in zip(pts, keep) if k]

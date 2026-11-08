@@ -42,6 +42,7 @@ def cities():
         mz = p.get("min_zoom") or 7
         if mz > 7: continue
         g = f.GetGeometryRef()
+        if g is None: continue
         cap = 1 if "capital" in (p.get("featurecla") or "").lower() and "Admin-0" in (p.get("featurecla") or "") else 0
         yield {"type": "Feature", "tippecanoe": {"minzoom": max(1, int(mz) - 1)}, "geometry": {"type": "Point", "coordinates": [g.GetX(), g.GetY()]},
                "properties": {"name": p.get("name"), "name_ru": p.get("name_ru"), "name_uk": p.get("name_uk"), "name_en": p.get("name_en"),
@@ -53,6 +54,7 @@ def boundaries():
         lay = src.GetLayerByName(lname)
         if lay is None: continue
         for f in lay:
+            if f.GetGeometryRef() is None: continue
             g = json.loads(f.GetGeometryRef().ExportToJson())
             yield {"type": "Feature", "tippecanoe": {"minzoom": mz}, "geometry": g, "properties": {"admin_level": level}}
 

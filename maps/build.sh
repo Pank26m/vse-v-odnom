@@ -29,9 +29,18 @@ fi
 # источники Planetiler качаем сами — с повторами (osmdata.openstreetmap.de бывает медленным)
 mkdir -p data/sources
 fetch() { [ -s "$2" ] || curl -sSL --retry 8 --retry-delay 30 --retry-all-errors --connect-timeout 60 -o "$2.tmp" "$1" && mv "$2.tmp" "$2" 2>/dev/null; [ -s "$2" ]; }
-fetch https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip data/sources/water-polygons-split-3857.zip || log "ОШИБКА: water-polygons"
+WATER=data/sources/water-polygons-split-3857.zip
+fetch_water() { [ -s "$WATER" ] || curl -sSL --retry 1 --retry-delay 20 --connect-timeout 40 --max-time 900 -o "$WATER.tmp" https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip && mv "$WATER.tmp" "$WATER" 2>/dev/null; [ -s "$WATER" ]; }
+fetch_water || log "osmdata.openstreetmap.de недоступен — моря будут из Natural Earth (грубее у берега)"
 fetch https://naciscdn.org/naturalearth/packages/natural_earth_vector.sqlite.zip data/sources/natural_earth_vector.sqlite.zip || log "ОШИБКА: natural earth"
 fetch https://github.com/acalcutt/osm-lakelines/releases/download/v12/lake_centerline.shp.zip data/sources/lake_centerline.shp.zip || log "ОШИБКА: lake centerlines"
+if [ ! -s "$WATER" ]; then
+  # запасной вариант: океаны и моря Natural Earth 10m в проекции 3857 (Planetiler читает любой shapefile в zip)
+  WATER=work/water-ne.zip; rm -rf work/wne && mkdir -p work/wne
+  unzip -o -q -j data/sources/natural_earth_vector.sqlite.zip '*.sqlite' -d work \
+   && ogr2ogr -f "ESRI Shapefile" -t_srs EPSG:3857 -clipsrc -179.9 -85 179.9 85 work/wne/water_polygons.shp work/natural_earth_vector.sqlite ne_10m_ocean -nlt MULTIPOLYGON \
+   && (cd work/wne && zip -q -r ../water-ne.zip .) && log "моря: Natural Earth $(du -h $WATER | cut -f1)" || log "ОШИБКА: моря из Natural Earth"
+fi
 log "источники: $(du -sh data/sources | cut -f1)"
 
 NE=work/natural_earth_vector.sqlite
@@ -93,7 +102,7 @@ PY
   BUILT=()
   if needs map; then
     log "$ID: векторная карта (Planetiler)"
-    if java -Xmx12g -jar $PLANETILER --osm-path="$PBF" --output="$OUT/$ID.mbtiles" --force \
+    if java -Xmx12g -jar $PLANETILER --osm-path="$PBF" --water_polygons_path="$WATER" --output="$OUT/$ID.mbtiles" --force \
        --languages=ru,uk,en --maxzoom=14 --render_maxzoom=14 --tmpdir=work/tmp >> work/planetiler-$ID.log 2>&1; then
       log "$ID: карта $(du -h $OUT/$ID.mbtiles | cut -f1)"; BUILT+=(map)
     else log "ОШИБКА: Planetiler"; tail -40 work/planetiler-$ID.log >> "$REPORT"; fi
