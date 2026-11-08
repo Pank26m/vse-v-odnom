@@ -12,7 +12,7 @@ import java.util.Locale
  * для личного пользования). Офлайн-маршруты по дорогам — следующий этап.
  */
 object Routing {
-    data class Route(val points: List<GeoPt>, val meters: Double, val seconds: Double)
+    data class Route(val points: List<GeoPt>, val meters: Double, val seconds: Double, val delay: Double = 0.0)
 
     suspend fun route(mode: String, from: GeoPt, to: GeoPt): Route = withContext(Dispatchers.IO) {
         val profile = when (mode) { "bike" -> "routed-bike"; "foot" -> "routed-foot"; else -> "routed-car" }

@@ -29,6 +29,7 @@ object MapStyle {
         val lang: String = "local",           // local | ru | en
         val online: OnlineMaps.Source? = null,
         val worldLabels: Boolean = true,
+        val traffic: String? = null,          // ключ TomTom, если слой пробок включён
     )
 
     const val HATCH_MIN_ZOOM = 5.5
@@ -41,6 +42,7 @@ object MapStyle {
             Variant.entries.firstOrNull { it.key == p.getString("variant", "car") } ?: Variant.CAR,
             p.getBoolean("hillshade", true), p.getBoolean("contours", true), p.getBoolean("relief", true),
             p.getString("lang", "local") ?: "local", if (p.getBoolean("use_online", false)) online else null,
+            traffic = com.pank.vsevodnom.data.ApiKeys.tomtom(ctx).takeIf { it.isNotBlank() && p.getBoolean("traffic", false) },
         )
     }
 
@@ -146,6 +148,15 @@ object MapStyle {
             }
         } else terrain(o, input.files, sources, layers)
 
+        // пробки TomTom — поверх дорог, под подписями
+        o.traffic?.let { k ->
+            sources.put("tt-flow", JSONObject().put("type", "raster").put("tileSize", 256).put("minzoom", 6).put("maxzoom", 18).put("attribution", "© TomTom")
+                .put("tiles", JSONArray().put(com.pank.vsevodnom.data.TomTom.flowTiles(k))))
+            sources.put("tt-inc", JSONObject().put("type", "raster").put("tileSize", 256).put("minzoom", 8).put("maxzoom", 18)
+                .put("tiles", JSONArray().put(com.pank.vsevodnom.data.TomTom.incidentTiles(k))))
+            layers.put(JSONObject().put("id", "tt-flow").put("type", "raster").put("source", "tt-flow").put("minzoom", 6).put("paint", JSONObject().put("raster-opacity", 0.85)))
+            layers.put(JSONObject().put("id", "tt-inc").put("type", "raster").put("source", "tt-inc").put("minzoom", 9))
+        }
         // мир: границы
         val wl = input.worldLabels
         val within = if (shapeGeoms.isNotEmpty()) JSONArray().put("!").put(JSONArray().put("within").put(shapesGeo(shapeGeoms))) else null

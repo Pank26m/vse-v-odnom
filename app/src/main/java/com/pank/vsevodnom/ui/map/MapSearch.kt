@@ -43,6 +43,8 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
     val canOnline = Net.online && !MapPrefs.offlineOnly(ctx)
     val hasOffline = remember { OfflineSearch.available(ctx).isNotEmpty() }
     var offline by remember { mutableStateOf(!canOnline) }
+    val hasGoogle = remember { ApiKeys.google(ctx).isNotBlank() }
+    var google by remember { mutableStateOf(hasGoogle && canOnline && MapPrefs.bool(ctx, "google_default", true)) }
     var results by remember { mutableStateOf<List<GeoHit>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -61,7 +63,8 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
         MapPrefs.parseCoords(query)?.let { (a, b) -> results = listOf(GeoHit("Координаты", MapPrefs.coords(ctx, a, b), a, b, "coords")); return }
         busy = true; error = null
         val mine = own(query)
-        val found = if (offline) runCatching { OfflineSearch.search(ctx, query, lat, lon) }.getOrElse { emptyList() }
+        val found = if (!offline && google && final) runCatching { GooglePlaces.search(ctx, query, lat, lon) }.onFailure { error = it.message }.getOrElse { emptyList() }
+        else if (offline) runCatching { OfflineSearch.search(ctx, query, lat, lon) }.getOrElse { emptyList() }
         else if (final) runCatching { Osm.search(query, lat, lon) }.onFailure { error = "Онлайн-поиск не ответил" }.getOrElse { emptyList() } else emptyList()
         results = mine + found
         if (offline && !hasOffline) error = "Для офлайн-поиска скачай страну с частью «Поиск» (Настройки → Загрузка карт)"
@@ -70,7 +73,7 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
         if (final) { MapPrefs.addHistory(ctx, query); history = MapPrefs.history(ctx) }
     }
     // офлайн — ищем на ходу; онлайн — по кнопке (Nominatim просит не чаще раза в секунду)
-    LaunchedEffect(q, offline) { delay(if (offline) 250 else 700); run(final = offline && q.trim().length >= 3) }
+    LaunchedEffect(q, offline, google) { delay(if (offline) 250 else 700); run(final = offline && q.trim().length >= 3) }
     LaunchedEffect(Unit) { delay(150); runCatching { focus.requestFocus() } }
 
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -87,7 +90,8 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
                 }
             }
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Chip("Онлайн", !offline, { if (canOnline) offline = false })
+                if (hasGoogle) Chip("Google", !offline && google, { if (canOnline) { offline = false; google = true } })
+                Chip(if (hasGoogle) "OSM" else "Онлайн", !offline && !google, { if (canOnline) { offline = false; google = false } })
                 Chip("Офлайн поиск", offline, { offline = true })
                 if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             }

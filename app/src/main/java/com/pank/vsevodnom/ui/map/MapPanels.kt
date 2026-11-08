@@ -179,6 +179,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                     }
                 }
             }
+            GoogleBlock(t, title)
             info?.wiki?.let { w ->
                 HorizontalDivider(color = Pal.Line)
                 img?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
@@ -393,6 +394,7 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
     var hill by remember { mutableStateOf(p.getBoolean("hillshade", true)) }
     var contours by remember { mutableStateOf(p.getBoolean("contours", true)) }
     var relief by remember { mutableStateOf(p.getBoolean("relief", true)) }
+    var traffic by remember { mutableStateOf(p.getBoolean("traffic", false)) }
     var sources by remember { mutableStateOf(OnlineMaps.all(ctx)) }
     val installed = remember(OfflineMaps.version) { OfflineMaps.installed(ctx) }
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -410,6 +412,8 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
             SwitchRow("Тени рельефа", "горы и холмы объёмнее", hill) { hill = it; set("hillshade", it) }
             SwitchRow("Линии высот", "через 20 м, подписи через 100 м", contours) { contours = it; set("contours", it) }
             SwitchRow("Рельеф мира", "цветная карта мира на мелком масштабе", relief) { relief = it; set("relief", it) }
+            if (ApiKeys.tomtom(ctx).isNotBlank()) SwitchRow("Пробки (TomTom)", "загруженность дорог, ДТП и перекрытия; нужен интернет", traffic) { traffic = it; set("traffic", it) }
+            else Text("Пробки — после ввода ключа TomTom (Настройки → Ключи и сервисы).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp))
             Text("3D-рельеф — в третьем этапе. Слои работают для скачанных стран.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp, 12.dp, 10.dp))
         }
         SectionLabel("Офлайн-карты")
@@ -496,8 +500,9 @@ internal fun RoutePanel(to: MapPrefs.Spot?, me: GeoPt?, places: List<Place>, onD
                 }
                 busy = true
                 scope.launch {
-                    runCatching { Routing.route(mode, from, GeoPt(d.lat, d.lon, 0)) }
-                        .onSuccess { r -> onLine(r.points, MapPrefs.dist(ctx, r.meters) + " · " + fmtDur((r.seconds * 1000).toLong()) + " · по дорогам"); onDismiss() }
+                    val useTT = ApiKeys.tomtom(ctx).isNotBlank() && MapPrefs.bool(ctx, "tomtom_route", true)
+                    runCatching { if (useTT) runCatching { TomTom.route(ctx, mode, from, GeoPt(d.lat, d.lon, 0)) }.getOrElse { Routing.route(mode, from, GeoPt(d.lat, d.lon, 0)) } else Routing.route(mode, from, GeoPt(d.lat, d.lon, 0)) }
+                        .onSuccess { r -> onLine(r.points, MapPrefs.dist(ctx, r.meters) + " · " + fmtDur((r.seconds * 1000).toLong()) + (if (r.delay >= 60) " · пробки +" + fmtDur((r.delay * 1000).toLong()) else "") + (if (useTT && mode == "car") " · с пробками" else " · по дорогам")); onDismiss() }
                         .onFailure { Toast.makeText(ctx, "Сервер маршрутов не ответил — рисую по прямой", Toast.LENGTH_SHORT).show(); straight(d) }
                     busy = false
                 }
@@ -531,4 +536,63 @@ internal fun RoutePanel(to: MapPrefs.Spot?, me: GeoPt?, places: List<Place>, onD
         }
         Text("Маршрут по дорогам сейчас строится онлайн (OSRM, серверы FOSSGIS). Без интернета — по прямой; офлайн-навигация — второй этап.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
     }
+}
+
+/** Сведения Google о месте: грузятся по кнопке (или сами, если включено) — каждый запрос в счёт дневного лимита. */
+@Composable
+internal fun GoogleBlock(t: MapTarget, title: String) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    if (ApiKeys.google(ctx).isBlank() || !Net.online || MapPrefs.offlineOnly(ctx) || title == "Точка на карте") return
+    var d by remember(t) { mutableStateOf<GooglePlaces.Details?>(null) }
+    var busy by remember(t) { mutableStateOf(false) }
+    var err by remember(t) { mutableStateOf<String?>(null) }
+    var photoIdx by remember(t) { mutableIntStateOf(-1) }
+    var photo by remember(t) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var showAllHours by remember(t) { mutableStateOf(false) }
+    fun load() {
+        if (busy) return; busy = true; err = null
+        scope.launch {
+            runCatching { val gid = t.props["google_id"]; if (gid != null) GooglePlaces.details(ctx, gid) else GooglePlaces.near(ctx, title, t.lat, t.lon) }
+                .onSuccess { d = it; if (it == null) err = "Google не нашёл это место рядом" }.onFailure { err = it.message }
+            busy = false
+        }
+    }
+    LaunchedEffect(t) { if (MapPrefs.bool(ctx, "google_auto", false) || t.props.containsKey("google_id")) load() }
+    HorizontalDivider(color = Pal.Line)
+    val g = d
+    if (g == null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Google", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            else TextButton({ load() }) { Text("Рейтинг, отзывы, часы") }
+        }
+        err?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk) }
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        g.rating?.let { Text("★ %.1f".format(it), style = MaterialTheme.typography.titleMedium, color = Color(0xFFE09A1B)); Spacer(Modifier.width(6.dp)) }
+        Text(listOfNotNull(g.count?.let { "$it отзывов" }, g.price, g.type).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.weight(1f))
+        g.openNow?.let { Text(if (it) "Открыто" else "Закрыто", style = MaterialTheme.typography.labelLarge, color = if (it) Pal.MintInk else Pal.RoseInk) }
+    }
+    if (g.hours.isNotEmpty()) {
+        val todayIdx = (java.time.LocalDate.now().dayOfWeek.value - 1).coerceIn(0, g.hours.size - 1)
+        Text(if (showAllHours) g.hours.joinToString("\n") else g.hours[todayIdx] + "  ▾", style = MaterialTheme.typography.bodySmall, modifier = Modifier.clickable { showAllHours = !showAllHours })
+    }
+    g.phone?.let { ph -> Text("📞 $ph", style = MaterialTheme.typography.bodyMedium, color = Pal.SkyInk, modifier = Modifier.clickable { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$ph"))) } }) }
+    g.site?.let { s -> Text("🌐 " + s.removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/'), style = MaterialTheme.typography.bodyMedium, color = Pal.SkyInk, maxLines = 1, modifier = Modifier.clickable { web(ctx, s) }) }
+    if (g.photos.isNotEmpty()) {
+        photo?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
+        TextButton({
+            val next = (photoIdx + 1) % g.photos.size; photoIdx = next
+            scope.launch { photo = GooglePlaces.photo(ctx, g.photos[next]) ?: photo.also { Toast.makeText(ctx, "Фото не загрузилось (лимит?)", Toast.LENGTH_SHORT).show() } }
+        }) { Text(if (photoIdx < 0) "Показать фото (${g.photos.size})" else "Следующее фото ${photoIdx + 1}/${g.photos.size}") }
+    }
+    g.reviews.take(5).forEach { r ->
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Bg).padding(10.dp)) {
+            Text("★".repeat(r.rating.coerceIn(0, 5)) + "  " + r.author + " · " + r.when_, style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+            if (r.text.isNotBlank()) Text(r.text, style = MaterialTheme.typography.bodySmall, maxLines = 6)
+        }
+    }
+    g.mapsUrl?.let { u -> Text("Открыть в Google Картах ›", style = MaterialTheme.typography.labelMedium, color = Pal.Muted, modifier = Modifier.clickable { web(ctx, u) }) }
 }

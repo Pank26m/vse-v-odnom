@@ -40,6 +40,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
                 MenuRow(Icons.Rounded.Backup, "Резервные копии", sub = "все метки и треки — в файл KML и обратно") { page = "backup" }
                 MenuRow(Icons.Rounded.SdCard, "Хранилище карт", sub = "память телефона или карта памяти") { page = "storage" }
                 MenuRow(Icons.Rounded.Straighten, "Единицы измерения", sub = "расстояние, высота, координаты") { page = "units" }
+                MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "Google (места, отзывы), TomTom (пробки), лимиты") { page = "keys" }
                 MenuRow(Icons.Rounded.Lock, "Конфиденциальность", sub = "история, работа без интернета") { page = "privacy" }
                 MenuRow(Icons.Rounded.Code, "Для разработчиков") { page = "dev" }
                 Text("Данные карт © участники OpenStreetMap (ODbL), стиль — OSM Liberty / OpenMapTiles, рельеф — Mapzen Terrain Tiles, мир — Natural Earth.",
@@ -55,6 +56,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
         "units" -> UnitsPage(onChanged) { page = null }
         "privacy" -> PrivacyPage { page = null }
         "dev" -> DevPage(onChanged) { page = null }
+        "keys" -> KeysPage(onChanged) { page = null }
     }
 }
 
@@ -342,5 +344,45 @@ private fun DevPage(onChanged: () -> Unit, onBack: () -> Unit) {
             Text("Скачано: ${OfflineMaps.installed(ctx).entries.joinToString { "${it.key} (${it.value.first}: ${it.value.second.joinToString("+")})" }.ifBlank { "—" }}", style = MaterialTheme.typography.bodySmall)
             Text("Рельеф мира: ${OfflineMaps.worldRelief(ctx).name}", style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+// ---------------- ключи ----------------
+
+@Composable
+private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    var google by remember { mutableStateOf(ApiKeys.google(ctx)) }
+    var tomtom by remember { mutableStateOf(ApiKeys.tomtom(ctx)) }
+    var gLimit by remember { mutableStateOf(ApiKeys.limit(ctx, "google").toString()) }
+    var tLimit by remember { mutableStateOf(ApiKeys.limit(ctx, "tomtom").toString()) }
+    var gAuto by remember { mutableStateOf(MapPrefs.bool(ctx, "google_auto", false)) }
+    var gSearch by remember { mutableStateOf(MapPrefs.bool(ctx, "google_default", true)) }
+    var ttRoute by remember { mutableStateOf(MapPrefs.bool(ctx, "tomtom_route", true)) }
+    Page("Ключи и сервисы", onBack) {
+        Text("Ключи хранятся только на телефоне (в коде и на GitHub их нет). Каждый запрос считается — при достижении дневного предела приложение перестаёт обращаться к сервису до завтра.",
+            style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+        AppCard(Modifier.fillMaxWidth()) {
+            Text("Google Places", style = MaterialTheme.typography.titleMedium)
+            AppTextField(google, { google = it }, "Ключ API (AIza…)")
+            AppTextField(gLimit, { gLimit = it.filter(Char::isDigit) }, "Запросов в день (рекомендую 150)")
+            Text("Сегодня: ${ApiKeys.used(ctx, "google")} из ${ApiKeys.limit(ctx, "google")}. Поиск — 1 запрос, сведения о месте — 2, каждое фото — 1.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+            SwitchRow("Искать через Google по умолчанию", null, gSearch) { gSearch = it; MapPrefs.setBool(ctx, "google_default", it) }
+            SwitchRow("Сведения Google сразу в карточке", "иначе — по кнопке, экономит лимит", gAuto) { gAuto = it; MapPrefs.setBool(ctx, "google_auto", it) }
+        }
+        AppCard(Modifier.fillMaxWidth()) {
+            Text("TomTom", style = MaterialTheme.typography.titleMedium)
+            AppTextField(tomtom, { tomtom = it }, "Ключ API")
+            AppTextField(tLimit, { tLimit = it.filter(Char::isDigit) }, "Маршрутов в день")
+            Text("Сегодня маршрутов: ${ApiKeys.used(ctx, "tomtom")}. Слой пробок включается в «Слоях».", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+            SwitchRow("Маршрут на машине с учётом пробок", "иначе — OSRM без пробок", ttRoute) { ttRoute = it; MapPrefs.setBool(ctx, "tomtom_route", it) }
+        }
+        PillButton("Сохранить", {
+            ApiKeys.set(ctx, "google", google); ApiKeys.set(ctx, "tomtom", tomtom)
+            gLimit.toIntOrNull()?.let { ApiKeys.setLimit(ctx, "google", it) }; tLimit.toIntOrNull()?.let { ApiKeys.setLimit(ctx, "tomtom", it) }
+            onChanged(); Toast.makeText(ctx, "Сохранено", Toast.LENGTH_SHORT).show()
+        }, Modifier.fillMaxWidth())
+        Text("Google: в консоли ограничь ключ «Приложения Android» (пакет и SHA-1 — в Настройках → О приложении) и API «Places API (New)». Waze: кнопка в карточке и маршруте открывает навигацию в Waze.",
+            style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
     }
 }
