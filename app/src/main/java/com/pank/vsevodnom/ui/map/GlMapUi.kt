@@ -109,9 +109,17 @@ private fun GlMapsList() {
     have.forEach { m -> GlMapRow(m) }
     SectionLabel("Скачать страну или область")
     AppTextField(q, { q = it }, "Название (Украина, Польша, Бавария…)")
-    val list = if (q.length < 2) all.filter { it.isoCode.equals("UA", true) } else all.filter { GlMap.name(it).contains(q, true) }.take(30)
+    val list = if (q.length < 2) all.filter { it.isoCode.equals("UA", true) } else all.filter { GlMap.name(it).contains(q, true) || it.isoCode?.equals(q, true) == true || GlMap.nameEn(it).contains(q, true) }.take(40)
     list.filter { it !in have }.forEach { m -> GlMapRow(m) }
-    if (all.isEmpty()) Text("Список карт ещё не загрузился (нужен интернет).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+    LaunchedEffect(Unit) { if (all.isEmpty()) GlMap.refreshList() }
+    if (all.isEmpty()) {
+        Text(when {
+            GlMap.listLoading -> "Загружаю список карт…"
+            GlMap.listError != null -> "Список карт не загрузился: ${GlMap.listError}"
+            else -> "Список карт пуст — нажми «Обновить список»."
+        }, style = MaterialTheme.typography.bodySmall, color = if (GlMap.listError != null) Pal.RoseInk else Pal.Muted)
+        if (!GlMap.listLoading) PillButton("Обновить список", { GlMap.refreshList() }, Modifier.fillMaxWidth(), bg = Pal.Card, fg = Pal.Ink)
+    } else if (list.isEmpty() && q.length >= 2) Text("Ничего не нашлось. Попробуй по-английски (Ukraine) или часть названия.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
     @Suppress("UNUSED_VARIABLE") val unused = ctx
 }
 

@@ -205,7 +205,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         if (hasLoc(ctx)) { eng.enableLocation(); if (locMode != 0) eng.setFollow(locMode) }
         else if (!prefs.getBoolean("asked_loc", false)) { prefs.edit().putBoolean("asked_loc", true).apply(); askLoc() }
     }
-    LaunchedEffect(Net.online) { if (eng is GlEngine) GlMap.allowOnline(Net.online) }
+    LaunchedEffect(Net.online) { if (eng is GlEngine) { GlMap.allowOnline(Net.online); if (Net.online && GlMap.listEmpty()) GlMap.refreshList() } }
 
     /** Камера в навигации: зум и наклон по способу и скорости; пешком и на месте — по компасу, на ходу — по курсу GPS. */
     var navCam by remember { mutableStateOf(Triple(0.0, 0.0, -1)) }      // зум, наклон, режим камеры (1 — по курсу, 0 — по компасу)

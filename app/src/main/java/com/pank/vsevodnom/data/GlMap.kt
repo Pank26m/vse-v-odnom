@@ -32,11 +32,13 @@ object GlMap {
     fun use(ctx: Context) = engine(ctx) == "glmap" && key(ctx).isNotBlank() && init(ctx)
 
     private val listener = object : GLMapManager.StateListener {
-        override fun onStartDownloading(task: GLMapDownloadTask) { version++ }
-        override fun onDownloadProgress(task: GLMapDownloadTask) { version++ }
-        override fun onFinishDownloading(task: GLMapDownloadTask) { version++ }
-        override fun onStateChanged(map: GLMapInfo?, dataSet: Int) { version++ }
+        override fun onStartDownloading(task: GLMapDownloadTask) { bump() }
+        override fun onDownloadProgress(task: GLMapDownloadTask) { bump() }
+        override fun onFinishDownloading(task: GLMapDownloadTask) { bump() }
+        override fun onStateChanged(map: GLMapInfo?, dataSet: Int) { bump() }
     }
+
+    private fun bump() { if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) version++ else main.post { version++ } }
 
     @Synchronized
     fun init(ctx: Context): Boolean {
@@ -47,10 +49,30 @@ object GlMap {
         runCatching { globus.glsearch.GLSearch.Initialize(ctx.applicationContext) }
         runCatching { GLMapManager.SetTileDownloadingAllowed(Net.online) }
         runCatching { GLMapManager.addStateListener(listener) }
-        runCatching { GLMapManager.UpdateMapList { _, _ -> version++ } }
+        refreshList()
         ready = true; error = null
         return true
     }
+
+    var listLoading by mutableStateOf(false); private set
+    var listError by mutableStateOf<String?>(null); private set
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** Список карт с сервера GLMap (страны и области). Ответ приходит в фоне — состояние меняем на главном потоке. */
+    fun refreshList() {
+        if (listLoading) return
+        listLoading = true; listError = null
+        val ok = runCatching {
+            GLMapManager.UpdateMapList { _, err ->
+                main.post { listLoading = false; listError = err?.toString(); version++ }
+            }
+        }
+        if (ok.isFailure) { listLoading = false; listError = ok.exceptionOrNull()?.message }
+        // если ответа нет 20 с — даём нажать «Обновить» снова
+        main.postDelayed({ if (listLoading) { listLoading = false; version++ } }, 20_000)
+    }
+
+    fun listEmpty() = runCatching { GLMapManager.GetMaps().isNullOrEmpty() }.getOrDefault(true)
 
     /** Онлайн-тайлы (там, где карта не скачана) — только при интернете и если не выбран «только офлайн». */
     fun allowOnline(on: Boolean) { if (ready) runCatching { GLMapManager.SetTileDownloadingAllowed(on) } }
@@ -69,6 +91,8 @@ object GlMap {
         GLMapManager.MapsAtPoint(MapPoint.CreateFromGeoCoordinates(lat, lon))?.filter { !it.isCollection }?.minByOrNull { it.getSizeOnServer(GLMapInfo.DataSetMask.ALL) }
     }.getOrNull()
 
+    private val en by lazy { localeOf(arrayOf("en", "native")) }
+    fun nameEn(m: GLMapInfo) = runCatching { m.getLocalizedName(en) }.getOrNull().orEmpty()
     fun name(m: GLMapInfo) = runCatching { m.getLocalizedName(locale) }.getOrNull() ?: "Карта"
 
     /** Скачанные (хотя бы частично) карты. */
