@@ -57,6 +57,8 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         mapView.setOnTouchListener(touch)
         setupObjects()
         GlMap.allowOnline(Net.online)
+        // центр карты сразу после открытия — для плашки «Скачать страну» (раньше появлялась только после сдвига карты)
+        main.postDelayed(idle, 800)
     }
 
     private fun applyLocale() {
