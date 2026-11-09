@@ -68,7 +68,6 @@ val TILES = listOf(
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, "health"),
     Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, "passwords"),
     Tile("Телефон", Icons.Rounded.Phone, Tints.Sky, "phone?tab=0"),
-    Tile("Корзина", Icons.Rounded.ShoppingCart, Tints.Peach, "cart"),
     Tile("Калькулятор", Icons.Rounded.Calculate, Tints.Butter, "calc"),
     Tile("Копилки", Icons.Rounded.Savings, Tints.Mint, "piggy"),
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, "markets"),
@@ -118,6 +117,7 @@ fun HomeScreen(open: (String) -> Unit) {
     var refreshTick by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
     var lifeOpen by remember { mutableStateOf(false) }
+    var taskList by remember { mutableStateOf<String?>(null) }
     val head = rememberHeaderData(refreshTick)
 
     val city = cities.firstOrNull()
@@ -158,7 +158,6 @@ fun HomeScreen(open: (String) -> Unit) {
                         LifeBadge(com.pank.vsevodnom.ui.health.LifeScore.total(head.parts), { lifeOpen = true })
                         PowerBadge(Power.state, { open("power") })
                         AlertBadge(kyivAlertLevel(AlertCache.state), { open("alerts") })
-                        StepsPill(head.hs?.steps, com.pank.vsevodnom.ui.home.Profile.get(ctx, "goal_steps", "8000").toLongOrNull() ?: 8000L) { open("health") }
                     }
                     IconButton({ settings = true }) { Icon(Icons.Rounded.Settings, "Настройки", tint = HeaderInk) }
                 }
@@ -173,7 +172,7 @@ fun HomeScreen(open: (String) -> Unit) {
                     @OptIn(ExperimentalLayoutApi::class)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         notes.forEach { (ic, t, route) ->
-                            Row(Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.6f)).clickable(enabled = route != null) { route?.let(open) }.padding(horizontal = 10.dp, vertical = 6.dp),
+                            Row(Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.6f)).clickable(enabled = route != null) { route?.let { r -> if (r.startsWith("tasks:")) taskList = r.removePrefix("tasks:") else open(r) } }.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Icon(ic, null, tint = HeaderInk, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
                                 Text(t, style = MaterialTheme.typography.labelLarge, color = HeaderInk)
@@ -193,11 +192,24 @@ fun HomeScreen(open: (String) -> Unit) {
                 }
             }
         }
-        item { Summary(open, refreshTick) }
+        item { Summary(open, refreshTick, head.hs?.steps, weather) }
     }
     }
 
     if (settings) AppSettingsScreen(onDismiss = { settings = false }, onName = { userName = it })
+    taskList?.let { kind ->
+        val todayE = today.toEpochDay()
+        val list = allTasks.filter { !it.done }.filter { t -> when (kind) { "urgent" -> t.dueDay == todayE && t.priority >= 3; "overdue" -> t.dueDay != null && t.dueDay < todayE; else -> t.dueDay == todayE } }
+            .sortedWith(compareBy({ it.dueDay }, { -it.priority }))
+        AlertDialog(onDismissRequest = { taskList = null }, confirmButton = { TextButton({ taskList = null }) { Text("Закрыть") } },
+            title = { Text(when (kind) { "urgent" -> "Неотложное сегодня"; "overdue" -> "Просроченные задачи"; else -> "Дела на сегодня" }) },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                    if (list.isEmpty()) item { Text("Уже ничего нет 👏", color = Pal.Muted) }
+                    items(list, key = { it.id }) { t -> com.pank.vsevodnom.ui.todo.TaskRow(t) { taskList = null; com.pank.vsevodnom.ui.todo.TodoNav.target = "task:${t.id}"; open("todo") } }
+                }
+            })
+    }
     if (lifeOpen) LifeDialog(head.parts, head.hs, onOpenHealth = { lifeOpen = false; open("health") }) { lifeOpen = false }
     if (tilesEdit) {
         val sel = remember { mutableStateListOf(*tiles.toTypedArray()) }
@@ -232,10 +244,13 @@ private fun dayNotes(alarms: List<com.pank.vsevodnom.data.AlarmEntity>, tasks: L
     alarms.filter { it.enabled }.map { com.pank.vsevodnom.alarm.nextTrigger(it, now) }.minOrNull()?.takeIf { java.time.Duration.between(now, it).toHours() < 24 }?.let { t ->
         out += Triple(Icons.Rounded.Alarm, "Будильник прозвонит " + (if (t.toLocalDate() != today) "завтра " else "") + "в %02d:%02d".format(t.hour, t.minute), "clock/0")
     }
-    val urgent = tasks.count { !it.done && it.dueDay != null && (it.dueDay < today.toEpochDay() || (it.dueDay == today.toEpochDay() && it.priority >= 2)) }
+    // неотложные — высокий приоритет на сегодня; просроченные — отдельно; нажатие показывает сами задачи
+    val urgent = tasks.count { !it.done && it.dueDay == today.toEpochDay() && it.priority >= 3 }
+    val overdue = tasks.count { !it.done && it.dueDay != null && it.dueDay < today.toEpochDay() }
     val todayN = tasks.count { !it.done && it.dueDay == today.toEpochDay() }
-    if (urgent > 0) out += Triple(Icons.Rounded.PriorityHigh, "$urgent " + plural(urgent, "неотложное дело", "неотложных дела", "неотложных дел"), "todo")
-    else if (todayN > 0) out += Triple(Icons.Rounded.Checklist, "$todayN " + plural(todayN, "дело", "дела", "дел") + " на сегодня", "todo")
+    if (urgent > 0) out += Triple(Icons.Rounded.PriorityHigh, "$urgent " + plural(urgent, "неотложное дело", "неотложных дела", "неотложных дел"), "tasks:urgent")
+    if (overdue > 0) out += Triple(Icons.Rounded.EventBusy, "У вас $overdue " + plural(overdue, "просроченная задача", "просроченные задачи", "просроченных задач"), "tasks:overdue")
+    if (urgent == 0 && todayN > 0) out += Triple(Icons.Rounded.Checklist, "$todayN " + plural(todayN, "дело", "дела", "дел") + " на сегодня", "tasks:today")
     w?.days?.firstOrNull { it.date == today }?.let { d ->
         val txt = when {
             d.code in 95..99 -> "Сегодня гроза"
@@ -278,7 +293,7 @@ private fun BigTile(t: Tile, onClick: () -> Unit) {
 // ================= Сводка дня =================
 
 @Composable
-private fun Summary(open: (String) -> Unit, tick: Int) {
+private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: WeatherData?) {
     val ctx = LocalContext.current
     val db = remember { AppDb.get(ctx) }
     val today = LocalDate.now()
@@ -292,7 +307,9 @@ private fun Summary(open: (String) -> Unit, tick: Int) {
     var weightAsk by remember { mutableStateOf(false) }
     var eventOpen by remember { mutableStateOf<Agenda?>(null) }
     var review by remember { mutableStateOf(false) }
+    var tomorrow by remember { mutableStateOf(false) }
     var holTick by remember { mutableIntStateOf(0) }
+    val holTickOuter = holTick
 
     val dow = today.dayOfWeek.value - 1
     val todayTasks = tasks.filter { !it.done && it.dueDay != null && it.dueDay <= today.toEpochDay() }
@@ -300,7 +317,7 @@ private fun Summary(open: (String) -> Unit, tick: Int) {
     val nowMin = LocalTime.now().let { it.hour * 60 + it.minute }
     val agendaLeft = agenda.filter { a -> if (a is Agenda.Pair) LocalTime.parse(a.l.end).let { it.hour * 60 + it.minute } > nowMin else true }
     val bdays = birthdays.filter { it.day == today.dayOfMonth && it.month == today.monthValue }
-    val hol = Holidays.on(today)
+    val hol = remember(today, holTickOuter) { Holidays.on(today, ctx) }
 
     Column(Modifier.fillMaxWidth().offset(y = (-16).dp).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Pal.Bg).padding(16.dp, 18.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Сводка", style = MaterialTheme.typography.titleLarge)
@@ -316,7 +333,8 @@ private fun Summary(open: (String) -> Unit, tick: Int) {
                 Icon(Icons.Rounded.ChevronRight, "Записать вес", tint = Pal.SkyInk)
             }
         @Suppress("UNUSED_EXPRESSION") holTick
-        hol?.takeIf { !HolidayDone.isDone(ctx, today, it) }?.let { h ->
+        hol.filter { !HolidayDone.isDone(ctx, today, it.name) }.forEach { hd ->
+            val h = hd.name
             key("hol$h") {
                 com.pank.vsevodnom.ui.todo.Leaving(h, onLeft = { HolidayDone.mark(ctx, today, h); holTick++ }) { done, leave ->
                     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { com.pank.vsevodnom.ui.todo.TodoNav.target = "page:dates"; open("todo") }.padding(10.dp),
@@ -324,7 +342,7 @@ private fun Summary(open: (String) -> Unit, tick: Int) {
                         Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Pal.Peach), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Celebration, null, tint = Pal.PeachInk) }
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(h, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                            Text("государственный праздник", style = MaterialTheme.typography.bodySmall)
+                            Text(hd.kind, style = MaterialTheme.typography.bodySmall)
                         }
                         com.pank.vsevodnom.ui.todo.CheckDivider()
                         com.pank.vsevodnom.ui.todo.CheckCircle(done, com.pank.vsevodnom.ui.todo.CHECK_GREY, com.pank.vsevodnom.ui.todo.CHECK_SIZE) { leave() }
@@ -367,13 +385,16 @@ private fun Summary(open: (String) -> Unit, tick: Int) {
                 }
             }
         }
-        if (hol == null && bdays.isEmpty() && agendaLeft.isEmpty() && todayTasks.isEmpty() && leftHabits.isEmpty())
+        if (hol.isEmpty() && bdays.isEmpty() && agendaLeft.isEmpty() && todayTasks.isEmpty() && leftHabits.isEmpty())
             Text("На сегодня всё чисто. Добавь задачи в разделе ToDo.", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
         // в конце дня — «Мои успехи»
         Spacer(Modifier.height(4.dp))
+        StepsBar(steps) { open("health") }
         SuccessTile(tasks, logs, todayHabits.size) { review = true }
+        TomorrowButton { tomorrow = true }
     }
     if (review) DayReviewScreen { review = false }
+    if (tomorrow) TomorrowScreen(weather) { tomorrow = false }
     if (weightAsk) WeightDialog { weightAsk = false }
     eventOpen?.let { a ->
         when (a) {
@@ -438,8 +459,13 @@ private fun MoodCheckIn() {
 /** Государственный праздник отмечен «сделано» (галочка в сводке). */
 object HolidayDone {
     private fun p(ctx: Context) = ctx.getSharedPreferences("home", Context.MODE_PRIVATE)
-    fun isDone(ctx: Context, d: LocalDate, name: String) = p(ctx).getString("hol_done", "") == "${d.toEpochDay()}|$name"
-    fun mark(ctx: Context, d: LocalDate, name: String) = p(ctx).edit().putString("hol_done", "${d.toEpochDay()}|$name").apply()
+    private fun set(ctx: Context) = p(ctx).getStringSet("hol_done_set", emptySet())!!
+    fun isDone(ctx: Context, d: LocalDate, name: String) = "${d.toEpochDay()}|$name" in set(ctx)
+    fun mark(ctx: Context, d: LocalDate, name: String) {
+        // храним только последние две недели
+        val keep = set(ctx).filter { (it.substringBefore('|').toLongOrNull() ?: 0) > d.toEpochDay() - 14 }.toMutableSet()
+        keep += "${d.toEpochDay()}|$name"; p(ctx).edit().putStringSet("hol_done_set", keep).apply()
+    }
 }
 
 /** Ввод веса прямо со сводки. */
@@ -466,7 +492,8 @@ private fun WeightDialog(onDismiss: () -> Unit) {
 }
 
 /** Разделы, которые уже есть в нижнем баре или внутри ToDo, — в «Всех» не дублируем. */
-private val IN_BAR = setOf("todo", "money", "calendar", "weather", "map", "power", "alerts", "cart", "recorder", "passwords")
+/** Что не показывать во «Все»: есть в нижнем баре, в ToDo или в «Утилитах». */
+private val IN_BAR = setOf("todo", "money", "calendar", "weather", "map", "power", "alerts", "cart", "recorder", "passwords", "piggy", "cards", "pdf", "codes", "downloads")
 
 /** Все разделы плитками. */
 @Composable

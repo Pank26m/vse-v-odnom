@@ -157,14 +157,14 @@ fun TasksPage(onBack: () -> Unit) {
                         Leaving("l${l.id}", onLeft = { lessonDone = lessonDone + "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() }) { checked, leave ->
                             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card)
                                 .clickable { lessonInfo = com.pank.vsevodnom.data.schedule.Agenda.Pair(l, aliases.firstOrNull { it.abbr == l.subject }) }
-                                .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(aliases.firstOrNull { it.abbr == l.subject }?.fullName?.takeIf { it.isNotBlank() } ?: l.subject,
                                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold, textDecoration = if (done || checked) TextDecoration.LineThrough else null), maxLines = 2)
                                     Text("${dateLabel(l.epochDay)}, ${l.start}–${l.end}" + listOf(l.kind, l.room).filter { it.isNotBlank() }.joinToString(" · ", prefix = " · ") + " · #$KNUBA",
                                         style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
                                 }
-                                CheckDivider(height = 30.dp)
+                                CheckDivider()
                                 CheckCircle(done || checked, CHECK_GREY, CHECK_SIZE) {
                                     if (done) { lessonDone = lessonDone - "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() } else leave()
                                 }
@@ -218,7 +218,7 @@ private fun TaskRowBody(t: TaskItem, checked: Boolean, showMeta: Boolean, onClic
     val today = LocalDate.now().toEpochDay()
     val overdue = !t.done && (t.dueDay ?: Long.MAX_VALUE) < today
     val att = remember(t.attachments) { NoteAtt.of(t.attachments) }
-    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onClick).padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onClick).padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (t.priority > 0) Box(Modifier.padding(end = 10.dp).width(4.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(prioColor(t.priority)))
         Column(Modifier.weight(1f)) {
@@ -243,7 +243,7 @@ private fun TaskRowBody(t: TaskItem, checked: Boolean, showMeta: Boolean, onClic
                 }
             }
         }
-        CheckDivider(height = 30.dp)
+        CheckDivider()
         CheckCircle(checked, if (t.priority > 0) prioColor(t.priority) else CHECK_GREY, CHECK_SIZE, onCheck)
     }
 }

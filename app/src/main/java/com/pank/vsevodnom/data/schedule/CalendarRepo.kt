@@ -70,11 +70,14 @@ object CalendarRepo {
             CalendarContract.Instances.BEGIN, CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY, CalendarContract.Instances.DISPLAY_COLOR,
             CalendarContract.Instances.CALENDAR_DISPLAY_NAME, CalendarContract.Instances.EVENT_LOCATION,
+            CalendarContract.Instances.OWNER_ACCOUNT,
         )
         val out = ArrayList<Agenda.Sys>()
         runCatching {
             ctx.contentResolver.query(b.build(), proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
                 while (c.moveToNext()) {
+                    // праздники Google (на русском и украинском — дубли) не берём: у приложения свой список `Holidays`
+                    if (isHolidayCalendar(c.getString(8), c.getString(6))) continue
                     val allDay = c.getInt(4) == 1
                     val begin = c.getLong(2); val endMs = c.getLong(3)
                     // события на весь день хранятся в UTC
@@ -94,6 +97,9 @@ object CalendarRepo {
         }
         return out
     }
+
+    private val HOLIDAY_WORDS = Regex("holiday|праздник|свят", RegexOption.IGNORE_CASE)
+    fun isHolidayCalendar(owner: String?, name: String?) = owner.orEmpty().contains("#holiday@") || HOLIDAY_WORDS.containsMatchIn(name.orEmpty())
 
     /** Синхронно собирает повестку на период — для виджета. */
     fun agendaSync(ctx: Context, from: LocalDate, toInclusive: LocalDate): List<Agenda> {

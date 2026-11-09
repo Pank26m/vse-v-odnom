@@ -54,6 +54,8 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
         "dates" -> { BackHandler(onBack = close); DatesPage(close); return }
         "stats" -> { BackHandler(onBack = close); TodoStatsPage(close); return }
         "cart" -> { BackHandler(onBack = close); com.pank.vsevodnom.ui.life.CartScreen(close); return }
+        "cards" -> { BackHandler(onBack = close); com.pank.vsevodnom.ui.learn.CardsScreen(close); return }
+        "piggy" -> { BackHandler(onBack = close); com.pank.vsevodnom.ui.piggy.PiggyScreen(close); return }
         "recorder" -> { BackHandler(onBack = close); com.pank.vsevodnom.ui.recorder.RecorderScreen(close); return }
         "passwords" -> { BackHandler(onBack = close); com.pank.vsevodnom.ui.vault.PasswordsScreen(close); return }
     }
@@ -105,16 +107,10 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
     com.pank.vsevodnom.ui.calendar.CalendarScreen(
         onBack = onBack,
         title = "ToDo",
+        extraActions = { RoundIconButton(Icons.Rounded.Insights, "Статистика", { page = "stats" }) },
         header = {
             item(key = "tiles") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // «Статистика» — ровно по ширине плитки под ней
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Spacer(Modifier.weight(1f)); Spacer(Modifier.weight(1f))
-                        Row(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "stats" }.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                            Icon(Icons.Rounded.Insights, null, tint = ACCENT, modifier = Modifier.size(20.dp)); Text(" Статистика", style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                        }
-                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HubTile("Задачи", Icons.Rounded.TaskAlt, Tints.Sky, "$todayT на сегодня", if (overdue > 0) "$overdue просрочено" else "${open.size} открыто", overdue > 0, Modifier.weight(1f)) { page = "tasks" }
                         HubTile("Привычки", Icons.Rounded.Loop, Tints.Mint, if (dueH.isEmpty()) "сегодня нет" else "${dueH.size - undoneH.size} из ${dueH.size}", "${habits.size} всего", false, Modifier.weight(1f)) { page = "habits" }
@@ -126,8 +122,7 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
                         HubTile("Даты", Icons.Rounded.Cake, Tints.Rose, soonDates.firstOrNull()?.name ?: "${dates.size}", soonDates.firstOrNull()?.let { "через ${Duration.between(today.atStartOfDay(), nextOccurrence(it).atStartOfDay()).toDays()} дн." } ?: "дни рождения", false, Modifier.weight(1f)) { page = "dates" }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        val want = cart.filter { !it.bought }
-                        HubTile("Корзина", Icons.Rounded.ShoppingBag, Tints.Peach, if (want.isEmpty()) "пусто" else "хочу ${want.size}", want.mapNotNull { it.planDay }.minOrNull()?.let { "купить ${dateLabel(it)}" } ?: "вишлист", false, Modifier.weight(1f)) { page = "cart" }
+                        HubTile("Карточки", Icons.Rounded.Style, Tints.Mint, "колоды", "повторение слов", false, Modifier.weight(1f)) { page = "cards" }
                         HubTile("Диктофон", Icons.Rounded.Mic, Tints.Rose, "записи", "голосовые заметки", false, Modifier.weight(1f)) { page = "recorder" }
                         HubTile("Пароли", Icons.Rounded.Lock, Tints.Lilac, "хранилище", "по отпечатку", false, Modifier.weight(1f)) { page = "passwords" }
                     }
@@ -154,13 +149,13 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
                 Labeled("Дата", Tints.Rose) { BirthdayRow(b, d, onOpen = { bday = b }) { doneTick++ } }
             }
             items(cart.filter { !it.bought && (it.planDay == k || (d == today && (it.planDay ?: Long.MAX_VALUE) < k)) }, key = { "c$k-${it.id}" }) { c ->
-                Labeled("Корзина", Tints.Peach) {
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "cart" }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CheckCircle(false, CHECK_GREY, CHECK_SIZE) { AppScope.io.launch { AppDb.get(ctx).life().upsertCart(c.copy(bought = true, boughtAt = System.currentTimeMillis())) } }
-                        CheckDivider()
+                Labeled("Покупки", Tints.Peach) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { page = "shop" }.padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (c.priority > 0) Box(Modifier.padding(end = 6.dp).size(9.dp).clip(androidx.compose.foundation.shape.CircleShape).background(prioColor(c.priority)))
                         Text("Купить: ${c.title}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1)
                         c.price?.let { Text("%.0f ₴".format(it), style = MaterialTheme.typography.labelLarge) }
+                        CheckDivider()
+                        CheckCircle(false, CHECK_GREY, CHECK_SIZE) { AppScope.io.launch { AppDb.get(ctx).life().upsertCart(c.copy(bought = true, boughtAt = System.currentTimeMillis())) } }
                     }
                 }
             }

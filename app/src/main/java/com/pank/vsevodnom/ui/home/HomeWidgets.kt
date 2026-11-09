@@ -69,18 +69,82 @@ internal fun LifeBadge(score: Double?, onClick: () -> Unit, size: Dp = 40.dp) {
     }
 }
 
-/** Шаги за сегодня — овал «6,2 тыс шагов». */
-@Composable
-internal fun StepsPill(steps: Long?, goal: Long, onClick: () -> Unit) {
-    if (steps == null) return
-    val k = steps / 1000.0
-    val reached = steps >= goal
-    Row(Modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(if (reached) Color(0xFF2DB37A) else Color.White.copy(alpha = 0.65f)).clickable(onClick = onClick).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, null, tint = if (reached) Color.White else HeaderInk, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(4.dp))
-        Text((if (k >= 10) "%.0f" else "%.1f").format(k).replace('.', ',') + " тыс", style = MaterialTheme.typography.titleSmall, color = if (reached) Color.White else HeaderInk)
+/**
+ * Цель шагов: считается по росту, весу, возрасту и полу (профиль + последнее взвешивание) или задаётся вручную.
+ * Чем выше индекс массы тела, тем мягче цель (суставы), по мере похудения она растёт к 10 000.
+ */
+object StepGoal {
+    /** Ручная цель или null — тогда автоматическая. */
+    fun manual(ctx: android.content.Context): Long? =
+        Profile.get(ctx, "goal_steps_manual").toLongOrNull()
+            ?: Profile.get(ctx, "goal_steps").toLongOrNull()?.takeIf { it != 8000L }   // старая настройка (0.28)
+    fun setManual(ctx: android.content.Context, v: Long?) { Profile.set(ctx, "goal_steps_manual", v?.toString() ?: ""); Profile.set(ctx, "goal_steps", "") }
+
+    fun auto(ctx: android.content.Context, kg: Double?): Long {
+        val h = Profile.get(ctx, "height").replace(',', '.').toDoubleOrNull()?.takeIf { it in 100.0..250.0 }
+        var goal = 8000.0
+        if (h != null && kg != null) {
+            val bmi = kg / ((h / 100) * (h / 100))
+            goal = 10000 - ((bmi - 25) / 10).coerceIn(0.0, 1.0) * 4000          // ИМТ 25 → 10 000, 35+ → 6 000
+        }
+        val age = Profile.get(ctx, "birthday").let { b -> Regex("(\\d{4})").find(b)?.value?.toIntOrNull() }?.let { java.time.LocalDate.now().year - it }
+        if (age != null) goal -= when { age >= 70 -> 2500; age >= 60 -> 1500; age >= 50 -> 500; else -> 0 }
+        if (Profile.get(ctx, "sex") == "женский") goal -= 500
+        return (Math.round(goal / 500) * 500).coerceIn(4000, 12000)
     }
+    fun value(ctx: android.content.Context, kg: Double?) = manual(ctx) ?: auto(ctx, kg)
+}
+
+/** Последний вес из базы (для цели шагов). */
+@Composable
+internal fun rememberLastKg(): Double? {
+    val ctx = LocalContext.current
+    val ws by remember { com.pank.vsevodnom.data.AppDb.get(ctx).weight().all() }.collectAsState(initial = emptyList())
+    return ws.lastOrNull()?.kg
+}
+
+/** Окно цели шагов: автоматическая с пояснением, ручной ввод, сброс к автоматической. */
+@Composable
+internal fun StepGoalDialog(kg: Double?, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val auto = StepGoal.auto(ctx, kg)
+    var v by remember { mutableStateOf(StepGoal.manual(ctx)?.toString() ?: "") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Цель шагов") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Автоматически: ${fmtSteps(auto)} — по росту, весу, возрасту и полу из профиля. Чем ближе вес к норме, тем выше цель (до 10 000).", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                OutlinedTextField(v, { v = it.filter { c -> c.isDigit() }.take(5) }, label = { Text("Своя цель (пусто — автоматическая)") }, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+            }
+        },
+        confirmButton = { TextButton({ StepGoal.setManual(ctx, v.toLongOrNull()?.takeIf { it in 1000..50000 }); onDismiss() }) { Text("Сохранить") } },
+        dismissButton = { TextButton({ StepGoal.setManual(ctx, null); onDismiss() }) { Text("Автоматически") } })
+}
+
+internal fun fmtSteps(n: Long) = "%,d".format(n).replace(',', ' ')
+
+/** Итог дня по шагам: человечек · полоса до края · цель справа. Нажатие — цель шагов. */
+@Composable
+internal fun StepsBar(steps: Long?, onOpen: () -> Unit) {
+    val ctx = LocalContext.current
+    val kg = rememberLastKg()
+    var edit by remember { mutableStateOf(false) }
+    var tick by remember { mutableIntStateOf(0) }
+    val goal = remember(kg, tick) { StepGoal.value(ctx, kg) }
+    val s = steps ?: 0L
+    val done = s >= goal
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onOpen).padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, null, tint = if (done) Color(0xFF2DB37A) else Pal.Muted, modifier = Modifier.size(16.dp))
+        Text(" " + (steps?.let { fmtSteps(it) } ?: "—"), style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+        Box(Modifier.padding(horizontal = 8.dp).size(4.dp).clip(CircleShape).background(Pal.Muted.copy(alpha = 0.5f)))
+        Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Pal.Line)) {
+            Box(Modifier.fillMaxWidth((s.toFloat() / goal).coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(Color(0xFF2DB37A)))
+        }
+        Text("  " + fmtSteps(goal), style = MaterialTheme.typography.labelMedium, color = if (done) Color(0xFF2DB37A) else Pal.Ink, fontWeight = FontWeight.SemiBold)
+        IconButton({ edit = true }, Modifier.size(32.dp)) { Icon(Icons.Rounded.Edit, "Цель шагов", tint = Pal.Muted, modifier = Modifier.size(16.dp)) }
+    }
+    if (edit) StepGoalDialog(kg) { edit = false; tick++ }
 }
 
 /** Подробности оценки образа жизни: по сторонам жизни, что хорошо и что подтянуть. */

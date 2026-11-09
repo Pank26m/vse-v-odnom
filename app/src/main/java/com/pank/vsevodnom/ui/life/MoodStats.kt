@@ -128,6 +128,30 @@ fun MoodStats(moods: List<MoodEntry>) {
                 style = MaterialTheme.typography.bodySmall, color = Pal.Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             MoodMath.score(cur)?.let { Text("Средний уровень за месяц: $it из 100", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp)) }
         }
+        // дневник: по дням — настроение в течение дня, оценка дня звёздами и комментарий
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        val days = (1..ym.lengthOfMonth()).map { ym.atDay(it) }.filter { !it.isAfter(LocalDate.now()) }.reversed()
+            .mapNotNull { d ->
+                val ms = cur.filter { MoodMath.day(it) == d }.sortedBy { it.at }
+                val st = com.pank.vsevodnom.ui.home.DayRating.get(ctx, d.toEpochDay()); val nt = com.pank.vsevodnom.ui.home.DayRating.note(ctx, d.toEpochDay())
+                if (ms.isEmpty() && st == 0 && nt.isBlank()) null else Triple(d, ms, st to nt)
+            }
+        if (days.isNotEmpty()) AppCard(Modifier.fillMaxWidth()) {
+            Text("По дням", style = MaterialTheme.typography.titleMedium)
+            Text("Настроение в течение дня, оценка дня и комментарий", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+            days.forEach { (d, ms, sn) ->
+                Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(d.format(DateTimeFormatter.ofPattern("EE, d MMM", RU)), style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(92.dp))
+                        ms.forEach { m -> Canvas(Modifier.padding(end = 4.dp).size(22.dp)) { moodFace(m.level, MOOD_COLORS[(m.level - 1).coerceIn(0, 4)]) } }
+                        Spacer(Modifier.weight(1f))
+                        if (sn.first > 0) Text("★".repeat(sn.first), color = Color(0xFFF2B33A), style = MaterialTheme.typography.labelLarge)
+                    }
+                    if (sn.first > 0) Text(com.pank.vsevodnom.ui.home.DayRating.LABELS[sn.first - 1], style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                    if (sn.second.isNotBlank()) Text(sn.second, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
     }
 }
 

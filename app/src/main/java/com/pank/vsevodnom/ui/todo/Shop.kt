@@ -57,11 +57,25 @@ fun ShopListsPage(onBack: () -> Unit) {
     var market by remember { mutableStateOf<String?>(null) }
     var addMenu by remember { mutableStateOf(false) }
     var newMarket by remember { mutableStateOf<String?>(null) }
+    var piggy by remember { mutableStateOf(false) }
+    if (piggy) { BackHandler { piggy = false }; com.pank.vsevodnom.ui.piggy.PiggyScreen { piggy = false }; return }
     open?.let { p -> BackHandler { open = null }; ShopPage(lists.firstOrNull { it.id == p.id } ?: p) { open = null }; return }
     market?.let { m -> BackHandler { market = null }; MarketPage(m, markets) { market = null }; return }
     Box(Modifier.fillMaxSize()) {
         ScreenScaffold("Покупки", onBack) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // копилки — коплю на покупку
+                item {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pal.Mint).clickable { piggy = true }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Savings, null, tint = Pal.MintInk) }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Копилка", style = MaterialTheme.typography.titleMedium, color = Pal.MintInk)
+                            Text("откладываю на покупки", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = Pal.MintInk)
+                    }
+                }
                 if (lists.isEmpty() && markets.isEmpty()) item { EmptyHint("Пусто. «+» — список покупок («Сходи в магазин») или корзина маркетплейса («Алик»).") }
                 if (lists.isNotEmpty()) item { SectionLabel("Списки покупок") }
                 items(lists, key = { it.id }) { p ->
@@ -195,7 +209,7 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                             else if (dragY < -rowPx / 2 && dragIdx > 0) { order.add(dragIdx - 1, order.removeAt(dragIdx)); dragIdx--; dragY += rowPx }
                         }
                     }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.DragIndicator, "Перетащить", tint = Pal.Muted) }
-                    CheckDivider(height = 30.dp)
+                    CheckDivider()
                     CheckCircle(e.done, CHECK_GREY, CHECK_SIZE) { AppScope.io.launch { dao.upsertEntry(e.copy(done = !e.done)) } }
                 }
               }

@@ -163,7 +163,9 @@ fun HabitRow(h: Habit, logs: List<HabitLog>, day: LocalDate, compact: Boolean = 
 @Composable
 fun HabitEditor(h0: Habit, onDone: () -> Unit) {
     val ctx = LocalContext.current
-    var h by remember { mutableStateOf(h0.copy(freqType = 0)) }
+    // частота без привязки к дням недели: 2, 3, 5, 6 раз в неделю или каждый день
+    var h by remember { mutableStateOf(Todo.timesPerWeek(h0).let { n0 -> listOf(2, 3, 5, 6, 7).minBy { kotlin.math.abs(it - n0) } }.let { n ->
+        if (n >= 7) h0.copy(freqType = 0, daysMask = 0b1111111, freqN = 7) else h0.copy(freqType = 1, freqN = n, daysMask = 0b1111111) }) }
     var pick by remember { mutableStateOf<String?>(null) }
     var emojiOpen by remember { mutableStateOf(h0.id == 0L) }
     val reminders = remember { mutableStateListOf<Int>().apply { addAll(HabitReminders.times(h0)) } }
@@ -197,17 +199,11 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
                         }
                     }
                 }
-                FormCard("Дни") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        DOW.forEachIndexed { i, d ->
-                            val on = h.daysMask and (1 shl i) != 0
-                            Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(if (on) t.ink else Pal.Ink.copy(alpha = 0.06f))
-                                .clickable { h = h.copy(daysMask = (h.daysMask xor (1 shl i)).let { if (it == 0) h.daysMask else it }) }, contentAlignment = Alignment.Center) {
-                                Text(d, color = if (on) Color.White else Pal.Ink, style = MaterialTheme.typography.labelLarge)
-                            }
-                        }
+                FormCard("Как часто") {
+                    ChoiceGrid(listOf(2 to "2 раза в неделю", 3 to "3 раза в неделю", 5 to "5 раз в неделю", 6 to "6 раз в неделю", 7 to "Каждый день"), { it == Todo.timesPerWeek(h) }, 2) { n ->
+                        h = if (n >= 7) h.copy(freqType = 0, daysMask = 0b1111111, freqN = 7) else h.copy(freqType = 1, freqN = n, daysMask = 0b1111111)
                     }
-                    ChoiceGrid(listOf(0b1111111 to "Каждый день", 0b0011111 to "Будни", 0b1100000 to "Выходные"), { it == h.daysMask }, 3) { h = h.copy(daysMask = it) }
+                    Text("В какие дни — неважно: привычка висит в сводке, пока недельная норма не набрана.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                 }
                 FormCard("Дата старта") {
                     val start = LocalDate.ofEpochDay(h.startDay ?: LocalDate.now().toEpochDay())
@@ -289,7 +285,7 @@ internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onD
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(h.title, style = MaterialTheme.typography.titleLarge)
-                            Text(when (h.daysMask) { 0b1111111 -> "каждый день"; 0b0011111 -> "по будням"; 0b1100000 -> "по выходным"; else -> DOW.filterIndexed { i, _ -> h.daysMask and (1 shl i) != 0 }.joinToString(", ") } +
+                            Text(Todo.freqLabel(h) +
                                 (h.goalDays?.let { " · цель $it дней" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = t.ink)
                         }
                     }

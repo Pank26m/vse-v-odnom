@@ -109,7 +109,10 @@ fun DatesPage(onBack: () -> Unit) {
             DSort.MONTH -> l.sortedWith(compareBy({ it.month }, { it.day }))
         }
     }
-    val holidays = (Holidays.all(today.year) + Holidays.all(today.year + 1)).filterKeys { !it.isBefore(today) && it.isBefore(today.plusMonths(6)) }.toSortedMap()
+    var holHidden by remember { mutableStateOf(Holidays.hidden(ctx)) }
+    var showHidden by remember { mutableStateOf(false) }
+    val holidaysAll = Holidays.between(today, today.plusYears(1))
+    val holidays = holidaysAll.filter { it.name !in holHidden }
     Box(Modifier.fillMaxSize()) {
         ScreenScaffold("Даты", onBack, actions = {
             RoundIconButton(Icons.Rounded.Casino, "Идея подарка", { giftAny = true }, bg = Pal.Butter, tint = Pal.ButterInk)
@@ -163,14 +166,29 @@ fun DatesPage(onBack: () -> Unit) {
                 }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
-                        Text("Государственные и церковные праздники", style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.weight(1f))
+                        Text("Праздники Украины · скрыть ненужные — значок справа", style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.weight(1f))
                         Switch(showPublic, { showPublic = it; prefs.edit().putBoolean("public", it).apply() })
                     }
                 }
-                if (showPublic) items(holidays.entries.toList()) { (d, name) ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Card.copy(alpha = 0.6f)).padding(12.dp, 10.dp)) {
-                        Text(d.format(DateTimeFormatter.ofPattern("d MMM", RU)), style = MaterialTheme.typography.titleSmall, modifier = Modifier.width(72.dp))
-                        Text(name, style = MaterialTheme.typography.bodyMedium)
+                if (showPublic) {
+                    items(holidays, key = { "hol${it.date}${it.name}" }) { h ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Card.copy(alpha = 0.6f)).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(h.date.format(DateTimeFormatter.ofPattern("d MMM", RU)), style = MaterialTheme.typography.titleSmall, modifier = Modifier.width(72.dp))
+                            Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                                Text(h.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(h.kind, style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                            }
+                            IconButton({ Holidays.setHidden(ctx, h.name, true); holHidden = Holidays.hidden(ctx) }) { Icon(Icons.Rounded.VisibilityOff, "Скрыть праздник", tint = Pal.Muted) }
+                        }
+                    }
+                    if (holHidden.isNotEmpty()) item {
+                        TextButton({ showHidden = !showHidden }) { Text(if (showHidden) "Свернуть скрытые" else "Скрытые праздники · ${holHidden.size}") }
+                    }
+                    if (showHidden) items(holHidden.sorted(), key = { "hid$it" }) { name ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Card.copy(alpha = 0.35f)).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, modifier = Modifier.weight(1f))
+                            TextButton({ Holidays.setHidden(ctx, name, false); holHidden = Holidays.hidden(ctx) }) { Text("Вернуть") }
+                        }
                     }
                 }
             }

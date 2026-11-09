@@ -151,34 +151,100 @@ class PowerReminderReceiver : BroadcastReceiver() {
 }
 
 /** Праздники и памятные дни Украины (во время военного положения выходных нет). */
+/** Праздник: название (по-украински), вид (державне / пам'ятне / церковне / міжнародне / народне) и дата в году. */
+data class Holiday(val date: LocalDate, val name: String, val kind: String)
+
+/**
+ * Свята України — свой список (без календарей Google: оттуда приходили дубли на русском и украинском).
+ * Церковные — по новоюлианскому календарю ПЦУ (с 2023), Великдень — по юлианской пасхалии.
+ * Владелец может скрыть любой праздник (prefs holidays/hidden — по названию).
+ */
 object Holidays {
+    const val STATE = "державне свято"; const val MEMO = "пам'ятна дата"; const val CHURCH = "церковне свято"
+    const val INTL = "міжнародний день"; const val FOLK = "народне свято"; const val PROF = "професійне свято"
+
     private fun orthodoxEaster(y: Int): LocalDate {
         val a = y % 4; val b = y % 7; val c = y % 19
         val d = (19 * c + 15) % 30; val e = (2 * a + 4 * b - d + 34) % 7
         val month = (d + e + 114) / 31; val day = (d + e + 114) % 31 + 1
         return LocalDate.of(y, month, day).plusDays(13) // юлианская дата → григорианская
     }
+    private fun nth(y: Int, m: Int, n: Int, dow: java.time.DayOfWeek) = LocalDate.of(y, m, 1).with(java.time.temporal.TemporalAdjusters.dayOfWeekInMonth(n, dow))
+    private fun last(y: Int, m: Int, dow: java.time.DayOfWeek) = LocalDate.of(y, m, 1).with(java.time.temporal.TemporalAdjusters.lastInMonth(dow))
 
-    fun all(year: Int): Map<LocalDate, String> {
-        val easter = orthodoxEaster(year)
-        val mothers = LocalDate.of(year, 5, 1).with(java.time.temporal.TemporalAdjusters.dayOfWeekInMonth(2, java.time.DayOfWeek.SUNDAY))
-        return mapOf(
-            LocalDate.of(year, 1, 1) to "Новый год",
-            LocalDate.of(year, 2, 14) to "День святого Валентина",
-            LocalDate.of(year, 3, 8) to "Международный женский день",
-            easter to "Пасха",
-            easter.plusDays(49) to "Троица",
-            mothers to "День матери",
-            LocalDate.of(year, 5, 8) to "День памяти и победы над нацизмом",
-            LocalDate.of(year, 6, 28) to "День Конституции Украины",
-            LocalDate.of(year, 7, 15) to "День украинской государственности",
-            LocalDate.of(year, 8, 24) to "День Независимости Украины",
-            LocalDate.of(year, 10, 1) to "День защитников и защитниц Украины",
-            LocalDate.of(year, 12, 6) to "День Вооружённых сил Украины",
-            LocalDate.of(year, 12, 25) to "Рождество",
-            LocalDate.of(year, 12, 31) to "Канун Нового года",
-        )
+    fun list(year: Int): List<Holiday> {
+        val y = year; val easter = orthodoxEaster(y)
+        val sun = java.time.DayOfWeek.SUNDAY; val sat = java.time.DayOfWeek.SATURDAY; val thu = java.time.DayOfWeek.THURSDAY
+        fun d(m: Int, day: Int) = LocalDate.of(y, m, day)
+        return listOf(
+            Holiday(d(1, 1), "Новий рік", STATE),
+            Holiday(d(1, 6), "Богоявлення (Водохреще)", CHURCH),
+            Holiday(d(1, 22), "День Соборності України", MEMO),
+            Holiday(d(1, 29), "День пам'яті Героїв Крут", MEMO),
+            Holiday(d(2, 14), "День святого Валентина", INTL),
+            Holiday(d(2, 20), "День Героїв Небесної Сотні", MEMO),
+            Holiday(d(2, 21), "Міжнародний день рідної мови", INTL),
+            Holiday(d(2, 24), "Роковини повномасштабного вторгнення", MEMO),
+            Holiday(d(2, 26), "День спротиву окупації Криму", MEMO),
+            Holiday(d(3, 8), "Міжнародний жіночий день", INTL),
+            Holiday(d(3, 9), "День народження Тараса Шевченка", MEMO),
+            Holiday(d(3, 14), "День українського добровольця", MEMO),
+            Holiday(d(4, 1), "День сміху", FOLK),
+            Holiday(d(4, 12), "День космонавтики", INTL),
+            Holiday(d(4, 22), "День Землі", INTL),
+            Holiday(d(4, 26), "День Чорнобильської трагедії", MEMO),
+            Holiday(easter.minusDays(7), "Вербна неділя", CHURCH),
+            Holiday(easter, "Великдень", CHURCH),
+            Holiday(easter.plusDays(49), "Трійця", CHURCH),
+            Holiday(d(5, 1), "День праці", STATE),
+            Holiday(d(5, 8), "День пам'яті та перемоги над нацизмом", STATE),
+            Holiday(d(5, 9), "День Європи", MEMO),
+            Holiday(nth(y, 5, 2, sun), "День матері", FOLK),
+            Holiday(nth(y, 5, 3, thu), "День вишиванки", FOLK),
+            Holiday(nth(y, 5, 3, sun), "День пам'яті жертв політичних репресій", MEMO),
+            Holiday(d(5, 18), "День боротьби за права кримськотатарського народу", MEMO),
+            Holiday(last(y, 5, sun), "День Києва", FOLK),
+            Holiday(d(6, 1), "Міжнародний день захисту дітей", INTL),
+            Holiday(nth(y, 6, 3, sun), "День батька", FOLK),
+            Holiday(d(6, 24), "Івана Купала", FOLK),
+            Holiday(d(6, 28), "День Конституції України", STATE),
+            Holiday(d(7, 15), "День Української Державності", STATE),
+            Holiday(d(8, 1), "Медовий Спас", CHURCH),
+            Holiday(d(8, 6), "Яблучний Спас (Преображення Господнє)", CHURCH),
+            Holiday(d(8, 12), "День молоді", INTL),
+            Holiday(d(8, 23), "День Державного Прапора України", MEMO),
+            Holiday(d(8, 24), "День Незалежності України", STATE),
+            Holiday(d(8, 29), "День пам'яті захисників України", MEMO),
+            Holiday(d(9, 1), "День знань", FOLK),
+            Holiday(LocalDate.ofYearDay(y, 256), "День програміста", PROF),
+            Holiday(d(9, 27), "Всесвітній день туризму", INTL),
+            Holiday(d(10, 1), "День захисників і захисниць України, Покрова", STATE),
+            Holiday(nth(y, 10, 1, sun), "День працівників освіти", PROF),
+            Holiday(d(10, 31), "Гелловін", INTL),
+            Holiday(d(11, 9), "День української писемності та мови", MEMO),
+            Holiday(d(11, 17), "Міжнародний день студента", INTL),
+            Holiday(d(11, 21), "День Гідності та Свободи", MEMO),
+            Holiday(nth(y, 11, 4, sat), "День пам'яті жертв голодоморів", MEMO),
+            Holiday(d(12, 6), "День Збройних Сил України", MEMO),
+            Holiday(d(12, 6), "День святого Миколая", CHURCH),
+            Holiday(d(12, 24), "Святвечір", CHURCH),
+            Holiday(d(12, 25), "Різдво Христове", STATE),
+            Holiday(d(12, 31), "Переддень Нового року", FOLK),
+        ).sortedBy { it.date }
     }
 
-    fun on(d: LocalDate): String? = all(d.year)[d]
+    private fun p(ctx: android.content.Context) = ctx.getSharedPreferences("holidays", android.content.Context.MODE_PRIVATE)
+    fun hidden(ctx: android.content.Context): Set<String> = p(ctx).getStringSet("hidden", emptySet())!!
+    fun setHidden(ctx: android.content.Context, name: String, hide: Boolean) {
+        val s = hidden(ctx).toMutableSet(); if (hide) s += name else s -= name
+        p(ctx).edit().putStringSet("hidden", s).apply()
+    }
+
+    /** Все праздники дня (без скрытых, если передан ctx). */
+    fun on(d: LocalDate, ctx: android.content.Context? = null): List<Holiday> {
+        val h = ctx?.let { hidden(it) } ?: emptySet()
+        return list(d.year).filter { it.date == d && it.name !in h }
+    }
+    /** Праздники на отрезке [from, to). */
+    fun between(from: LocalDate, to: LocalDate): List<Holiday> = (from.year..to.year).flatMap { list(it) }.filter { !it.date.isBefore(from) && it.date.isBefore(to) }
 }

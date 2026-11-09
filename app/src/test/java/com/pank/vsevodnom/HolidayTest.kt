@@ -9,9 +9,12 @@ import kotlin.test.assertTrue
 
 class HolidayTest {
     @Test fun easter() {
-        assertEquals("Пасха", Holidays.on(LocalDate.of(2025, 4, 20)))
-        assertEquals("Пасха", Holidays.on(LocalDate.of(2026, 4, 12)))
-        assertEquals("Пасха", Holidays.on(LocalDate.of(2024, 5, 5)))
+        assertTrue(Holidays.on(LocalDate.of(2025, 4, 20)).any { it.name == "Великдень" })
+        assertTrue(Holidays.on(LocalDate.of(2026, 4, 12)).any { it.name == "Великдень" })
+        assertTrue(Holidays.on(LocalDate.of(2024, 5, 5)).any { it.name == "Великдень" })
+        assertEquals("День матері", Holidays.on(LocalDate.of(2026, 5, 10)).single().name)
+        assertEquals(2, Holidays.on(LocalDate.of(2026, 12, 6)).size)
+        assertEquals("День програміста", Holidays.on(LocalDate.of(2026, 9, 13)).single().name)
     }
     @Test fun yasno() {
         val json = """{"3.1":{"today":{"slots":[{"start":0,"end":240,"type":"NotPlanned"},{"start":480,"end":720,"type":"Definite"}],"status":"ScheduleApplies"},"tomorrow":{"slots":[{"start":1200,"end":1440,"type":"Definite"}],"status":"EmergencyShutdowns"}}}"""

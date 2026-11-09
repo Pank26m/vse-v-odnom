@@ -62,9 +62,26 @@ object Todo {
         dao.upsertHabitLog(HabitLog(id = cur?.id ?: 0, habitId = h.id, epochDay = day.toEpochDay(), count = n))
     }
 
+    /** Сколько раз в неделю (с 0.29 привычки без привязки к дням: 2, 3, 5, 6 раз или каждый день). */
+    fun timesPerWeek(h: Habit): Int = when (h.freqType) { 1 -> h.freqN.coerceIn(1, 7); 0 -> Integer.bitCount(h.daysMask and 0b1111111).coerceAtLeast(1); else -> 7 }
+    fun freqLabel(h: Habit): String = timesPerWeek(h).let { n -> if (n >= 7) "каждый день" else "$n раза в неделю".replace("5 раза", "5 раз").replace("6 раза", "6 раз").replace("1 раза", "1 раз") }
+
     /** Серия: сколько запланированных дней подряд привычка выполнена (до вчера включительно + сегодня, если уже). */
     fun streak(h: Habit, logs: List<HabitLog>, today: LocalDate): Int {
         val done = logs.filter { it.habitId == h.id && it.count >= h.perDay }.map { it.epochDay }.toSet()
+        if (h.freqType == 1) {
+            // N раз в неделю: серия — выполненные дни в неделях подряд, где норма набрана (текущая неделя не рвёт серию)
+            val n0 = h.freqN.coerceIn(1, 7)
+            var mon = today.minusDays((today.dayOfWeek.value - 1).toLong())
+            var total = (0..6).count { mon.plusDays(it.toLong()).toEpochDay() in done }
+            repeat(60) {
+                mon = mon.minusWeeks(1)
+                val c = (0..6).count { mon.plusDays(it.toLong()).toEpochDay() in done }
+                if (c < n0) return total
+                total += c
+            }
+            return total
+        }
         var d = if (today.toEpochDay() in done) today else today.minusDays(1)
         var n = 0
         repeat(400) {

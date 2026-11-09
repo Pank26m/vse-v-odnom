@@ -31,6 +31,9 @@ private val UTILS = listOf(
     Util("repair", "Тесты телефона", "Экран, тач, динамики, микрофон, камеры, кнопки, датчики — с отчётом", Icons.Rounded.Build, Tints.Peach),
     Util("wifi", "Wi-Fi сканер", "Сети вокруг, сигнал, каналы, защита", Icons.Rounded.Wifi, Tints.Sky),
     Util("files", "Вспомогательные файлы", "Всё, с чем работает приложение: расписание, импорты, вложения задач и заметок, записи", Icons.Rounded.FolderOpen, Tints.Lilac),
+    Util("pdf", "PDF", "Просмотр, правка страниц, рисунок поверх, конвертация", Icons.Rounded.PictureAsPdf, Tints.Rose),
+    Util("codes", "Коды", "Сканер QR и штрихкодов, создание и печать", Icons.Rounded.QrCode2, Tints.Sky),
+    Util("downloads", "Загрузки", "Видео и музыка по ссылке (YouTube, Instagram, TikTok…)", Icons.Rounded.Download, Tints.Peach),
     Util("archive", "Архивы", "Открыть и распаковать zip, rar, tar, gz; создать zip", Icons.Rounded.FolderZip, Tints.Butter),
 )
 
@@ -46,6 +49,9 @@ fun UtilsScreen(onBack: () -> Unit) {
         "wifi" -> WifiScreen(close)
         "archive" -> com.pank.vsevodnom.ui.files.ArchiveScreen(close)
         "files" -> com.pank.vsevodnom.ui.files.FilesScreen(close)
+        "pdf" -> com.pank.vsevodnom.ui.files.PdfScreen(close)
+        "codes" -> com.pank.vsevodnom.ui.codes.CodesScreen(close)
+        "downloads" -> com.pank.vsevodnom.ui.downloads.DownloadsScreen(close)
         else -> ScreenScaffold("Утилиты", onBack) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(UTILS) { u ->

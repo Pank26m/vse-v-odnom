@@ -51,7 +51,7 @@ object Profile {
         Section("health", "Здоровье", Icons.Rounded.Favorite, listOf(
             Field("height", "Рост, см", true), Field("blood", "Группа крови", choices = listOf("O(I) Rh+", "O(I) Rh−", "A(II) Rh+", "A(II) Rh−", "B(III) Rh+", "B(III) Rh−", "AB(IV) Rh+", "AB(IV) Rh−")),
             Field("allergy", "Аллергии"), Field("chronic", "Хронические болезни"), Field("meds", "Постоянные лекарства"),
-            Field("emergency", "Экстренный контакт (имя, телефон)"), Field("goal_weight", "Цель по весу, кг", true), Field("goal_steps", "Цель шагов в день", true, "8000"),
+            Field("emergency", "Экстренный контакт (имя, телефон)"), Field("goal_weight", "Цель по весу, кг", true),
         )),
         Section("bike", "Мой велосипед", Icons.AutoMirrored.Rounded.DirectionsBike, listOf(
             Field("bike_type", "Тип", choices = listOf("шоссейный", "гравийный", "горный (MTB)", "городской", "туристический", "BMX", "складной", "электро")),
@@ -111,24 +111,33 @@ private fun ProfilePage(s: Profile.Section, onBack: () -> Unit) {
     val vals = remember(s.id) { mutableStateMapOf<String, String>().apply { s.fields.forEach { put(it.key, Profile.get(ctx, it.key, it.def)) } } }
     val db = remember { AppDb.get(ctx) }
     val weights by db.weight().all().collectAsState(initial = emptyList())
-    var newWeight by remember { mutableStateOf("") }
     FullScreen(s.title, onBack) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 40.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (s.id == "health") AppCard(Modifier.fillMaxWidth()) {
-                Text("Вес: " + (weights.lastOrNull()?.let { "${com.pank.vsevodnom.ui.weight.fmtKg(it.kg)} кг (${java.time.LocalDate.ofEpochDay(it.epochDay).format(java.time.format.DateTimeFormatter.ofPattern("dd.MM"))})" } ?: "не записан"),
+                // взвешивания — по понедельникам, из сводки; здесь только последнее
+                Text("Последнее взвешивание: " + (weights.lastOrNull()?.let { "${com.pank.vsevodnom.ui.weight.fmtKg(it.kg)} кг, " +
+                    java.time.LocalDate.ofEpochDay(it.epochDay).format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM", java.util.Locale.forLanguageTag("ru"))) } ?: "ещё не было"),
                     style = MaterialTheme.typography.titleMedium)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppTextField(newWeight, { newWeight = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, "Вес сегодня, кг", modifier = Modifier.weight(1f),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    PillButton("Записать", {
-                        newWeight.replace(',', '.').toDoubleOrNull()?.takeIf { it in 20.0..400.0 }?.let { kg ->
-                            AppScope.io.launch { db.weight().upsert((db.weight().byDay(java.time.LocalDate.now().toEpochDay()) ?: WeightEntry(epochDay = java.time.LocalDate.now().toEpochDay(), kg = kg)).copy(kg = kg)) }
-                            newWeight = ""; Toast.makeText(ctx, "Записано", Toast.LENGTH_SHORT).show()
-                        }
-                    })
-                }
+                Text("Взвешивание по понедельникам — напоминание приходит в сводку.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                 val h = vals["height"]?.toDoubleOrNull(); val w = weights.lastOrNull()?.kg
                 if (h != null && h > 50 && w != null) Text("Индекс массы тела: %.1f".format(w / ((h / 100) * (h / 100))), style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+            }
+            if (s.id == "health") {
+                var goalEdit by remember { mutableStateOf(false) }
+                var gTick by remember { mutableIntStateOf(0) }
+                val kg = weights.lastOrNull()?.kg
+                val manual = remember(gTick) { StepGoal.manual(ctx) }
+                AppCard(Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Цель шагов: " + fmtSteps(remember(gTick, kg, vals["height"], vals["birthday"]) { StepGoal.value(ctx, kg) }), style = MaterialTheme.typography.titleMedium)
+                            Text(if (manual != null) "своя (автоматически было бы ${fmtSteps(StepGoal.auto(ctx, kg))})" else "автоматически — по росту, весу, возрасту; меняется по мере похудения",
+                                style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                        }
+                        IconButton({ goalEdit = true }) { Icon(Icons.Rounded.Edit, "Изменить цель шагов") }
+                    }
+                }
+                if (goalEdit) StepGoalDialog(kg) { goalEdit = false; gTick++ }
             }
             s.fields.forEach { f ->
                 if (f.choices.isNotEmpty()) {
