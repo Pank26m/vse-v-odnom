@@ -120,6 +120,8 @@ object EventReminder {
 
 class EventReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        val id = intent.getLongExtra("id", 0)
+        if (!NotifPrefs.on(ctx, if (id >= 5_000_000) "tasks" else "events")) return
         EventReminder.notify(ctx, "Скоро: ${intent.getStringExtra("title") ?: "событие"}", intent.getStringExtra("text") ?: "Напоминание", (intent.getLongExtra("id", 0) % 100_000).toInt() + 2000)
     }
 }

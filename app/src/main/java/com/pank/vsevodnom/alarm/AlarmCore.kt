@@ -171,6 +171,7 @@ class BootReceiver : BroadcastReceiver() {
 
 class WeightReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        if (!com.pank.vsevodnom.data.NotifPrefs.on(ctx, "weight")) { AlarmScheduler.scheduleWeightReminder(ctx); return }
         Channels.ensure(ctx)
         val open = PendingIntent.getActivity(
             ctx, 2, Intent(ctx, MainActivity::class.java).putExtra("route", "weight"),

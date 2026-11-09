@@ -108,6 +108,7 @@ class HabitReminderReceiver : BroadcastReceiver() {
                 val logs = dao.habitLogsSync(today.toEpochDay())
                 if (!Todo.isDue(h, today, logs)) return@launch
                 if ((logs.firstOrNull { it.habitId == id }?.count ?: 0) >= h.perDay) return@launch
+                if (!NotifPrefs.on(ctx, "habits")) return@launch
                 EventReminder.notify(ctx, "${h.icon} ${h.title}".trim(), h.goal.ifBlank { "Привычка на сегодня" }, 6000 + (id % 1000).toInt())
             } finally { pr.finish() }
         }

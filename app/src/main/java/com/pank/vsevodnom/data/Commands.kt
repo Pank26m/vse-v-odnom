@@ -119,7 +119,7 @@ object Commands {
             "notify" -> {
                 val nm = ctx.getSystemService(NotificationManager::class.java)
                 nm.createNotificationChannel(NotificationChannel("commands", "Команды", NotificationManager.IMPORTANCE_DEFAULT))
-                nm.notify((a.a + a.b).hashCode(), NotificationCompat.Builder(ctx, "commands").setSmallIcon(R.drawable.ic_notify).setContentTitle(a.a).setContentText(a.b).setAutoCancel(true).build())
+                if (NotifPrefs.on(ctx, "commands")) nm.notify((a.a + a.b).hashCode(), NotificationCompat.Builder(ctx, "commands").setSmallIcon(R.drawable.ic_notify).setContentTitle(a.a).setContentText(a.b).setAutoCancel(true).build())
             }
             "copy" -> ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Команда", a.a))
             "share" -> start(ctx, Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, a.a), "Поделиться"))

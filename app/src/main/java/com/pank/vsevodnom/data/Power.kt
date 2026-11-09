@@ -145,6 +145,7 @@ object Power {
 
 class PowerReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        if (!NotifPrefs.on(ctx, "power")) return
         EventReminder.notify(ctx, "Через 30 минут отключат свет", "По графику: ${intent.getStringExtra("slot")}. Заряди телефон и павербанк.", 3100)
     }
 }

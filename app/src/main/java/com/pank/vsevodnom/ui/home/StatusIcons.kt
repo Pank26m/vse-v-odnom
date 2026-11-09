@@ -6,6 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
@@ -64,18 +67,30 @@ fun AlertBadge(level: Int?, onClick: () -> Unit, size: Dp = 40.dp) {
     }
 }
 
-/** Свет: жёлтая молния — есть, серая зачёркнутая — нет, красная — экстренные отключения. */
+/**
+ * Свет: зелёный — есть, серый (зачёркнутая молния) — нет, красный — графики не действуют (экстренные отключения).
+ * Меньше часа до смены (отключения или включения) — кружок растягивается в овал: «59хв» и точка справа
+ * (серая — скоро отключат, зелёная — скоро включат).
+ */
 @Composable
 fun PowerBadge(s: PowerState?, onClick: () -> Unit, size: Dp = 40.dp) {
-    val bg = when { s == null -> BadgeGrey; s.emergency -> BadgeRed; s.offNow -> BadgeGrey; else -> BadgeYellow }
-    Badge(bg, onClick, size) {
-        Box(contentAlignment = Alignment.Center) {
+    val bg = when { s == null -> BadgeGrey; s.emergency -> BadgeRed; s.offNow -> BadgeGrey; else -> BadgeGreen }
+    val mins = if (s == null || s.emergency) null else if (s.offNow) s.nextOnInMin?.takeIf { it < 60 } else s.nextOffInMin?.takeIf { it < 60 }
+    androidx.compose.foundation.layout.Row(Modifier.height(size).clip(androidx.compose.foundation.shape.RoundedCornerShape(size / 2)).background(bg).clickable(onClick = onClick)
+        .padding(end = if (mins != null) 12.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(size), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.Bolt, "Свет", tint = Color.White, modifier = Modifier.size(size * 0.6f))
             if (s != null && s.offNow && !s.emergency) Canvas(Modifier.size(size * 0.6f)) {
                 val a = Offset(this.size.width * 0.12f, this.size.height * 0.08f); val b = Offset(this.size.width * 0.88f, this.size.height * 0.92f)
                 drawLine(bg, a, b, strokeWidth = this.size.width * 0.22f)
                 drawLine(Color.White, a, b, strokeWidth = this.size.width * 0.09f, cap = StrokeCap.Round)
             }
+        }
+        if (mins != null) {
+            androidx.compose.material3.Text("${mins}хв", color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+            Box(Modifier.size(9.dp).clip(CircleShape).background(if (s!!.offNow) BadgeGreen else Color(0xFF6E737D)).then(
+                if (s.offNow) Modifier else Modifier))
         }
     }
 }

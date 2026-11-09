@@ -179,7 +179,7 @@ class SmsReceiver : BroadcastReceiver() {
             b.setContentTitle("${name ?: address} · это спам?").addAction(0, "Да, спам", act(true)).addAction(0, "Нет", act(false))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
         }
-        runCatching { ctx.getSystemService(NotificationManager::class.java).notify(nid, b.build()) }
+        if (NotifPrefs.on(ctx, "sms")) runCatching { ctx.getSystemService(NotificationManager::class.java).notify(nid, b.build()) }
     }
 }
 

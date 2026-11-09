@@ -182,10 +182,12 @@ fun WeatherGlyph(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier, an
                 cloud(Offset(w * 0.45f + sway, h * 0.55f), w * 0.3f, Color(0xFFB9C7D8))
             }
             // туман — три плывущие полосы по центру значка
+            // туман — три полосы точно по центру значка (средняя — на центре, крайние симметрично), плывут чуть-чуть
             Scene.FOG -> for (i in 0..2) {
-                val dx = sway * 1.6f * (if (i % 2 == 0) 1 else -1)
-                val y = h * (0.34f + i * 0.16f)
-                drawLine(Color(0xFF9DAFC6).copy(alpha = 0.95f - i * 0.15f), Offset(w * (0.14f + i * 0.05f) + dx, y), Offset(w * (0.86f - i * 0.05f) + dx, y), strokeWidth = w * 0.09f, cap = StrokeCap.Round)
+                val dx = sway * 0.8f * (if (i % 2 == 0) 1 else -1)
+                val y = h / 2 + (i - 1) * h * 0.17f
+                val half = w * (if (i == 1) 0.36f else 0.3f)
+                drawLine(Color(0xFF9DAFC6).copy(alpha = if (i == 1) 0.95f else 0.75f), Offset(w / 2 - half + dx, y), Offset(w / 2 + half + dx, y), strokeWidth = w * 0.085f, cap = StrokeCap.Round)
             }
             else -> {
                 val cc = if (scene == Scene.THUNDER || scene == Scene.RAIN) Color(0xFF9DAFC6) else Color(0xFFB9C7D8)

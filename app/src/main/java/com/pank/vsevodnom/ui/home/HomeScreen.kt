@@ -21,6 +21,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -95,12 +98,16 @@ private val MONTHS = listOf("января", "февраля", "марта", "а�
 private val HeaderBg = Color(0xFFCFE2F6)
 private val HeaderInk = Color(0xFF1F3D63)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(open: (String) -> Unit) {
     val ctx = LocalContext.current
     val db = remember { AppDb.get(ctx) }
+    val scope = rememberCoroutineScope()
     val cities by db.cities().weather().collectAsState(initial = emptyList())
-    val weights by db.weight().all().collectAsState(initial = emptyList())
+    val alarms by db.alarms().all().collectAsState(initial = emptyList())
+    val allTasks by db.todo().tasks().collectAsState(initial = emptyList())
+    val birthdays by db.todo().birthdays().collectAsState(initial = emptyList())
     var today by remember { mutableStateOf(LocalDate.now()) }
     var hour by remember { mutableIntStateOf(LocalTime.now().hour) }
     LaunchedEffect(Unit) { while (true) { today = LocalDate.now(); hour = LocalTime.now().hour; delay(60_000) } }
@@ -108,6 +115,10 @@ fun HomeScreen(open: (String) -> Unit) {
     var settings by remember { mutableStateOf(false) }
     var tilesEdit by remember { mutableStateOf(false) }
     var tiles by remember { mutableStateOf(HomeTiles.get(ctx)) }
+    var refreshTick by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
+    var lifeOpen by remember { mutableStateOf(false) }
+    val head = rememberHeaderData(refreshTick)
 
     val city = cities.firstOrNull()
     val weather = remember(city?.cachedJson) { city?.let { WeatherRepo.cached(it) } }
@@ -123,18 +134,32 @@ fun HomeScreen(open: (String) -> Unit) {
             delay(60_000)
         }
     }
+    /** Свайп вниз — обновить всё: погоду, тревоги, свет, сводку, здоровье. */
+    fun refreshAll() = scope.launch {
+        refreshing = true
+        withContext(Dispatchers.IO) {
+            city?.let { runCatching { WeatherRepo.refresh(ctx, it) } }
+            runCatching { AlertsApi.fetch(ctx) }.onSuccess { AlertCache.state = it }
+            runCatching { Power.refresh(ctx) }
+        }
+        refreshTick++
+        delay(400); refreshing = false
+    }
+    // заметки дня под приветствием
+    val notes = remember(alarms, allTasks, weather, birthdays, today, hour, AlertCache.state) { dayNotes(alarms, allTasks, weather, birthdays, today, kyivAlertLevel(AlertCache.state)) }
 
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(refreshing, { refreshAll() }, Modifier.fillMaxSize().background(Pal.Bg)) {
     LazyColumn(Modifier.fillMaxSize().background(Pal.Bg)) {
         item {
             Column(Modifier.fillMaxWidth().background(HeaderBg).statusBarsPadding().padding(16.dp, 8.dp, 16.dp, 30.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusPill(onClick = { open("weather") }) {
-                        if (weather != null) { WeatherGlyph(wmo(weather.code).second, weather.isDay, Modifier.size(26.dp), animated = true); Spacer(Modifier.width(4.dp)); Text(fmtT(weather.temp), style = MaterialTheme.typography.titleSmall, color = HeaderInk) }
-                        else Icon(Icons.Rounded.Cloud, "Погода", tint = HeaderInk, modifier = Modifier.size(20.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WeatherPill(weather) { open("weather") }
+                        LifeBadge(com.pank.vsevodnom.ui.health.LifeScore.total(head.parts), { lifeOpen = true })
+                        PowerBadge(Power.state, { open("power") })
+                        AlertBadge(kyivAlertLevel(AlertCache.state), { open("alerts") })
+                        StepsPill(head.hs?.steps, com.pank.vsevodnom.ui.home.Profile.get(ctx, "goal_steps", "8000").toLongOrNull() ?: 8000L) { open("health") }
                     }
-                    PowerBadge(Power.state, { open("power") })
-                    AlertBadge(kyivAlertLevel(AlertCache.state), { open("alerts") })
-                    Spacer(Modifier.weight(1f))
                     IconButton({ settings = true }) { Icon(Icons.Rounded.Settings, "Настройки", tint = HeaderInk) }
                 }
                 Spacer(Modifier.height(18.dp))
@@ -142,20 +167,21 @@ fun HomeScreen(open: (String) -> Unit) {
                     style = MaterialTheme.typography.bodySmall, color = HeaderInk.copy(alpha = 0.7f))
                 Text(when (hour) { in 5..11 -> "Доброе утро"; in 12..17 -> "Добрый день"; in 18..22 -> "Добрый вечер"; else -> "Доброй ночи" } + ", $userName",
                     style = MaterialTheme.typography.headlineLarge, color = HeaderInk)
-                // вес — только утром в понедельник
-                if (today.dayOfWeek == DayOfWeek.MONDAY && hour < 13) {
-                    val w = weights.lastOrNull()
-                    val prev = weights.getOrNull(weights.size - 2)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        if (w?.epochDay == today.toEpochDay()) "Вес сегодня ${fmtKg(w.kg)} кг" + (prev?.let { val d = w.kg - it.kg; " (${if (d > 0) "+" else if (d < 0) "−" else ""}${fmtKg(kotlin.math.abs(d))})" } ?: "")
-                        else "Понедельник — время взвеситься",
-                        style = MaterialTheme.typography.titleSmall, color = HeaderInk,
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.6f)).clickable { open("health") }.padding(10.dp, 6.dp)
-                    )
+                // на что обратить внимание сегодня: будильник, неотложные дела, погода, дни рождения, тревога
+                if (notes.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        notes.forEach { (ic, t, route) ->
+                            Row(Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.6f)).clickable(enabled = route != null) { route?.let(open) }.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Icon(ic, null, tint = HeaderInk, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
+                                Text(t, style = MaterialTheme.typography.labelLarge, color = HeaderInk)
+                            }
+                        }
+                    }
                 }
-                // больше воздуха над плитками — примерно половина плитки
-                Spacer(Modifier.height(68.dp))
+                Spacer(Modifier.height(if (notes.isEmpty()) 68.dp else 36.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(tiles.mapNotNull { r -> TILES.firstOrNull { it.route == r } }) { t -> BigTile(t) { open(t.route!!) } }
                     item {
@@ -167,16 +193,12 @@ fun HomeScreen(open: (String) -> Unit) {
                 }
             }
         }
-        item { Summary(open) }
+        item { Summary(open, refreshTick) }
+    }
     }
 
-    if (settings) {
-        var n by remember { mutableStateOf(userName) }
-        AlertDialog(onDismissRequest = { settings = false }, title = { Text("Настройки") },
-            text = { AppTextField(n, { n = it }, "Как к тебе обращаться") },
-            confirmButton = { TextButton({ UserPrefs.setName(ctx, n.trim().ifBlank { "Миша" }); userName = n.trim().ifBlank { "Миша" }; settings = false }) { Text("Сохранить") } },
-            dismissButton = { TextButton({ settings = false }) { Text("Отмена") } })
-    }
+    if (settings) AppSettingsScreen(onDismiss = { settings = false }, onName = { userName = it })
+    if (lifeOpen) LifeDialog(head.parts, head.hs, onOpenHealth = { lifeOpen = false; open("health") }) { lifeOpen = false }
     if (tilesEdit) {
         val sel = remember { mutableStateListOf(*tiles.toTypedArray()) }
         AlertDialog(onDismissRequest = { tilesEdit = false }, title = { Text("Плитки на главной") },
@@ -203,6 +225,41 @@ fun HomeScreen(open: (String) -> Unit) {
     }
 }
 
+/** Заметки дня: будильник, неотложные дела, погода, дни рождения, тревога. (значок, текст, куда открыть) */
+private fun dayNotes(alarms: List<com.pank.vsevodnom.data.AlarmEntity>, tasks: List<TaskItem>, w: WeatherData?, bdays: List<Birthday>, today: LocalDate, alert: Int?): List<Triple<ImageVector, String, String?>> {
+    val out = ArrayList<Triple<ImageVector, String, String?>>()
+    val now = java.time.LocalDateTime.now()
+    alarms.filter { it.enabled }.map { com.pank.vsevodnom.alarm.nextTrigger(it, now) }.minOrNull()?.takeIf { java.time.Duration.between(now, it).toHours() < 24 }?.let { t ->
+        out += Triple(Icons.Rounded.Alarm, "Будильник прозвонит " + (if (t.toLocalDate() != today) "завтра " else "") + "в %02d:%02d".format(t.hour, t.minute), "clock/0")
+    }
+    val urgent = tasks.count { !it.done && it.dueDay != null && (it.dueDay < today.toEpochDay() || (it.dueDay == today.toEpochDay() && it.priority >= 2)) }
+    val todayN = tasks.count { !it.done && it.dueDay == today.toEpochDay() }
+    if (urgent > 0) out += Triple(Icons.Rounded.PriorityHigh, "$urgent " + plural(urgent, "неотложное дело", "неотложных дела", "неотложных дел"), "todo")
+    else if (todayN > 0) out += Triple(Icons.Rounded.Checklist, "$todayN " + plural(todayN, "дело", "дела", "дел") + " на сегодня", "todo")
+    w?.days?.firstOrNull { it.date == today }?.let { d ->
+        val txt = when {
+            d.code in 95..99 -> "Сегодня гроза"
+            d.code in listOf(65, 81, 82) || (d.precipSum ?: 0.0) >= 15 -> "Сегодня сильный ливень"
+            d.code in 71..77 || d.code in 85..86 -> "Сегодня снег"
+            d.code in listOf(56, 57, 66, 67) -> "Гололёд: ледяной дождь"
+            d.rainProb >= 60 -> "Возьми зонт — дождь ${d.rainProb}%"
+            d.tMax >= 30 -> "Жара до +${d.tMax.toInt()}°"
+            d.tMin <= -10 -> "Мороз до ${d.tMin.toInt()}°"
+            (d.windMax ?: 0.0) >= 14 -> "Сильный ветер до ${(d.windMax ?: 0.0).toInt()} м/с"
+            d.code in listOf(45, 48) -> "Туман"
+            else -> null
+        }
+        txt?.let { out += Triple(Icons.Rounded.Umbrella, it, "weather") }
+    }
+    bdays.filter { it.day == today.dayOfMonth && it.month == today.monthValue }.take(2).forEach { out += Triple(Icons.Rounded.Cake, "День рождения: ${it.name}", "todo") }
+    if (alert == 2) out += Triple(Icons.Rounded.Campaign, "В Киеве тревога", "alerts")
+    return out
+}
+
+private fun plural(n: Int, one: String, few: String, many: String): String {
+    val m10 = n % 10; val m100 = n % 100
+    return if (m10 == 1 && m100 != 11) one else if (m10 in 2..4 && m100 !in 12..14) few else many
+}
 
 @Composable
 private fun StatusPill(onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
@@ -221,7 +278,7 @@ private fun BigTile(t: Tile, onClick: () -> Unit) {
 // ================= Сводка дня =================
 
 @Composable
-private fun Summary(open: (String) -> Unit) {
+private fun Summary(open: (String) -> Unit, tick: Int) {
     val ctx = LocalContext.current
     val db = remember { AppDb.get(ctx) }
     val today = LocalDate.now()
@@ -230,7 +287,12 @@ private fun Summary(open: (String) -> Unit) {
     val logs by remember { db.todo().habitLogs(today.toEpochDay(), today.toEpochDay()) }.collectAsState(initial = emptyList())
     var agenda by remember { mutableStateOf<List<Agenda>>(emptyList()) }
     val birthdays by db.todo().birthdays().collectAsState(initial = emptyList())
-    LaunchedEffect(Unit) { while (true) { agenda = withContext(Dispatchers.IO) { CalendarRepo.agendaSync(ctx, today, today) }; delay(120_000) } }
+    LaunchedEffect(tick) { while (true) { agenda = withContext(Dispatchers.IO) { CalendarRepo.agendaSync(ctx, today, today) }; delay(120_000) } }
+    val weights by db.weight().all().collectAsState(initial = emptyList())
+    var weightAsk by remember { mutableStateOf(false) }
+    var eventOpen by remember { mutableStateOf<Agenda?>(null) }
+    var review by remember { mutableStateOf(false) }
+    var holTick by remember { mutableIntStateOf(0) }
 
     val dow = today.dayOfWeek.value - 1
     val todayTasks = tasks.filter { !it.done && it.dueDay != null && it.dueDay <= today.toEpochDay() }
@@ -239,22 +301,45 @@ private fun Summary(open: (String) -> Unit) {
     val agendaLeft = agenda.filter { a -> if (a is Agenda.Pair) LocalTime.parse(a.l.end).let { it.hour * 60 + it.minute } > nowMin else true }
     val bdays = birthdays.filter { it.day == today.dayOfMonth && it.month == today.monthValue }
     val hol = Holidays.on(today)
-    val power = Power.state
 
     Column(Modifier.fillMaxWidth().offset(y = (-16).dp).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Pal.Bg).padding(16.dp, 18.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Сводка", style = MaterialTheme.typography.titleLarge)
         MoodCheckIn()
-        com.pank.vsevodnom.ui.health.LifeScoreMini { open("health") }
-        hol?.let { SummaryRow(Icons.Rounded.Celebration, it, "праздник", Pal.Peach, Pal.PeachInk) { com.pank.vsevodnom.ui.todo.TodoNav.target = "page:dates"; open("todo") } }
+        // вес — закреп на уровне настроения: по понедельникам, пока не взвесился; стрелка — сразу окно ввода
+        if (today.dayOfWeek == DayOfWeek.MONDAY && weights.none { it.epochDay == today.toEpochDay() })
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pal.Sky).clickable { weightAsk = true }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.MonitorWeight, null, tint = Pal.SkyInk)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("Понедельник — время взвеситься", style = MaterialTheme.typography.titleMedium, color = Pal.SkyInk)
+                    weights.lastOrNull()?.let { Text("прошлый раз ${fmtKg(it.kg)} кг", style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
+                }
+                Icon(Icons.Rounded.ChevronRight, "Записать вес", tint = Pal.SkyInk)
+            }
+        @Suppress("UNUSED_EXPRESSION") holTick
+        hol?.takeIf { !HolidayDone.isDone(ctx, today, it) }?.let { h ->
+            key("hol$h") {
+                com.pank.vsevodnom.ui.todo.Leaving(h, onLeft = { HolidayDone.mark(ctx, today, h); holTick++ }) { done, leave ->
+                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { com.pank.vsevodnom.ui.todo.TodoNav.target = "page:dates"; open("todo") }.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Pal.Peach), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Celebration, null, tint = Pal.PeachInk) }
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(h, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                            Text("государственный праздник", style = MaterialTheme.typography.bodySmall)
+                        }
+                        com.pank.vsevodnom.ui.todo.CheckDivider()
+                        com.pank.vsevodnom.ui.todo.CheckCircle(done, Pal.Muted, 26.dp) { leave() }
+                    }
+                }
+            }
+        }
         var bdTick by remember { mutableIntStateOf(0) }
         bdays.filter { bdTick >= 0 && !com.pank.vsevodnom.ui.todo.BdayDone.isDone(ctx, it.id) }.forEach { b ->
             key("b${b.id}") { com.pank.vsevodnom.ui.todo.BirthdayRow(b, today, onOpen = { com.pank.vsevodnom.ui.todo.TodoNav.target = "bday:${b.id}"; open("todo") }) { bdTick++ } }
         }
-        power?.let { SummaryRow(Icons.Rounded.Bolt, it.nearestText(), "очередь ${it.group}", Pal.Butter, Pal.ButterInk) { open("power") } }
         agendaLeft.forEach { a ->
             val r = a.row()
             SummaryRow(if (a is Agenda.Pair) Icons.Rounded.School else Icons.Rounded.Event, r.title, listOf(r.time.replace('\n', '–'), r.sub).filter { it.isNotBlank() }.joinToString(" · "), Pal.Lilac, Color(r.color)) {
-                com.pank.vsevodnom.ui.calendar.CalendarNav.target = a; open("todo")
+                eventOpen = a
             }
         }
         todayTasks.forEach { t ->
@@ -284,6 +369,18 @@ private fun Summary(open: (String) -> Unit) {
         }
         if (hol == null && bdays.isEmpty() && agendaLeft.isEmpty() && todayTasks.isEmpty() && leftHabits.isEmpty())
             Text("На сегодня всё чисто. Добавь задачи в разделе ToDo.", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+        // в конце дня — «Мои успехи»
+        Spacer(Modifier.height(4.dp))
+        SuccessTile(tasks, logs, todayHabits.size) { review = true }
+    }
+    if (review) DayReviewScreen { review = false }
+    if (weightAsk) WeightDialog { weightAsk = false }
+    eventOpen?.let { a ->
+        when (a) {
+            is Agenda.Own -> com.pank.vsevodnom.ui.calendar.EventEditor(a.e, onDismiss = { eventOpen = null })
+            is Agenda.Pair -> com.pank.vsevodnom.ui.calendar.LessonDialog(a) { eventOpen = null }
+            is Agenda.Sys -> { LaunchedEffect(a) { runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.content.ContentUris.withAppendedId(android.provider.CalendarContract.Events.CONTENT_URI, a.id))) }; eventOpen = null } }
+        }
     }
 }
 
@@ -336,6 +433,36 @@ private fun MoodCheckIn() {
             com.pank.vsevodnom.ui.life.MoodPicker({ lvl -> if (level == null) { level = lvl; leave() } }, selected = level)
         }
     }
+}
+
+/** Государственный праздник отмечен «сделано» (галочка в сводке). */
+object HolidayDone {
+    private fun p(ctx: Context) = ctx.getSharedPreferences("home", Context.MODE_PRIVATE)
+    fun isDone(ctx: Context, d: LocalDate, name: String) = p(ctx).getString("hol_done", "") == "${d.toEpochDay()}|$name"
+    fun mark(ctx: Context, d: LocalDate, name: String) = p(ctx).edit().putString("hol_done", "${d.toEpochDay()}|$name").apply()
+}
+
+/** Ввод веса прямо со сводки. */
+@Composable
+private fun WeightDialog(onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    var v by remember { mutableStateOf("") }
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { delay(150); runCatching { focus.requestFocus() } }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Вес сегодня") },
+        text = {
+            OutlinedTextField(v, { v = it.filter { c -> c.isDigit() || c == '.' || c == ',' }.take(6) }, suffix = { Text("кг") }, singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                modifier = Modifier.focusRequester(focus))
+        },
+        confirmButton = { TextButton({
+            v.replace(',', '.').toDoubleOrNull()?.takeIf { it in 20.0..400.0 }?.let { kg ->
+                val day = LocalDate.now().toEpochDay()
+                AppScope.io.launch { val dao = AppDb.get(ctx).weight(); dao.upsert((dao.byDay(day) ?: WeightEntry(epochDay = day, kg = kg)).copy(kg = kg)) }
+                onDismiss()
+            }
+        }) { Text("Записать") } },
+        dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
 }
 
 /** Все разделы плитками. */

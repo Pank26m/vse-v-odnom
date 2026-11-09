@@ -64,7 +64,7 @@ fun FocusTab() {
                 val start = endAt - p.getInt("runLen", minutes) * 60_000L
                 AppScope.io.launch { dao.addFocus(FocusSession(startedAt = start, minutes = p.getInt("runLen", minutes), label = p.getString("label", "")!!, completed = true, tree = (start / 1000 % 4).toInt())) }
                 endAt = 0; p.edit().putLong("endAt", 0).apply()
-                EventReminder.notify(ctx, "Фокус завершён", "Новое дерево в твоём лесу", 3200)
+                if (com.pank.vsevodnom.data.NotifPrefs.on(ctx, "focus")) EventReminder.notify(ctx, "Фокус завершён", "Новое дерево в твоём лесу", 3200)
             }
             delay(500)
         }

@@ -462,7 +462,7 @@ private fun kindName(k: String) = when (k.lowercase()) {
 
 /** Подробности пары: полное название (можно поправить), тип, время, аудитория, преподаватель, ближайшие занятия. */
 @Composable
-private fun LessonDialog(a: Agenda.Pair, onDismiss: () -> Unit) {
+internal fun LessonDialog(a: Agenda.Pair, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).schedule() }
     val l = a.l

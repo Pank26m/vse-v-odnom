@@ -45,6 +45,7 @@ class AlertWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
     }
 
     private fun notify(id: Int, title: String, text: String) {
+        if (!com.pank.vsevodnom.data.NotifPrefs.on(applicationContext, "alerts")) return
         Channels.ensure(applicationContext)
         val open = PendingIntent.getActivity(
             applicationContext, 30, Intent(applicationContext, MainActivity::class.java).putExtra("route", "alerts"),

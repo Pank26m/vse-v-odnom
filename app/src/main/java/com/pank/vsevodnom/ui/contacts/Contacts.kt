@@ -184,7 +184,7 @@ class CallScreener : CallScreeningService() {
             .setContentTitle(if (number.isBlank()) "Звонок со скрытого номера" else "Звонит $number").setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_CALL).setContentIntent(open).setAutoCancel(true).setTimeoutAfter(120_000)
         if (number.isNotBlank() && !rejected) n.addAction(0, "В чёрный список", block)
-        runCatching { nm.notify(60, n.build()) }
+        if (com.pank.vsevodnom.data.NotifPrefs.on(this, "callerid")) runCatching { nm.notify(60, n.build()) }
     }
 }
 
