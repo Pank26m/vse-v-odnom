@@ -199,7 +199,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
     // стиль заново: настройки, «Объекты на карте», скачанные карты (у GLMap — и его карты)
     var firstStyle by remember { mutableStateOf(true) }
-    LaunchedEffect(styleTick, OfflineMaps.version) { if (firstStyle) firstStyle = false else eng.reloadStyle() }
+    LaunchedEffect(styleTick, OfflineMaps.version, GlMap.serverTick) { if (firstStyle) firstStyle = false else eng.reloadStyle() }
     LaunchedEffect(gen) {
         if (gen == 0) return@LaunchedEffect
         if (hasLoc(ctx)) { eng.enableLocation(); if (locMode != 0) eng.setFollow(locMode) }

@@ -58,18 +58,61 @@ object GlMap {
     var listError by mutableStateOf<String?>(null); private set
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
+    /** Какой сервер GLMap отвечает (для подписи в настройках). */
+    var server by mutableStateOf<String?>(null); private set
+    /** Растёт, когда сменили сервер — карта перечитывает онлайн-тайлы. */
+    var serverTick by mutableIntStateOf(0); private set
+    private val KNOWN = listOf("https://cdn.getyourmap.com", "https://cdn.getyourmap.cc", "https://proxy.getyourmap.com")
+
+    /** Сервер открывается: имя находится в DNS телефона и есть HTTP-ответ. */
+    private fun probe(url: String): Boolean = runCatching {
+        val host = java.net.URL(url).host
+        java.net.InetAddress.getAllByName(host).isNotEmpty() && run {
+            val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            c.connectTimeout = 6000; c.readTimeout = 6000; c.requestMethod = "HEAD"
+            try { c.responseCode > 0 } finally { c.disconnect() }
+        }
+    }.getOrDefault(false)
+
+    /**
+     * У части сетей/DNS имя cdn.getyourmap.com не находится («CURL 6: Could not resolve host») — тогда ни список карт,
+     * ни онлайн-тайлы не грузятся. Проверяем серверы GLMap по очереди и ставим рабочие первыми.
+     */
+    private fun pickServer(): Boolean {
+        val cur = runCatching { GLMapManager.GetServerList()?.toList() }.getOrNull().orEmpty()
+        val all = (cur + KNOWN).map { it.trimEnd('/') }.distinct()
+        val ok = all.filter { probe(it) }
+        if (ok.isEmpty()) return false
+        val order = ok + (all - ok.toSet())
+        if (order != cur.map { it.trimEnd('/') }) main.post { runCatching { GLMapManager.SetServerList(order.toTypedArray()) }; serverTick++ }
+        main.post { server = java.net.URL(ok.first()).host }
+        return true
+    }
+
     /** Список карт с сервера GLMap (страны и области). Ответ приходит в фоне — состояние меняем на главном потоке. */
     fun refreshList() {
         if (listLoading) return
         listLoading = true; listError = null
-        val ok = runCatching {
-            GLMapManager.UpdateMapList { _, err ->
-                main.post { listLoading = false; listError = err?.toString(); version++ }
+        Thread {
+            if (!pickServer()) {
+                main.post {
+                    listLoading = false; version++
+                    listError = "ни один сервер GLMap не открывается (cdn.getyourmap.com, .cc, proxy). Проверь интернет; если включён «Частный DNS» " +
+                        "или блокировщик рекламы (Настройки телефона → Сеть → Частный DNS) — выключи его или добавь getyourmap.com в исключения"
+                }
+                return@Thread
             }
-        }
-        if (ok.isFailure) { listLoading = false; listError = ok.exceptionOrNull()?.message }
-        // если ответа нет 20 с — даём нажать «Обновить» снова
-        main.postDelayed({ if (listLoading) { listLoading = false; version++ } }, 20_000)
+            main.post {
+                val ok = runCatching {
+                    GLMapManager.UpdateMapList { _, err ->
+                        main.post { listLoading = false; listError = err?.toString(); version++ }
+                    }
+                }
+                if (ok.isFailure) { listLoading = false; listError = ok.exceptionOrNull()?.message }
+            }
+        }.start()
+        // если ответа нет 40 с — даём нажать «Обновить» снова
+        main.postDelayed({ if (listLoading) { listLoading = false; version++ } }, 40_000)
     }
 
     fun listEmpty() = runCatching { GLMapManager.GetMaps().isNullOrEmpty() }.getOrDefault(true)

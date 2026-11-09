@@ -74,7 +74,7 @@ internal fun GlEnginePage(onChanged: () -> Unit, onBack: () -> Unit) {
                 val status = when {
                     engine != "glmap" -> "Сейчас рисует MapLibre."
                     key.isBlank() -> "Нет ключа GLMap — карта рисуется MapLibre."
-                    GlMap.ready -> "GLMap работает."
+                    GlMap.ready -> "GLMap работает." + (GlMap.server?.let { " Сервер: $it." } ?: "")
                     else -> GlMap.error ?: "GLMap запустится при открытии карты."
                 }
                 Text(status, style = MaterialTheme.typography.bodySmall, color = if (engine == "glmap" && !GlMap.ready && key.isNotBlank() && GlMap.error != null) Pal.RoseInk else Pal.Muted)
