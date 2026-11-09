@@ -93,8 +93,9 @@ internal fun BottomPanel(onDismiss: () -> Unit, content: @Composable ColumnScope
                 .clickable(interactionSource = null, indication = null) {}.padding(top = 8.dp)) {
                 Box(Modifier.align(Alignment.CenterHorizontally).width(40.dp).height(4.dp).clip(CircleShape).background(Pal.Line))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
-                // место под системной панелью — вне прокрутки, чтобы последний пункт всегда был над ней
-                Spacer(Modifier.height(bottom))
+                // место под системной панелью — вне прокрутки, чтобы последний пункт всегда был над ней. Плюс запас на высоту
+                // строки состояния: окно диалога на Android 16 сдвинуто вниз на неё и низ уходил за край экрана (0.21–0.25)
+                Spacer(Modifier.height(bottom + top + 16.dp))
             }
         }
     }
@@ -144,6 +145,9 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
     var wikiImg by remember(t) { mutableStateOf<android.graphics.Bitmap?>(null) }
     var allHours by remember(t) { mutableStateOf(false) }
     var viewer by remember { mutableStateOf<Int?>(null) }          // полноэкранный просмотр фото
+    var planVisit by remember { mutableStateOf(false) }
+    val planKey = PlacePlans.key(t.place?.id, t.lat, t.lon)
+    var plan by remember(t) { mutableStateOf(PlacePlans.get(ctx, planKey)) }
     val online = Net.online && !MapPrefs.offlineOnly(ctx)
     val isPoint = t.name == "Точка на карте"
     // объект без названия (ворота, урна, площадка…) или тропа — Google и TripAdvisor по нему не ищем
@@ -153,6 +157,8 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
     LaunchedEffect(t) { if (isRoute && Net.online) routeWiki = PlaceInfo.wikiFor(t.name, t.props["wikipedia"]) }
     val hasKey = ApiKeys.google(ctx).isNotBlank()
     var gAsk by remember(t) { mutableStateOf(false) }     // лимит почти исчерпан — грузим только по кнопке
+    var gSpent by remember(t) { mutableIntStateOf(0) }     // сколько запросов к Google потрачено на это место сейчас
+    var gSrc by remember(t) { mutableStateOf<String?>(null) }
     var plName by remember(t) { mutableStateOf(t.place?.name.orEmpty()) }
     var plNote by remember(t) { mutableStateOf(t.place?.note.orEmpty()) }
     var saveTick by remember(t) { mutableIntStateOf(0) }
@@ -167,21 +173,27 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         if (!online || !hasKey || noName) return
         scope.launch {
             loading = true; gAsk = false
+            val before = ApiKeys.used(ctx, "google")
             runCatching { t.props["google_id"]?.let { GooglePlaces.details(ctx, it) } ?: GooglePlaces.near(ctx, t.name, t.lat, t.lon) }
                 .onSuccess { g = it }.onFailure { gErr = it.message }
+            gSpent += (ApiKeys.used(ctx, "google") - before).coerceAtLeast(0)
+            gSrc = g?.id?.let { GooglePlaces.source[it] } ?: if (gSpent > 0) "net" else null
             loading = false
             // первое фото — сразу, остальные — по кнопке (каждое фото — отдельный платный запрос; из кэша — бесплатно)
+            val b2 = ApiKeys.used(ctx, "google")
             g?.photos?.forEachIndexed { i, n -> if (i == 0) GooglePlaces.photo(ctx, n, 1000)?.let { photos += it } else GooglePlaces.storedPhoto(ctx, n)?.let { photos += it } }
+            gSpent += (ApiKeys.used(ctx, "google") - b2).coerceAtLeast(0)
         }
     }
     LaunchedEffect(t) {
         admin = withContext(Dispatchers.IO) { runCatching { UaAdmin.lookup(ctx, t.lat, t.lon) }.getOrDefault(emptyList()) }
         // уже смотрели это место, пока приложение открыто, — показываем без нового запроса
         val known = withContext(Dispatchers.IO) { GooglePlaces.stored(ctx, t.props["google_id"] ?: if (noName) null else GooglePlaces.knownId(ctx, t.name, t.lat, t.lon)) }
-        if (known != null) { g = known; withContext(Dispatchers.IO) { known.photos.mapNotNull { n -> GooglePlaces.storedPhoto(ctx, n) } }.forEach { photos += it } }
+        if (known != null) { g = known; gSrc = GooglePlaces.source[known.id]; withContext(Dispatchers.IO) { known.photos.mapNotNull { n -> GooglePlaces.storedPhoto(ctx, n) } }.forEach { photos += it } }
         else if (MapPrefs.bool(ctx, "google_auto", true) || t.props.containsKey("google_id")) { if (ApiKeys.nearlyOut(ctx, "google")) gAsk = hasKey && online && !noName else loadGoogle() }
         if (online) {
-            info = runCatching { PlaceInfo.load(t.name.takeIf { t.place == null && !noName }, t.lat, t.lon) }.getOrNull()
+            // у тропы с названием ищем её саму в OSM (теги: покрытие, сложность, ссылки)
+            info = runCatching { PlaceInfo.load(t.name.takeIf { t.place == null && (!noName || (isRoute && t.props["name"] != null)) }, t.lat, t.lon) }.getOrNull()
             if (photos.isEmpty()) info?.wiki?.image?.let { u -> wikiImg = runCatching { loadImage(ctx, u, 700) }.getOrNull() }
         }
     }
@@ -223,6 +235,10 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                     Text(st.text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                         color = when { st.open && !st.soon -> Pal.MintInk; st.soon -> Color(0xFFB7791F); else -> Pal.RoseInk }, maxLines = 1)
                 } ?: tags["opening_hours"]?.takeIf { g == null }?.let { Text("Часы: $it", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1) }
+                plan?.takeIf { it.first > System.currentTimeMillis() - 86_400_000L }?.let { (at, task) ->
+                    Text("Запланировано на " + Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM HH:mm")) + " ›",
+                        style = MaterialTheme.typography.labelLarge, color = Color(0xFFD13B3B), fontWeight = FontWeight.Bold, modifier = Modifier.clickable { MapUi.openTodo = "task:$task" })
+                }
                 phone?.let { ph -> Text(ph, style = MaterialTheme.typography.bodyMedium, color = Pal.SkyInk, modifier = Modifier.clickable { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$ph"))) } }) }
             }
             if (loading) CircularProgressIndicator(Modifier.padding(top = 10.dp).size(18.dp), strokeWidth = 2.dp)
@@ -257,7 +273,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                 }
                 val more = (g?.photos?.size ?: 0) - photos.size
                 if (more > 0 && photos.isNotEmpty()) Box(Modifier.height(150.dp).width(110.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Bg).clickable {
-                    scope.launch { g?.photos?.drop(photos.size)?.take(3)?.forEach { n -> GooglePlaces.photo(ctx, n, 1000)?.let { photos += it } } }
+                    scope.launch { val b0 = ApiKeys.used(ctx, "google"); g?.photos?.drop(photos.size)?.take(3)?.forEach { n -> GooglePlaces.photo(ctx, n, 1000)?.let { photos += it } }; gSpent += (ApiKeys.used(ctx, "google") - b0).coerceAtLeast(0) }
                 }, contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Rounded.AddPhotoAlternate, null, tint = Pal.SkyInk); Text("Ещё фото", style = MaterialTheme.typography.labelLarge)
@@ -265,7 +281,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                     }
                 }
             }
-            if (isRoute) RouteInfoBlock(t, routeWiki)
+            if (isRoute) RouteInfoBlock(t, routeWiki, info)
             // описание своей метки — правится прямо здесь
             if (t.place != null) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Bg).padding(12.dp)) {
                 Text("Описание", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -330,6 +346,18 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                 }
             }
             gErr?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk) }
+            if (g != null) {
+                val left = (ApiKeys.limit(ctx, "google") - ApiKeys.used(ctx, "google")).coerceAtLeast(0)
+                val src = when {
+                    gSpent > 0 -> "запрос к Google: потрачено $gSpent"
+                    gSrc == "disk" -> "из зашифрованного кэша на телефоне" + (GCache.savedAt(ctx, "d:${g!!.id}")?.let { " (сохранено " + ((System.currentTimeMillis() - it) / 86_400_000L).let { d -> if (d == 0L) "сегодня" else "$d дн. назад" } + ")" } ?: "") + " · лимит не тратится"
+                    else -> "из памяти (открывал, пока приложение запущено) · лимит не тратится"
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (gSpent > 0) Icons.Rounded.CloudDownload else Icons.Rounded.Lock, null, tint = Pal.Muted, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(6.dp))
+                    Text("Сведения Google — $src · осталось $left из ${ApiKeys.limit(ctx, "google")} на сегодня", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // в Google Картах ищем по названию и городу — так открывается само заведение, а не голые координаты
                 PillButton("Google Карты", { web(ctx, g?.mapsUrl ?: if (noName) String.format(Locale.US, "https://www.google.com/maps/search/?api=1&query=%.6f,%.6f", t.lat, t.lon)
@@ -352,6 +380,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         Text(title, style = MaterialTheme.typography.titleMedium)
         MenuRow(Icons.Rounded.Home, "Сделать «Домом»") { MapPrefs.setHome(ctx, MapPrefs.Spot("Дом", t.lat, t.lon, title)); more = false; Toast.makeText(ctx, "Дом задан", Toast.LENGTH_SHORT).show() }
         MenuRow(Icons.Rounded.Work, "Сделать «Работой»") { MapPrefs.setWork(ctx, MapPrefs.Spot("Работа", t.lat, t.lon, title)); more = false; Toast.makeText(ctx, "Работа задана", Toast.LENGTH_SHORT).show() }
+        MenuRow(Icons.Rounded.EventAvailable, "Запланировать посещение места", sub = "дата и время → задача в ToDo с точкой; «Начать сейчас» строит путь") { more = false; planVisit = true }
         if (onSimilar != null && t.props["kind"] != "route" && (t.props["subclass"] != null || t.props["class"] != null))
             MenuRow(Icons.Rounded.TravelExplore, "Похожие рядом", sub = "${t.kind.ifBlank { "такие же места" }} поблизости — на карте") { more = false; onSimilar(t) }
         MenuRow(Icons.Rounded.Star, "В избранное маршрутов") { MapPrefs.setFavs(ctx, MapPrefs.favs(ctx) + MapPrefs.Spot(title.take(24), t.lat, t.lon, title)); more = false; Toast.makeText(ctx, "Добавлено в избранное маршрутов", Toast.LENGTH_SHORT).show() }
@@ -366,6 +395,14 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         }
     }
     event?.let { e -> EventEditor(e, onDismiss = { event = null }) }
+    if (planVisit) PlanDialog("Посетить", title, onDismiss = { planVisit = false }) { at ->
+        planVisit = false
+        AppScope.io.launch {
+            val task = planTask(ctx, null, "Посетить: $title", MapPrefs.Spot(title, t.lat, t.lon), at)
+            PlacePlans.set(ctx, planKey, at, task)
+            withContext(Dispatchers.Main) { plan = at to task; Toast.makeText(ctx, "Запланировано — задача в ToDo", Toast.LENGTH_SHORT).show() }
+        }
+    }
     viewer?.let { i -> PhotoViewer(if (photos.isNotEmpty()) photos.toList() else listOfNotNull(wikiImg), i, title) { viewer = null } }
 
     linkEdit?.let { kind ->
@@ -594,7 +631,6 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
     val ctx = LocalContext.current
     var expanded by remember(t.id) { mutableStateOf(false) }
     var colorMenu by remember { mutableStateOf(false) }
-    var modeMenu by remember { mutableStateOf(false) }
     var folderMenu by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     var plan by remember { mutableStateOf(false) }
@@ -636,20 +672,17 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
                 }
             }
             Spacer(Modifier.width(6.dp))
-            Box {
-                Box(Modifier.size(30.dp).clip(CircleShape).background(Pal.Bg).clickable { modeMenu = true }, contentAlignment = Alignment.Center) {
-                    Icon(modeIcon(mode), "Транспорт", tint = Pal.Ink, modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(modeMenu, { modeMenu = false }) {
-                    listOf("car" to "Авто", "bike" to "Велосипед", "foot" to "Пешком").forEach { (k, n) ->
-                        DropdownMenuItem({ Text(n) }, { modeMenu = false; update { withMode(it, k) } }, leadingIcon = { Icon(modeIcon(k), null) })
-                    }
-                }
-            }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                androidx.compose.foundation.text.BasicTextField(name, { name = it; tick++ }, textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Pal.Ink),
-                    modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                // название правится только в раскрытом окне
+                if (expanded) androidx.compose.foundation.text.BasicTextField(name, { name = it; tick++ }, textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Pal.Ink),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Pal.Bg).padding(horizontal = 6.dp, vertical = 2.dp), maxLines = 3)
+                else Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, modifier = Modifier.clickable { expanded = true })
+                // для кого построен трек — просто надпись
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(modeIcon(mode), null, tint = Pal.Muted, modifier = Modifier.size(14.dp))
+                    Text(" " + when (mode) { "car" -> "на авто"; "bike" -> "на велосипеде"; else -> "пешком" }, style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                }
                 Box {
                     Text(Instant.ofEpochMilli(t.startedAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")) + " · 📁 " + folderPath(t.folderId, folders) + " ▾",
                         style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.clickable { folderMenu = true })
@@ -659,21 +692,21 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
                     }
                 }
                 trackPlan(t)?.let { at ->
-                    Text("Запланировано на " + Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM HH:mm")),
-                        style = MaterialTheme.typography.labelLarge, color = Color(0xFFD13B3B), fontWeight = FontWeight.Bold)
+                    Text("Запланировано на " + Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM HH:mm")) + if (trackTask(t) != null) " ›" else "",
+                        style = MaterialTheme.typography.labelLarge, color = Color(0xFFD13B3B), fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable(enabled = trackTask(t) != null) { MapUi.openTodo = "task:${trackTask(t)}" })
                 }
             }
             IconButton({ expanded = !expanded }) { Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess, "Подробнее", tint = Pal.Muted) }
             IconButton(onClose) { Icon(Icons.Rounded.Close, "Закрыть", tint = Pal.Muted) }
         }
-        // описание: заголовок, под ним сам текст — правится прямо здесь
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        // описание: заголовок, под ним текст; править — только в раскрытом окне
+        if (expanded || desc.isNotBlank()) Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
             Text("Описание", style = MaterialTheme.typography.labelLarge, color = Pal.Muted)
-            Box {
+            if (expanded) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Pal.Bg).padding(horizontal = 6.dp, vertical = 4.dp)) {
                 if (desc.isEmpty()) Text("Добавить описание…", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
-                androidx.compose.foundation.text.BasicTextField(desc, { desc = it; tick++ }, textStyle = MaterialTheme.typography.bodyMedium.copy(color = Pal.Ink),
-                    modifier = Modifier.fillMaxWidth(), maxLines = if (expanded) 20 else 3)
-            }
+                androidx.compose.foundation.text.BasicTextField(desc, { desc = it; tick++ }, textStyle = MaterialTheme.typography.bodyMedium.copy(color = Pal.Ink), modifier = Modifier.fillMaxWidth())
+            } else Text(desc, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
         }
         Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Stat("Путь", MapPrefs.dist(ctx, t.distanceM))
@@ -712,7 +745,8 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
             val cur = AppDb.get(ctx).map().track(t.id) ?: t
             AppDb.get(ctx).map().upsertTrack(cur.copy(meta = runCatching { if (cur.meta.isBlank()) org.json.JSONObject() else org.json.JSONObject(cur.meta) }.getOrDefault(org.json.JSONObject()).put("plan", at).toString()))
             val end = Osm.decode(cur.points).lastOrNull()
-            planTask(ctx, t.id, cur.name, routeWay(cur)?.second?.lastOrNull() ?: end?.let { MapPrefs.Spot("Финиш", it.lat, it.lon) }, at)
+            val task = planTask(ctx, t.id, cur.name, routeWay(cur)?.second?.lastOrNull() ?: end?.let { MapPrefs.Spot("Финиш", it.lat, it.lon) }, at)
+            AppDb.get(ctx).map().track(t.id)?.let { tr -> AppDb.get(ctx).map().upsertTrack(tr.copy(meta = org.json.JSONObject(tr.meta.ifBlank { "{}" }).put("task", task).toString())) }
             withContext(Dispatchers.Main) { Toast.makeText(ctx, "Запланировано — задача в ToDo", Toast.LENGTH_SHORT).show() }
         }
     }
@@ -915,9 +949,10 @@ internal fun withDesc(t: Track, d: String): Track {
 
 /** Сведения о тропе/маршруте из OSM (длина, откуда—куда, оператор, описание) и Википедии, ссылки на OSM и сайт. */
 @Composable
-private fun RouteInfoBlock(t: MapTarget, wiki: PlaceInfo.Wiki?) {
+private fun RouteInfoBlock(t: MapTarget, wiki: PlaceInfo.Wiki?, info: PlaceInfo.Info?) {
     val ctx = LocalContext.current
     val p = t.props
+    val tg = info?.tags.orEmpty()
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Bg).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("О маршруте", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         @Composable fun row(k: String, v: String?) { if (!v.isNullOrBlank()) Row { Text(k, style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, modifier = Modifier.width(110.dp)); Text(v, style = MaterialTheme.typography.bodyMedium) } }
@@ -927,16 +962,27 @@ private fun RouteInfoBlock(t: MapTarget, wiki: PlaceInfo.Wiki?) {
         row("Кольцевой", if (p["roundtrip"] == "yes") "да" else null)
         row("Ведёт", p["operator"])
         row("Знак", p["symbol"])
+        row("Покрытие", (p["surface"] ?: tg["surface"])?.let { SURFACES[it] ?: it })
+        row("Сложность", tg["sac_scale"]?.let { SAC[it] ?: it })
+        row("Ширина", tg["width"]?.let { "$it м" })
+        row("Освещение", tg["lit"]?.let { if (it == "yes") "есть" else "нет" })
+        row("Велосипед", tg["bicycle"]?.let { if (it in setOf("yes", "designated")) "можно" else if (it == "no") "нельзя" else it })
         p["description"]?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-        if (p["osm"] == null && p["distance"] == null) Text("Подсвечена на карте целиком. Подробнее — в OpenStreetMap и Википедии ниже.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+        if (p["osm"] == null && p["distance"] == null && tg.isEmpty() && wiki == null) Text(if (Net.online) "Подсвечена на карте целиком. Ищу сведения в OpenStreetMap и Википедии…" else "Подсвечена на карте целиком. Сведения из OSM и Википедии — при интернете.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
         wiki?.let { w ->
             Text(w.extract, style = MaterialTheme.typography.bodyMedium, maxLines = 10, modifier = Modifier.padding(top = 4.dp))
             Text("Читать в Википедии ›", style = MaterialTheme.typography.labelLarge, color = Pal.SkyInk, modifier = Modifier.clickable { web(ctx, w.url) })
         }
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            p["osm"]?.let { id -> ActionChip(Icons.Rounded.Map, "OpenStreetMap", Pal.Lilac, Pal.LilacInk) { web(ctx, "https://www.openstreetmap.org/relation/$id") } }
+            (p["osm"]?.let { "https://www.openstreetmap.org/relation/$it" } ?: info?.osmUrl?.ifBlank { null })?.let { u -> ActionChip(Icons.Rounded.Map, "OpenStreetMap", Pal.Lilac, Pal.LilacInk) { web(ctx, u) } }
             p["website"]?.let { u -> ActionChip(Icons.Rounded.Language, "Сайт", Pal.Lilac, Pal.LilacInk) { web(ctx, if (u.startsWith("http")) u else "https://$u") } }
             p["osm"]?.let { id -> ActionChip(Icons.Rounded.Route, "Профиль высот", Pal.Sky, Pal.SkyInk) { web(ctx, "https://hiking.waymarkedtrails.org/#route?id=$id") } }
         }
     }
 }
+
+private val SURFACES = mapOf("asphalt" to "асфальт", "paved" to "твёрдое", "unpaved" to "грунт", "ground" to "грунт", "dirt" to "земля", "gravel" to "гравий",
+    "fine_gravel" to "мелкий гравий", "compacted" to "укатанное", "grass" to "трава", "sand" to "песок", "paving_stones" to "плитка", "concrete" to "бетон",
+    "wood" to "дерево", "rock" to "камень", "pebblestone" to "галька", "mud" to "грязь")
+private val SAC = mapOf("hiking" to "лёгкая (T1)", "mountain_hiking" to "горная (T2)", "demanding_mountain_hiking" to "сложная горная (T3)",
+    "alpine_hiking" to "альпийская (T4)", "demanding_alpine_hiking" to "сложная альпийская (T5)", "difficult_alpine_hiking" to "очень сложная (T6)")

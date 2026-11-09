@@ -324,6 +324,9 @@ object MapStyle {
             n.put("id", l.getString("id") + "@" + c); n.put("source", src)
             // за границей (онлайн-мир) — подписи по-русски/латиницей: местные (арабские, грузинские, китайские…) шрифты в приложении не лежат
             n.optJSONObject("layout")?.let { lay -> if (lay.optString("text-field") == "__NAME__") lay.put("text-field", if (c == "w") worldName else name) }
+            // названия тропинок — над пунктиром, а не прямо в нём
+            if (l.getString("id") == "road_label") n.optJSONObject("layout")?.put("text-offset",
+                JSONArray("""["match",["get","class"],["path","track"],["literal",[0,-0.95]],["literal",[0,0.15]]]"""))
             // подписи стран/городов на мелких зумах даёт слой мира — чтобы не двоились
             if (hasWorld && n.optString("source-layer") == "place" && n.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) n.put("minzoom", HATCH_MIN_ZOOM)
             // на мелких зумах в тайлах страны лежит океан Natural Earth для всего мира — давал синие прямоугольники поверх рельефа

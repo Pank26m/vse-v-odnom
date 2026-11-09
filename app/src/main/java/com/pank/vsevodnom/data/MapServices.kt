@@ -116,20 +116,23 @@ object GooglePlaces {
         p.edit().putString("g_ids", o.put(idKey(name, lat, lon), id).toString()).apply()
     }
     fun cached(id: String?): Details? = id?.let { synchronized(mem) { mem[it] } }
+    /** Откуда последний раз взяты сведения места: mem — память (пока приложение открыто), disk — зашифрованный кэш, net — запрос к Google. */
+    val source = java.util.concurrent.ConcurrentHashMap<String, String>()
     fun cachedPhoto(name: String): android.graphics.Bitmap? = synchronized(photoMem) { photoMem[name] }
 
     /** Из памяти или зашифрованного кэша на телефоне (30 дней) — без запроса к Google. */
     fun stored(ctx: Context, id: String?): Details? {
         if (id == null) return null
-        cached(id)?.let { return it }
+        cached(id)?.let { source[id] = if (source[id] == "net") "mem" else source[id] ?: "mem"; return it }
         val raw = GCache.get(ctx, "d:$id") ?: return null
-        return runCatching { parse(JSONObject(String(raw))) }.getOrNull()?.also { d -> synchronized(mem) { mem[id] = d } }
+        return runCatching { parse(JSONObject(String(raw))) }.getOrNull()?.also { d -> synchronized(mem) { mem[id] = d }; source[id] = "disk" }
     }
 
     suspend fun details(ctx: Context, id: String): Details = withContext(Dispatchers.IO) {
         stored(ctx, id) ?: run {
             val o = req(ctx, "https://places.googleapis.com/v1/places/$id?languageCode=ru", DETAIL_FIELDS, null)
             GCache.put(ctx, "d:$id", o.toString().toByteArray())
+            source[id] = "net"
             parse(o).also { d -> synchronized(mem) { mem[id] = d } }
         }
     }

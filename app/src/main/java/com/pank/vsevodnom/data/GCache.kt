@@ -56,6 +56,9 @@ object GCache {
         }.getOrElse { f.delete(); null }
     }
 
+    /** Когда сохранено (мс) или null. */
+    fun savedAt(ctx: Context, key: String): Long? = File(dir(ctx), name(key)).takeIf { it.exists() }?.lastModified()
+
     /** Убрать просроченное (раз при запуске карты). */
     fun prune(ctx: Context) = runCatching { dir(ctx).listFiles()?.forEach { if (System.currentTimeMillis() - it.lastModified() > TTL) it.delete() } }
     fun clear(ctx: Context) = runCatching { dir(ctx).deleteRecursively() }

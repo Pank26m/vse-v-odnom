@@ -150,5 +150,10 @@ class MapStyleTest {
         val cp = com.pank.vsevodnom.ui.map.controlPoints(pts, 12)
         assertTrue(cp.size in 3..12)
         assertEquals(pts.first(), cp.first()); assertEquals(pts.last(), cp.last())
+        // кольцо: конец рядом с началом — без точек-дублей ближе 150 м (номера ложились друг на друга)
+        val ring = (0..400).map { i -> val a = Math.toRadians(i * 0.9); com.pank.vsevodnom.data.GeoPt(50.0 + 0.03 * Math.sin(a), 30.0 + 0.045 * Math.cos(a), 0) }
+        val rc = com.pank.vsevodnom.ui.map.controlPoints(ring, 20)
+        for (i in rc.indices) for (j in i + 1 until rc.size - 1) assertTrue(com.pank.vsevodnom.data.Osm.distance(rc[i], rc[j]) >= 150)
+        assertTrue(rc.size >= 15)
     }
 }

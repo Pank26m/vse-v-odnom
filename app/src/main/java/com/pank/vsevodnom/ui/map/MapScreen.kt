@@ -131,6 +131,8 @@ object MapUi {
     var reselect by mutableIntStateOf(0)
     /** Открыть на карте из других разделов (задача ToDo): трек или точку; go — сразу «В путь». */
     var request by mutableStateOf<MapRequest?>(null)
+    /** Открыть задачу ToDo («task:ID») — например, по надписи «Запланировано…». */
+    var openTodo by mutableStateOf<String?>(null)
 }
 data class MapRequest(val trackId: Long? = null, val lat: Double = 0.0, val lon: Double = 0.0, val name: String = "", val go: Boolean = false)
 
@@ -267,7 +269,8 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             m.addOnCameraIdleListener {
                 scale(); world.check(m, force = true)
                 // повернули чуть-чуть (до 10°) — выровнять на север; в режиме компаса и в навигации не трогаем
-                if (locMode == 0 && Nav.session == null && !quickZoom.active && nearNorth(m.cameraPosition.bearing)) m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 220)
+                // и в навигации, если карту крутили рукой (ведение на паузе); пока ведёт по курсу — не трогаем
+                if (locMode == 0 && !quickZoom.active && nearNorth(m.cameraPosition.bearing)) m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 220)
                 val c = m.cameraPosition
                 c.target?.let { t -> prefs.edit().putFloat("zoom", c.zoom.toFloat()).putFloat("lat", t.latitude.toFloat()).putFloat("lon", t.longitude.toFloat()).apply() }
             }
@@ -318,13 +321,18 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     }
                 }
                 val f = pointF ?: all.firstOrNull { f -> f.hasNonNullValueForProperty("name") }
-                if (f != null && f.geometry() !is Point && (f.getStringProperty("class") in setOf("path", "track", "pedestrian") || f.getStringProperty("subclass") in setOf("footway", "path", "cycleway", "bridleway", "steps"))) {
-                    val nm = f.getStringProperty("name")!!
-                    val parts = runCatching { m.style?.sources?.filter { it.id.startsWith("omt_") || it.id == "ofm" }?.flatMap { src ->
+                // тропинка/дорожка (пунктир): название берём с неё или с подписи рядом; подсвечиваем всю, сведения — OSM и Википедия
+                fun isPath(x: Feature) = x.geometry() !is Point && (x.getStringProperty("class") in setOf("path", "track", "pedestrian") || x.getStringProperty("subclass") in setOf("footway", "path", "cycleway", "bridleway", "steps"))
+                val pathF = if (pointF == null) all.firstOrNull { isPath(it) } else null
+                if (pathF != null) {
+                    val big = RectF(box.left - r * 2, box.top - r * 2, box.right + r * 2, box.bottom + r * 2)
+                    val nm = pathF.getStringProperty("name") ?: m.queryRenderedFeatures(big).firstOrNull { isPath(it) && it.hasNonNullValueForProperty("name") }?.getStringProperty("name")
+                    val props = pathF.properties()?.entrySet()?.associate { it.key to (runCatching { it.value.asString }.getOrDefault(it.value.toString())) }.orEmpty()
+                    val kindTxt = MapNames.omt(props["class"], props["subclass"]).lowercase().ifBlank { "тропа" }
+                    val parts = if (nm == null) listOf(Feature.fromGeometry(pathF.geometry())) else runCatching { m.style?.sources?.filter { it.id.startsWith("omt_") || it.id == "ofm" }?.flatMap { src ->
                         (src as? org.maplibre.android.style.sources.VectorSource)?.querySourceFeatures(arrayOf("transportation_name"), Expression.eq(Expression.get("name"), nm)).orEmpty()
-                    } }.getOrNull().orEmpty()
-                    val props = f.properties()?.entrySet()?.associate { it.key to (runCatching { it.value.asString }.getOrDefault(it.value.toString())) }.orEmpty()
-                    open(MapTarget(nm, "Тропа · " + MapNames.omt(props["class"], props["subclass"]).lowercase(), ll.latitude, ll.longitude, props = props + ("kind" to "route")))
+                    } }.getOrNull().orEmpty().ifEmpty { listOf(Feature.fromGeometry(pathF.geometry())) }
+                    open(MapTarget(nm ?: "Тропа без названия", "Тропа · $kindTxt", ll.latitude, ll.longitude, props = props + ("kind" to "route") + (if (nm != null) mapOf("name" to nm) else emptyMap())))
                     pin(null, null); highlight(parts)
                     return@addOnMapClickListener true
                 }
@@ -453,8 +461,11 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             Feature.fromGeometry(Point.fromLngLat(pl.lon, pl.lat)).also { it.addNumberProperty("id", pl.id); it.addStringProperty("name", pl.name); it.addStringProperty("color", colorHex(pl.color, PLACE_COLOR)) }
         })
     }
-    LaunchedEffect(style, tracks, visF, showAll) {
-        val list = if (!showAll) emptyList() else tracks.filter { it.visible && (it.folderId == null || it.folderId in visF) }
+    LaunchedEffect(style, tracks, visF, showAll, RoutePlan.editTrack, RoutePlan.active) {
+        // правленый трек прячем — на его месте новый маршрут планировщика
+        // (запись GPS/импорт сами не перезаписываются — их не прячем)
+        val hide = RoutePlan.editTrack?.takeIf { RoutePlan.active && routeWay(it) != null }?.id
+        val list = if (!showAll) emptyList() else tracks.filter { it.visible && (it.folderId == null || it.folderId in visF) && it.id != hide }
         val feats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             list.mapNotNull { t -> Osm.decode(t.points).takeIf { it.size >= 2 }?.let { pts ->
                 Feature.fromGeometry(line(pts)).also { it.addNumberProperty("id", t.id); it.addStringProperty("color", colorHex(t.color, TRACK_COLOR)) } } }
@@ -503,7 +514,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         RoutePlan.busy = true
         RoutePlan.climb = null
         runCatching { Nav.best(ctx, RoutePlan.mode, way) }
-            .onSuccess { RoutePlan.route = it; fit(it.points) }
+            .onSuccess { RoutePlan.route = it; fit(it.points); RoutePlan.editTrack?.takeIf { tr -> routeWay(tr) != null }?.let { tr -> saveRouteAsTrack(ctx, tr, quiet = true) } }
             .onFailure { RoutePlan.route = null; RoutePlan.error = it.message ?: "Маршрут не построен" }
         RoutePlan.busy = false
         // подъём и спуск: высоты BRouter или рельеф с телефона
@@ -603,6 +614,14 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 .onFailure { Toast.makeText(ctx, it.message ?: "Путь не построен", Toast.LENGTH_LONG).show() }
         }
     }
+    // «Начать сейчас» из задачи: маршрут построился от моего места — сразу ведём
+    LaunchedEffect(RoutePlan.route) {
+        val r = RoutePlan.route ?: return@LaunchedEffect
+        if (!RoutePlan.autoGo || RoutePlan.points.first() != null || r.steps.isEmpty()) return@LaunchedEffect
+        RoutePlan.autoGo = false
+        val way = listOfNotNull(myLoc) + RoutePlan.points.drop(1).filterNotNull().map { GeoPt(it.lat, it.lon, 0) }
+        startNav(r, RoutePlan.dest?.name ?: "", way, RoutePlan.mode); RoutePlan.close()
+    }
     // открыть из задачи ToDo: трек или место; «Начать сейчас» — сразу в путь
     LaunchedEffect(MapUi.request, map, style) {
         val q = MapUi.request ?: return@LaunchedEffect
@@ -613,7 +632,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             target = null; pin(null, null); selTrack = t; fit(Osm.decode(t.points))
             if (q.go) { delay(400); goTrack(t) }
         } else if (q.lat != 0.0 || q.lon != 0.0) {
-            if (q.go) { RoutePlan.open(ctx); RoutePlan.setTo(MapPrefs.Spot(q.name, q.lat, q.lon, "")) }
+            if (q.go) { RoutePlan.open(ctx); RoutePlan.setFrom(null); RoutePlan.setTo(MapPrefs.Spot(q.name, q.lat, q.lon, "")); RoutePlan.autoGo = true }
             else { flyAbove(q.lat, q.lon, 16.5); open(MapTarget(q.name, "", q.lat, q.lon)) }
         }
     }
@@ -621,7 +640,11 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     fun locTap() {
         val m = map ?: return; val st = style ?: return
         if (!hasLoc(ctx)) { askLoc(); return }
-        if (Nav.session != null) { navFollow(); return }        // в навигации «где я» возвращает к ведению
+        // в навигации: карта сдвинута/повёрнута рукой — первое нажатие ставит север, второе возвращает к ведению
+        if (Nav.session != null) {
+            if (locMode == 0 && abs(((live.bearing + 540f) % 360f) - 180f) > 1.5f) { m.animateCamera(CameraUpdateFactory.bearingTo(0.0), 350); navFreeAt = System.currentTimeMillis(); return }
+            navFollow(); return
+        }
         MapKit.enableLocation(ctx, m, st, false)
         val lc = m.locationComponent
         if (lc.lastKnownLocation == null) Toast.makeText(ctx, "Ищу спутники…", Toast.LENGTH_SHORT).show()

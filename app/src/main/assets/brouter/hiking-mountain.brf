@@ -59,7 +59,7 @@ assign   turnInstructionCatchingRange  20 # V1.8.5 / default=40, but foot paths 
 
 
 # as initial point, considered flat speed 4 km/h, climbing speed 600 m /h
-assign   uphillcostvalue      7
+assign   uphillcostvalue      30
 assign   uphillcutoffvalue      3
 assign   downhillcutoffvalue  3
 assign   downhillcostvalue    7

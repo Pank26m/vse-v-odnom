@@ -29,7 +29,7 @@ object Nav {
     // ---------------- офлайн-маршрут ----------------
 
     private fun profiles(ctx: Context): File {
-        val d = File(ctx.filesDir, "brouter/profiles2").apply { mkdirs() }
+        val d = File(ctx.filesDir, "brouter/profiles3").apply { mkdirs() }
         listOf("lookups.dat", "car-vario.brf", "trekking.brf", "hiking-mountain.brf", "shortest.brf").forEach { n ->
             val f = File(d, n)
             if (!f.exists() || f.length() == 0L) ctx.assets.open("brouter/$n").use { i -> f.outputStream().use { i.copyTo(it) } }
@@ -39,14 +39,13 @@ object Nav {
 
     fun offlineAvailable(ctx: Context) = OfflineMaps.installed(ctx).any { "routing" in it.value.second }
 
-    suspend fun offlineRoute(ctx: Context, mode: String, way: List<GeoPt>, avoidToll: Boolean = false): Routing.Route = withContext(Dispatchers.Default) {
-        val prof = File(profiles(ctx), when (mode) { "bike" -> "trekking.brf"; "foot" -> "hiking-mountain.brf"; else -> "car-vario.brf" })
+    private fun brouter(ctx: Context, prof: File, way: List<GeoPt>, avoidToll: Boolean, car: Boolean): Routing.Route {
         val rc = RoutingContext()
         rc.localFunction = prof.absolutePath
         rc.turnInstructionMode = 9      // в профиле «1 = авто по источнику» оставляет подсказки выключенными
         rc.memoryclass = runCatching { ctx.getSystemService(ActivityManager::class.java).largeMemoryClass }.getOrDefault(128)
         fun node(p: GeoPt, n: String) = OsmNodeNamed().apply { name = n; ilon = ((p.lon + 180.0) * 1e6 + 0.5).toInt(); ilat = ((p.lat + 90.0) * 1e6 + 0.5).toInt() }
-        if (avoidToll && mode == "car") rc.keyValues = hashMapOf("avoid_toll" to "1")
+        if (avoidToll && car) rc.keyValues = hashMapOf("avoid_toll" to "1")
         val wpts = ArrayList(way.mapIndexed { i, p -> node(p, if (i == 0) "from" else if (i == way.size - 1) "to" else "via$i") })
         val engine = RoutingEngine(null, null, OfflineMaps.segmentsDir(ctx), wpts, rc)
         engine.quite = true
@@ -56,7 +55,42 @@ object Nav {
         } ?: "Офлайн-маршрут не найден")
         val pts = t.nodes.map { GeoPt(it.iLat / 1e6 - 90.0, it.iLon / 1e6 - 180.0, 0, it.elev.takeIf { e -> e > -1000 } ?: Double.NaN) }
         val steps = HintAccess.hints(t).map { Routing.Step(it[1].coerceIn(0, pts.size - 1), it[0], it[2]) }.filter { it.cmd != C } + Routing.Step(pts.size - 1, END)
-        Routing.Route(pts, t.distance.toDouble(), t.totalSeconds.toDouble(), steps = steps, source = "офлайн")
+        if (pts.size < 2 || t.distance <= 0) throw Exception("Офлайн-маршрут не найден")
+        return Routing.Route(pts, t.distance.toDouble(), t.totalSeconds.toDouble(), steps = steps, source = "офлайн")
+    }
+
+    /** Точка на линии в [m] метрах от начала: индекс и сама точка. */
+    private fun along(pts: List<GeoPt>, m: Double): Int {
+        var d = 0.0
+        for (i in 1 until pts.size) { d += Osm.distance(pts[i - 1], pts[i]); if (d >= m) return i }
+        return pts.size - 1
+    }
+
+    suspend fun offlineRoute(ctx: Context, mode: String, way: List<GeoPt>, avoidToll: Boolean = false): Routing.Route = withContext(Dispatchers.Default) {
+        val dir = profiles(ctx)
+        val prof = File(dir, when (mode) { "bike" -> "trekking.brf"; "foot" -> "hiking-mountain.brf"; else -> "car-vario.brf" })
+        try { brouter(ctx, prof, way, avoidToll, mode == "car") } catch (e: Exception) {
+            if (mode != "car" || way.size < 2) throw e
+            // старт/финиш во дворе, на пешеходной дорожке или за шлагбаумом: машинный граф оттуда не выпускает («no track found»).
+            // Идём пешком до ближайшей машинной дороги (по пешему маршруту) и строим авто оттуда — сдвигаем на 150…1500 м.
+            val walk = runCatching { brouter(ctx, File(dir, "trekking.brf"), way, false, false) }.getOrNull() ?: throw e
+            val rev = walk.points.reversed()
+            for (cut in listOf(150.0, 400.0, 800.0, 1500.0)) for (ends in listOf(1, 2, 3)) {
+                val si = if (ends and 1 != 0) along(walk.points, cut) else 0
+                val ei = if (ends and 2 != 0) walk.points.size - 1 - along(rev, cut) else walk.points.size - 1
+                if (ei - si < 2) continue
+                val mid = way.drop(1).dropLast(1)
+                val r = runCatching { brouter(ctx, prof, listOf(walk.points[si]) + mid + walk.points[ei], avoidToll, true) }.getOrNull() ?: continue
+                val head = walk.points.take(si); val tail = walk.points.drop(ei + 1)
+                val pts = head + r.points + tail
+                var extra = 0.0
+                for (k in 1 until head.size) extra += Osm.distance(head[k - 1], head[k])
+                for (k in 1 until tail.size) extra += Osm.distance(tail[k - 1], tail[k])
+                val steps = r.steps.filter { it.cmd != END }.map { it.copy(index = it.index + head.size) } + Routing.Step(pts.size - 1, END)
+                return@withContext Routing.Route(pts, r.meters + extra, r.seconds + extra / 1.3, steps = steps, source = "офлайн")
+            }
+            throw e
+        }
     }
 
     /**
@@ -66,7 +100,8 @@ object Nav {
     suspend fun best(ctx: Context, mode: String, way: List<GeoPt>): Routing.Route {
         val toll = MapPrefsBridge.bool(ctx, "avoid_toll", false); val ferry = MapPrefsBridge.bool(ctx, "avoid_ferry", false)
         val canOnline = Net.online && !MapPrefsBridge.offlineOnly(ctx)
-        val wantOnline = MapPrefsBridge.bool(ctx, "route_online", false) && canOnline
+        // на авто — офлайн (онлайн только запасной путь): выбор «онлайн» для авто владелец заменил кнопкой Waze
+        val wantOnline = mode != "car" && MapPrefsBridge.bool(ctx, "route_online", false) && canOnline
         fun ok(r: Routing.Route) = r.points.size >= 2 && r.meters >= 1
         var err: Throwable? = null
         suspend fun off(): Routing.Route? = if (!offlineAvailable(ctx)) null else runCatching { offlineRoute(ctx, mode, way, toll) }.onFailure { err = it }.getOrNull()?.takeIf(::ok)

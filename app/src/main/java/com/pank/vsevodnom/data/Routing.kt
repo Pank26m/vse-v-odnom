@@ -22,9 +22,17 @@ object Routing {
     data class Step(val index: Int, val cmd: Int, val exit: Int = 0)
     data class Route(val points: List<GeoPt>, val meters: Double, val seconds: Double, val delay: Double = 0.0, val steps: List<Step> = emptyList(), val source: String = "")
 
-    suspend fun route(mode: String, way: List<GeoPt>, avoidToll: Boolean = false, avoidFerry: Boolean = false): Route = withContext(Dispatchers.IO) {
+    /** Сервер OSRM знает не все сочетания исключений («toll,ferry» — ошибка 400): пробуем полное, потом по одному, потом без них. */
+    suspend fun route(mode: String, way: List<GeoPt>, avoidToll: Boolean = false, avoidFerry: Boolean = false): Route {
+        val ex = listOfNotNull("toll".takeIf { avoidToll && mode == "car" }, "ferry".takeIf { avoidFerry && mode == "car" })
+        val tries = (listOf(ex.joinToString(",")) + ex + "").distinct()
+        var err: Throwable? = null
+        for (e in tries) runCatching { return route1(mode, way, e) }.onFailure { err = it }
+        throw Exception("Онлайн-маршрут не построен" + (err?.message?.takeIf { !it.startsWith("http") }?.let { ": $it" } ?: ""))
+    }
+
+    private suspend fun route1(mode: String, way: List<GeoPt>, ex: String): Route = withContext(Dispatchers.IO) {
         val profile = when (mode) { "bike" -> "routed-bike"; "foot" -> "routed-foot"; else -> "routed-car" }
-        val ex = listOfNotNull("toll".takeIf { avoidToll && mode == "car" }, "ferry".takeIf { avoidFerry && mode == "car" }).joinToString(",")
         val url = String.format(Locale.US, "https://routing.openstreetmap.de/%s/route/v1/driving/%s?overview=full&geometries=geojson&steps=true", profile,
             way.joinToString(";") { String.format(Locale.US, "%.6f,%.6f", it.lon, it.lat) }) + if (ex.isNotEmpty()) "&exclude=$ex" else ""
         val c = URL(url).openConnection() as HttpURLConnection
