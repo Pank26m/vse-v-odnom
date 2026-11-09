@@ -10,6 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // GLMap (движок карт Guru Maps): glmap, glroute, glsearch
+        maven { url = uri("https://maven.globus.software/artifactory/libs") }
     }
 }
 rootProject.name = "vse-v-odnom"

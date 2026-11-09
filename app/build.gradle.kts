@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
@@ -9,7 +8,7 @@ android {
     // движок маршрутов BRouter (MIT, исходники в app/src/brouter — см. BROUTER_LICENSE)
     sourceSets["main"].java.srcDir("src/brouter/java")
     namespace = "com.pank.vsevodnom"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.pank.vsevodnom"
@@ -21,7 +20,9 @@ android {
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     // yt-dlp запускает Python из папки нативных библиотек — их нужно распаковывать при установке
-    packaging { jniLibs { useLegacyPackaging = true } }
+    packaging { jniLibs { useLegacyPackaging = true; pickFirsts += "**/libc++_shared.so" } }
+    // карта мира GLMap (world.vm) и шрифты — без сжатия, иначе их распаковывают при первом запуске
+    androidResources { noCompress += listOf("vm", "ttf", "otf") }
 
     // Подпись релизов: ключ передаётся через переменные окружения (секреты GitHub).
     val ksPath = System.getenv("SIGNING_KEYSTORE")
@@ -48,7 +49,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
     ksp { arg("room.schemaLocation", "$projectDir/schemas") }
     testOptions { unitTests { isIncludeAndroidResources = true } }
@@ -67,9 +67,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.5")
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.room:room-ktx:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.biometric:biometric:1.1.0")
@@ -82,6 +82,9 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.github.junrar:junrar:7.5.5")
+    // GLMap (движок Guru Maps): карта с 3D-рельефом, офлайн-данные, поиск объекта под пальцем. Ключ — в «Ключах и сервисах».
+    implementation("globus:glmap:2.3.0")
+    implementation("globus:glsearch:2.3.0")
     // RAR5 (и RAR4, 7z): libarchive 3.7.4. Версия 1.1.0 — новее требуют compileSdk 37
     implementation("me.zhanghai.android.libarchive:library:1.1.0")
     implementation("org.apache.commons:commons-compress:1.21")
@@ -89,6 +92,6 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.4")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.21")
     testImplementation("org.json:json:20231013")
 }

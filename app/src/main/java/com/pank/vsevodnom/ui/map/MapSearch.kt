@@ -31,14 +31,13 @@ import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.maplibre.android.geometry.LatLng
 
 /**
  * Поиск: онлайн (OpenStreetMap / Nominatim) или офлайн по скачанным странам — сам переключается без интернета,
  * плюс свои метки и треки и координаты «50.45, 30.52». Google-поиск — второй этап (нужен ключ).
  */
 @Composable
-internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Track>, onDismiss: () -> Unit, onPick: (GeoHit) -> Unit) {
+internal fun SearchScreen(center: com.pank.vsevodnom.data.GeoPt?, places: List<Place>, tracks: List<Track>, onDismiss: () -> Unit, onPick: (GeoHit) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var q by remember { mutableStateOf("") }
@@ -52,7 +51,7 @@ internal fun SearchScreen(center: LatLng?, places: List<Place>, tracks: List<Tra
     var error by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf(MapPrefs.history(ctx)) }
     val focus = remember { FocusRequester() }
-    val lat = center?.latitude ?: 50.45; val lon = center?.longitude ?: 30.52
+    val lat = center?.lat ?: 50.45; val lon = center?.lon ?: 30.52
 
     fun own(query: String): List<GeoHit> {
         val w = query.trim().lowercase(); if (w.isEmpty()) return emptyList()

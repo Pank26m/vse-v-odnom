@@ -33,6 +33,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
     when (page) {
         null -> FullScreen("Настройки карты", onDismiss) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MenuRow(Icons.Rounded.Terrain, "Движок карты и 3D", sub = if (GlMap.engine(LocalContext.current) == "glmap") "GLMap · 3D-рельеф, карты GLMap, ключ" else "MapLibre (прежняя карта)") { page = "engine" }
                 MenuRow(Icons.Rounded.Layers, "Источник карты", sub = "офлайн (авто, пешком, вело) или онлайн-карты") { page = "source" }
                 MenuRow(Icons.Rounded.CloudDownload, "Загрузка карт", sub = "страны, размеры, обновления") { page = "downloads" }
                 MenuRow(Icons.Rounded.Storage, "Кэш карт", sub = "онлайн-тайлы на телефоне") { page = "cache" }
@@ -44,7 +45,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
                 MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "Google: места, отзывы, лимит запросов") { page = "keys" }
                 MenuRow(Icons.Rounded.Lock, "Конфиденциальность", sub = "история, работа без интернета") { page = "privacy" }
                 MenuRow(Icons.Rounded.Code, "Для разработчиков") { page = "dev" }
-                Text("Данные карт © участники OpenStreetMap (ODbL), стиль — OSM Liberty / OpenMapTiles, рельеф — Mapzen Terrain Tiles, мир — Natural Earth.",
+                Text("Данные карт © участники OpenStreetMap (ODbL). Движок GLMap © GLOBUS (globus.software). Прежняя карта: стиль — OSM Liberty / OpenMapTiles, рельеф — Mapzen Terrain Tiles, мир — Natural Earth.",
                     style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(top = 8.dp))
             }
         }
@@ -59,6 +60,7 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
         "dev" -> DevPage(onChanged) { page = null }
         "keys" -> KeysPage(onChanged) { page = null }
         "filter" -> FilterPage(onChanged) { page = null }
+        "engine" -> GlEnginePage(onChanged) { page = null }
     }
 }
 
@@ -386,6 +388,7 @@ private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
             gLimit.toIntOrNull()?.let { ApiKeys.setLimit(ctx, "google", it) }
             onChanged(); Toast.makeText(ctx, "Сохранено", Toast.LENGTH_SHORT).show()
         }, Modifier.fillMaxWidth())
+        Text("Ключ GLMap (3D-карта) — в «Движок карты и 3D».", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
         Text("Google: в консоли ограничь ключ «Приложения Android» (пакет и SHA-1 — в Настройках → О приложении) и API «Places API (New)». Waze: кнопка в карточке и маршруте открывает навигацию в Waze.",
             style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
     }

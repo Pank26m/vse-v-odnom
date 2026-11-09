@@ -73,7 +73,8 @@ object Dem {
             val v = h(ix, iy) * (1 - ax) * (1 - ay) + h(ix + 1, iy) * ax * (1 - ay) + h(ix, iy + 1) * (1 - ax) * ay + h(ix + 1, iy + 1) * ax * ay
             if (v > -500 && v < 9000) return v
         }
-        return Double.NaN
+        // рельеф GLMap (скачанные карты GLMap с рельефом)
+        return GlMap.elevation(lat, lon)
     }
 
     /**
@@ -81,7 +82,7 @@ object Dem {
      * через ~40 м, иначе подъёмы между редкими точками не видны. null — рельефа для этих мест на телефоне нет.
      */
     fun fill(ctx: Context, pts: List<GeoPt>): List<GeoPt>? {
-        if (pts.isEmpty() || available(ctx).isEmpty()) return null
+        if (pts.isEmpty() || (available(ctx).isEmpty() && !GlMap.ready)) return null
         val out = ArrayList<GeoPt>(pts.size * 2)
         for (i in pts.indices) {
             val p = pts[i]

@@ -22,7 +22,6 @@ import com.pank.vsevodnom.data.Osm
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
 import kotlinx.coroutines.launch
-import org.maplibre.android.maps.MapLibreMap
 
 /** Выбор любой точки на карте: двигаешь карту под булавку, «Выбрать» — место с адресом. */
 @Composable
@@ -31,26 +30,24 @@ fun MapPointPicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double
     val scope = rememberCoroutineScope()
     val prefs = remember { ctx.getSharedPreferences("map", android.content.Context.MODE_PRIVATE) }
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val view = rememberMapView()
-        var map by remember { mutableStateOf<MapLibreMap?>(null) }
+        val eng = rememberEngine()
         var address by remember { mutableStateOf("Двигай карту — булавка в центре") }
         var busy by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
-            view.getMapAsync { m ->
-                map = m
-                m.cameraPosition = camera(prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), maxOf(prefs.getFloat("zoom", 13f).toDouble(), 13.0))
-                m.setStyle(org.maplibre.android.maps.Style.Builder().fromJson(MapStyle.build(ctx, MapStyle.opts(ctx)))) { s ->
-                    view.addOnStyleImageMissingListener { id -> if (id.startsWith("p:")) runCatching { s.addImage(id, poiBitmap(ctx, id.removePrefix("p:"), ctx.resources.displayMetrics.density)) } }
-                    if (com.pank.vsevodnom.data.TrackService.canStart(ctx)) MapKit.enableLocation(ctx, m, s, false)
+            eng.start(object : MapEngine.Listener {
+                override fun onCamera(bearing: Float, zoom: Float, metersPerPixel: Double) {}
+                override fun onIdle(lat: Double, lon: Double, zoom: Double) {
+                    if (com.pank.vsevodnom.data.Net.online) scope.launch { Osm.reverse(lat, lon)?.let { address = it.name + if (it.address.isNotBlank() && it.address != it.name) " · " + it.address else "" } }
                 }
-                m.addOnCameraIdleListener {
-                    val t = m.cameraPosition.target ?: return@addOnCameraIdleListener
-                    if (com.pank.vsevodnom.data.Net.online) scope.launch { Osm.reverse(t.latitude, t.longitude)?.let { address = it.name + if (it.address.isNotBlank() && it.address != it.name) " · " + it.address else "" } }
-                }
-            }
+                override fun onGesture() {}
+                override fun onTap(x: Float, y: Float, lat: Double, lon: Double) {}
+                override fun onLongTap(lat: Double, lon: Double) {}
+                override fun onFollow(mode: Int) {}
+            }, prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), maxOf(prefs.getFloat("zoom", 13f).toDouble(), 13.0))
         }
+        LaunchedEffect(eng.gen) { if (eng.gen > 0 && com.pank.vsevodnom.data.TrackService.canStart(ctx)) eng.enableLocation() }
         Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-            AndroidView({ view }, Modifier.fillMaxSize())
+            AndroidView({ eng.view }, Modifier.fillMaxSize())
             // булавка по центру (низ иконки — точка)
             Icon(Icons.Rounded.Place, null, Modifier.align(Alignment.Center).offset(y = (-22).dp).size(46.dp), tint = Pal.RoseInk)
             Box(Modifier.align(Alignment.Center).size(6.dp).clip(CircleShape).background(Pal.Ink))
@@ -59,11 +56,11 @@ fun MapPointPicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double
                 Text(address, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
                 Spacer(Modifier.height(10.dp))
                 PillButton(if (busy) "…" else "Выбрать эту точку", {
-                    val t = map?.cameraPosition?.target ?: return@PillButton
+                    val t = eng.center() ?: return@PillButton
                     busy = true
                     scope.launch {
-                        val name = runCatching { Osm.reverse(t.latitude, t.longitude)?.name }.getOrNull() ?: "%.5f, %.5f".format(t.latitude, t.longitude)
-                        onPick(Triple(name, t.latitude, t.longitude))
+                        val name = runCatching { Osm.reverse(t.lat, t.lon)?.name }.getOrNull() ?: "%.5f, %.5f".format(t.lat, t.lon)
+                        onPick(Triple(name, t.lat, t.lon))
                     }
                 }, Modifier.fillMaxWidth())
             }
