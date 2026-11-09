@@ -71,17 +71,18 @@ private const val TRASH_DAYS = 60
 data class NoteAtt(
     val photos: List<String> = emptyList(), val audio: List<String> = emptyList(), val drawings: List<String> = emptyList(),
     val place: Triple<String, Double, Double>? = null, val files: List<String> = emptyList(), val contacts: List<String> = emptyList(),
+    val track: Long? = null,        // запланированный маршрут на «Карте» (id трека)
 ) {
-    fun isEmpty() = photos.isEmpty() && audio.isEmpty() && drawings.isEmpty() && place == null && files.isEmpty() && contacts.isEmpty()
+    fun isEmpty() = photos.isEmpty() && audio.isEmpty() && drawings.isEmpty() && place == null && files.isEmpty() && contacts.isEmpty() && track == null
     fun toJson(): String = if (isEmpty()) "" else JSONObject().put("photos", JSONArray(photos)).put("audio", JSONArray(audio)).put("drawings", JSONArray(drawings))
         .put("files", JSONArray(files)).put("contacts", JSONArray(contacts))
-        .apply { place?.let { put("place", JSONObject().put("name", it.first).put("lat", it.second).put("lon", it.third)) } }.toString()
+        .apply { place?.let { put("place", JSONObject().put("name", it.first).put("lat", it.second).put("lon", it.third)) }; track?.let { put("track", it) } }.toString()
     companion object {
         private fun l(o: JSONObject, k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
         fun of(s: String): NoteAtt = runCatching {
             val o = JSONObject(s)
             NoteAtt(l(o, "photos"), l(o, "audio"), l(o, "drawings"), o.optJSONObject("place")?.let { Triple(it.optString("name"), it.getDouble("lat"), it.getDouble("lon")) },
-                l(o, "files"), l(o, "contacts"))
+                l(o, "files"), l(o, "contacts"), if (o.has("track")) o.optLong("track") else null)
         }.getOrDefault(NoteAtt())
     }
 }

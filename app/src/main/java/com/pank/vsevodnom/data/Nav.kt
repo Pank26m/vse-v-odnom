@@ -59,16 +59,20 @@ object Nav {
         Routing.Route(pts, t.distance.toDouble(), t.totalSeconds.toDouble(), steps = steps, source = "офлайн")
     }
 
-    /** Лучший доступный маршрут: офлайн (если есть данные и выбрано), иначе TomTom (авто) / OSRM. */
+    /**
+     * Маршрут: по умолчанию офлайн (BRouter на телефоне), по выбору — онлайн (OSRM). Если выбранный способ не построил
+     * (нет данных/сети или вышел пустой маршрут), пробуем другой. Пустой результат (0 м) считается ошибкой.
+     */
     suspend fun best(ctx: Context, mode: String, way: List<GeoPt>): Routing.Route {
         val toll = MapPrefsBridge.bool(ctx, "avoid_toll", false); val ferry = MapPrefsBridge.bool(ctx, "avoid_ferry", false)
-        val preferOffline = !Net.online || MapPrefsBridge.offlineOnly(ctx) || MapPrefsBridge.bool(ctx, "prefer_offline_route", false)
-        if (offlineAvailable(ctx) && (preferOffline || !MapPrefsBridge.bool(ctx, "online_nav", true))) runCatching { return offlineRoute(ctx, mode, way, toll) }
-        if (Net.online && !MapPrefsBridge.offlineOnly(ctx)) {
-            runCatching { return Routing.route(mode, way, toll, ferry) }
-        }
-        if (offlineAvailable(ctx)) return offlineRoute(ctx, mode, way, toll)
-        throw Exception(if (Net.online) "Маршрут не построен" else "Нет интернета и офлайн-данных маршрутов (Загрузка карт → Маршруты)")
+        val canOnline = Net.online && !MapPrefsBridge.offlineOnly(ctx)
+        val wantOnline = MapPrefsBridge.bool(ctx, "route_online", false) && canOnline
+        fun ok(r: Routing.Route) = r.points.size >= 2 && r.meters >= 1
+        var err: Throwable? = null
+        suspend fun off(): Routing.Route? = if (!offlineAvailable(ctx)) null else runCatching { offlineRoute(ctx, mode, way, toll) }.onFailure { err = it }.getOrNull()?.takeIf(::ok)
+        suspend fun on(): Routing.Route? = if (!canOnline) null else runCatching { Routing.route(mode, way, toll, ferry) }.onFailure { if (err == null) err = it }.getOrNull()?.takeIf(::ok)
+        val r = if (wantOnline) on() ?: off() else off() ?: on()
+        return r ?: throw Exception(err?.message ?: if (!offlineAvailable(ctx) && !canOnline) "Нет интернета и офлайн-данных маршрутов (Загрузка карт → Маршруты)" else "Маршрут не построен")
     }
 
     // ---------------- геометрия ----------------

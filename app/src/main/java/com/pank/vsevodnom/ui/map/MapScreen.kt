@@ -127,7 +127,12 @@ internal fun visibleFolders(folders: List<MapFolder>): Set<Long> {
 enum class MapSheet { NONE, SEARCH, COLLECTIONS, LAYERS, SETTINGS }
 
 /** Повторное нажатие на вкладку «Карта» внизу: возвращает кнопки после «Рамки» (карта при этом не сбрасывается). */
-object MapUi { var reselect by mutableIntStateOf(0) }
+object MapUi {
+    var reselect by mutableIntStateOf(0)
+    /** Открыть на карте из других разделов (задача ToDo): трек или точку; go — сразу «В путь». */
+    var request by mutableStateOf<MapRequest?>(null)
+}
+data class MapRequest(val trackId: Long? = null, val lat: Double = 0.0, val lon: Double = 0.0, val name: String = "", val go: Boolean = false)
 
 @Composable
 fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
@@ -174,7 +179,9 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var clean by remember { mutableStateOf(false) }          // «рамка»: все кнопки спрятаны, вернуть — вкладка «Карта» внизу
     var frameMenu by remember { mutableStateOf(false) }
     var overview by remember { mutableStateOf(false) }       // навигация: показан весь маршрут
+    var navFreeAt by remember { mutableLongStateOf(0L) }       // навигация: когда карту тронули рукой
     var similar by remember { mutableStateOf<Pair<String, List<GeoHit>>?>(null) }
+    var simIdx by remember { mutableIntStateOf(0) }
     LaunchedEffect(MapUi.reselect) { if (MapUi.reselect > 0) { clean = false; frameMenu = false } }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -208,8 +215,18 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
     fun pin(lat: Double?, lon: Double?) { style?.setFeatures("u-pin", if (lat == null || lon == null) emptyList() else listOf(Feature.fromGeometry(Point.fromLngLat(lon, lat)))) }
     fun open(t: MapTarget) { selTrack = null; target = t; pin(if (t.place == null) t.lat else null, t.lon); if (t.props["kind"] != "route") style?.setFeatures("u-hl", emptyList()) }
+    /** Подсветить тропу целиком и показать её всю (низ экрана — под карточкой). */
+    fun highlight(parts: List<Feature>) {
+        style?.setFeatures("u-hl", parts.mapNotNull { it.geometry()?.let { g -> Feature.fromGeometry(g) } })
+        val pts = parts.flatMap { f -> when (val g = f.geometry()) {
+            is LineString -> g.coordinates(); is org.maplibre.geojson.MultiLineString -> g.coordinates().flatten(); else -> emptyList() } }.map { GeoPt(it.latitude(), it.longitude(), 0) }
+        if (pts.size >= 2) runCatching {
+            val b = LatLngBounds.Builder().apply { pts.forEach { include(LatLng(it.lat, it.lon)) } }.build()
+            map?.animateCamera(CameraUpdateFactory.newLatLngBounds(b, (50 * density).toInt(), (130 * density).toInt(), (50 * density).toInt(), (view.height * 0.5).toInt()), 700)
+        }
+    }
     fun closeAll() {
-        target = null; selTrack = null; pin(null, null); style?.setFeatures("u-hl", emptyList()); style?.setFeatures("u-sim", emptyList())
+        target = null; selTrack = null; pin(null, null); style?.setFeatures("u-hl", emptyList()); style?.setFeatures("u-sim", emptyList()); similar = null
         map?.let { m -> if ((m.cameraPosition.padding?.getOrNull(3) ?: 0.0) > 0) m.easeCamera(CameraUpdateFactory.paddingTo(0.0, 0.0, 0.0, 0.0), 300) }
     }
 
@@ -245,6 +262,8 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 if (sb != live.scaleBar) live.scaleBar = sb
             }
             m.addOnCameraMoveListener { scale(); world.check(m) }
+            // в навигации: тронул карту рукой — ведение на паузе, через 8 с без касаний вернётся само
+            m.addOnCameraMoveStartedListener { reason -> if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE && Nav.session != null) navFreeAt = System.currentTimeMillis() }
             m.addOnCameraIdleListener {
                 scale(); world.check(m, force = true)
                 // повернули чуть-чуть (до 10°) — выровнять на север; в режиме компаса и в навигации не трогаем
@@ -270,11 +289,14 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     }
                     return@addOnMapClickListener true
                 }
-                if (target != null || selTrack != null) { closeAll(); return@addOnMapClickListener true }
                 m.queryRenderedFeatures(box, "u-sim-c", "u-sim-t").firstOrNull()?.let { f ->
                     val g = f.geometry() as? Point
-                    if (g != null) { open(MapTarget(f.getStringProperty("name") ?: "", f.getStringProperty("kind") ?: "", g.latitude(), g.longitude())); return@addOnMapClickListener true }
+                    if (g != null) {
+                        similar?.second?.indexOfFirst { it.lat == g.latitude() && it.lon == g.longitude() }?.takeIf { it >= 0 }?.let { simIdx = it }
+                        open(MapTarget(f.getStringProperty("name") ?: "", f.getStringProperty("kind") ?: "", g.latitude(), g.longitude())); return@addOnMapClickListener true
+                    }
                 }
+                if (target != null || selTrack != null) { closeAll(); return@addOnMapClickListener true }
                 val all = m.queryRenderedFeatures(box)
                 // значки (с названием или без: ворота, урны, площадки — тоже открываются), потом тропы, потом подписи улиц и т. п.
                 val pointF = all.firstOrNull { it.geometry() is Point && (it.hasNonNullValueForProperty("name") || it.hasNonNullValueForProperty("class")) }
@@ -287,14 +309,25 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                         val parts = runCatching { m.style?.sources?.filter { it.id.startsWith("lines_") }?.flatMap { src ->
                             (src as? org.maplibre.android.style.sources.VectorSource)?.querySourceFeatures(arrayOf("route"), Expression.eq(Expression.get("name"), nm)).orEmpty()
                         } }.getOrNull().orEmpty()
+                        val rp = rf.properties()?.entrySet()?.associate { it.key to (runCatching { it.value.asString }.getOrDefault(it.value.toString())) }.orEmpty()
                         open(MapTarget(nm, listOfNotNull("Пеший маршрут", rf.getStringProperty("ref")?.takeIf { it.isNotBlank() }, net?.let { "$it маршрут" }).joinToString(" · "),
-                            ll.latitude, ll.longitude, props = mapOf("kind" to "route")))
+                            ll.latitude, ll.longitude, props = rp + ("kind" to "route")))
                         pin(null, null)
-                        style?.setFeatures("u-hl", parts.mapNotNull { it.geometry()?.let { g -> Feature.fromGeometry(g) } })
+                        highlight(parts)
                         return@addOnMapClickListener true
                     }
                 }
                 val f = pointF ?: all.firstOrNull { f -> f.hasNonNullValueForProperty("name") }
+                if (f != null && f.geometry() !is Point && (f.getStringProperty("class") in setOf("path", "track", "pedestrian") || f.getStringProperty("subclass") in setOf("footway", "path", "cycleway", "bridleway", "steps"))) {
+                    val nm = f.getStringProperty("name")!!
+                    val parts = runCatching { m.style?.sources?.filter { it.id.startsWith("omt_") || it.id == "ofm" }?.flatMap { src ->
+                        (src as? org.maplibre.android.style.sources.VectorSource)?.querySourceFeatures(arrayOf("transportation_name"), Expression.eq(Expression.get("name"), nm)).orEmpty()
+                    } }.getOrNull().orEmpty()
+                    val props = f.properties()?.entrySet()?.associate { it.key to (runCatching { it.value.asString }.getOrDefault(it.value.toString())) }.orEmpty()
+                    open(MapTarget(nm, "Тропа · " + MapNames.omt(props["class"], props["subclass"]).lowercase(), ll.latitude, ll.longitude, props = props + ("kind" to "route")))
+                    pin(null, null); highlight(parts)
+                    return@addOnMapClickListener true
+                }
                 if (f != null) {
                     val props = f.properties()?.entrySet()?.associate { it.key to (runCatching { it.value.asString }.getOrDefault(it.value.toString())) }.orEmpty()
                     val g = f.geometry()
@@ -355,12 +388,17 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         }
         val tilt = when (mode) { "car" -> 55.0; "bike" -> 45.0; else -> 35.0 }
         val cam = if (mode == "foot" || kmh < 6) CameraMode.TRACKING_COMPASS else CameraMode.TRACKING_GPS
-        runCatching {
-            if (cam != navCam.third) { lc.cameraMode = cam; lc.renderMode = if (cam == CameraMode.TRACKING_GPS) org.maplibre.android.location.modes.RenderMode.GPS else org.maplibre.android.location.modes.RenderMode.COMPASS }
-            if (abs(z - navCam.first) > 0.25) lc.zoomWhileTracking(z, 1200)
-            if (abs(tilt - navCam.second) > 1) lc.tiltWhileTracking(tilt, 1200)
-        }
-        navCam = Triple(z, tilt, cam); locMode = 2
+        val ok = runCatching {
+            if (cam != navCam.third) {
+                // режим, зум и наклон — одним переходом: отдельный zoomWhileTracking во время смены режима MapLibre пропускает
+                lc.renderMode = if (cam == CameraMode.TRACKING_GPS) org.maplibre.android.location.modes.RenderMode.GPS else org.maplibre.android.location.modes.RenderMode.COMPASS
+                lc.setCameraMode(cam, 900L, z, null, tilt, null)
+            } else {
+                if (abs(z - navCam.first) > 0.25) lc.zoomWhileTracking(z, 1200)
+                if (abs(tilt - navCam.second) > 1) lc.tiltWhileTracking(tilt, 1200)
+            }
+        }.isSuccess
+        if (ok) { navCam = Triple(z, tilt, cam); locMode = 2 }
     }
     fun navFollow() {
         val s = Nav.session ?: return
@@ -506,9 +544,9 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         else Toast.makeText(ctx, "Трек сохранён в коллекции", Toast.LENGTH_SHORT).show()
     }
 
-    fun startNav(r: Routing.Route, name: String, way: List<GeoPt> = emptyList()) {
+    fun startNav(r: Routing.Route, name: String, way: List<GeoPt> = emptyList(), mode: String = MapPrefs.navMode(ctx)) {
         Nav.initVoice(ctx); Nav.muted = !MapPrefs.bool(ctx, "voice", true)
-        Nav.session = Nav.Session(r, MapPrefs.navMode(ctx), name, way.ifEmpty { listOfNotNull(r.points.firstOrNull(), r.points.lastOrNull()) }); Nav.status = null
+        Nav.session = Nav.Session(r, mode, name, way.ifEmpty { listOfNotNull(r.points.firstOrNull(), r.points.lastOrNull()) }); Nav.status = null
         target = null; selTrack = null; pin(null, null)
         view.keepScreenOn = true
         style?.setFeatures("u-done", emptyList())
@@ -539,6 +577,46 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         }
     }
     LaunchedEffect(rerouteAt) { rerouteAt?.let { rerouteNav(it); rerouteAt = null } }
+    LaunchedEffect(navFreeAt) {
+        if (navFreeAt == 0L) return@LaunchedEffect
+        delay(8000)
+        if (Nav.session != null && !overview && locMode == 0) navFollow()
+    }
+    /** «В путь» по сохранённому треку: построенный маршрут — заново от меня через его точки; запись/импорт — до начала трека и дальше по нему. */
+    fun goTrack(t: Track) {
+        val pts = Osm.decode(t.points); if (pts.size < 2) return
+        val me = myLoc ?: run { Toast.makeText(ctx, "Жду геолокацию…", Toast.LENGTH_SHORT).show(); if (!hasLoc(ctx)) askLoc(); return }
+        val mode = trackMode(t)
+        Toast.makeText(ctx, "Строю путь…", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            runCatching {
+                val rw = routeWay(t)
+                if (rw != null) Nav.best(ctx, rw.first, listOf(me) + rw.second.drop(1).map { GeoPt(it.lat, it.lon, 0) })
+                else {
+                    val lead = if (Osm.distance(me, pts[0]) > 60) Nav.best(ctx, mode, listOf(me, pts[0])) else null
+                    val all = (lead?.points ?: listOf(me)) + pts
+                    val v = when (mode) { "car" -> 13.9; "bike" -> 4.5; else -> 1.3 }
+                    Routing.Route(all, (lead?.meters ?: 0.0) + t.distanceM, (lead?.seconds ?: 0.0) + t.distanceM / v,
+                        steps = lead?.steps?.filter { it.cmd != Nav.END }.orEmpty() + Routing.Step(all.size - 1, Nav.END), source = "трек")
+                }
+            }.onSuccess { r -> closeAll(); startNav(r, t.name, mode = routeWay(t)?.first ?: mode) }
+                .onFailure { Toast.makeText(ctx, it.message ?: "Путь не построен", Toast.LENGTH_LONG).show() }
+        }
+    }
+    // открыть из задачи ToDo: трек или место; «Начать сейчас» — сразу в путь
+    LaunchedEffect(MapUi.request, map, style) {
+        val q = MapUi.request ?: return@LaunchedEffect
+        if (map == null || style == null) return@LaunchedEffect
+        MapUi.request = null
+        val t = q.trackId?.let { dao.track(it) }
+        if (t != null) {
+            target = null; pin(null, null); selTrack = t; fit(Osm.decode(t.points))
+            if (q.go) { delay(400); goTrack(t) }
+        } else if (q.lat != 0.0 || q.lon != 0.0) {
+            if (q.go) { RoutePlan.open(ctx); RoutePlan.setTo(MapPrefs.Spot(q.name, q.lat, q.lon, "")) }
+            else { flyAbove(q.lat, q.lon, 16.5); open(MapTarget(q.name, "", q.lat, q.lon)) }
+        }
+    }
     DisposableEffect(Unit) { onDispose { if (Nav.session == null) Nav.shutdownVoice() } }
     fun locTap() {
         val m = map ?: return; val st = style ?: return
@@ -612,9 +690,9 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         // ---- слева по центру: масштаб ----
         if (!clean) {
         Column(Modifier.align(Alignment.CenterStart).padding(start = 12.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card)) {
-            Box(Modifier.size(48.dp).clickable { map?.animateCamera(CameraUpdateFactory.zoomIn(), 250) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Приблизить", tint = Pal.Ink) }
+            Box(Modifier.size(48.dp).clickable { if (Nav.session != null) navFreeAt = System.currentTimeMillis(); map?.animateCamera(CameraUpdateFactory.zoomIn(), 250) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Приблизить", tint = Pal.Ink) }
             Box(Modifier.width(48.dp).height(1.dp).background(Pal.Line))
-            Box(Modifier.size(48.dp).clickable { map?.animateCamera(CameraUpdateFactory.zoomOut(), 250) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Remove, "Отдалить", tint = Pal.Ink) }
+            Box(Modifier.size(48.dp).clickable { if (Nav.session != null) navFreeAt = System.currentTimeMillis(); map?.animateCamera(CameraUpdateFactory.zoomOut(), 250) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Remove, "Отдалить", tint = Pal.Ink) }
         }
         }
         if (prefs.getBoolean("dev_zoom", false)) Box(Modifier.align(Alignment.CenterStart).padding(start = 14.dp, top = 130.dp)) { ZoomText(live) }
@@ -644,8 +722,18 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             if (nav != null) NavBottom(nav, onStop = { stopNav() })
             else if (RoutePlan.active && target == null && selTrack == null) RoutePlannerBottom(myLoc, places, onGo = {
                 RoutePlan.route?.let { r -> val way = listOfNotNull(myLoc) + RoutePlan.points.drop(1).filterNotNull().map { GeoPt(it.lat, it.lon, 0) }
-                    startNav(r, RoutePlan.dest?.name ?: "", way); RoutePlan.close() }
+                    startNav(r, RoutePlan.dest?.name ?: "", way, RoutePlan.mode); RoutePlan.close() }
             }, onPickMap = { i -> pickStop = i }, onSearch = { i -> searchFor = i; sheet = MapSheet.SEARCH })
+            similar?.let { (title, hits) -> if (target != null) {
+                fun go(i: Int) { simIdx = (i + hits.size) % hits.size; val h = hits[simIdx]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon)) }
+                Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 6.dp).fillMaxWidth().shadow(6.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(Pal.Card)
+                    .clickable(interactionSource = null, indication = null) {}.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton({ go(simIdx - 1) }) { Icon(Icons.Rounded.ChevronLeft, "Назад", tint = Pal.Ink) }
+                    Text("$title рядом · ${simIdx + 1} из ${hits.size}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    IconButton({ go(simIdx + 1) }) { Icon(Icons.Rounded.ChevronRight, "Дальше", tint = Pal.Ink) }
+                    IconButton({ similar = null; style?.setFeatures("u-sim", emptyList()) }) { Icon(Icons.Rounded.Close, "Закрыть похожие", tint = Pal.Muted) }
+                }
+            } }
             target?.let { t ->
                 PlaceCard(t, myLoc, folders, onClose = { closeAll() },
                     onRoute = { kind, sp -> RoutePlan.open(ctx); RoutePlan.collapsed = false; when (kind) { "from" -> RoutePlan.setFrom(sp); "stop" -> RoutePlan.addStop(sp); else -> RoutePlan.setTo(sp) }; closeAll() },
@@ -656,13 +744,13 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                             val hits = OfflineSearch.similar(ctx, vals, tt.lat, tt.lon)
                             if (hits.isEmpty()) { Toast.makeText(ctx, if (OfflineSearch.available(ctx).isEmpty()) "Нужен офлайн-поиск страны (Загрузка карт → Поиск)" else "Похожих рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
                             style?.setFeatures("u-sim", hits.map { h -> Feature.fromGeometry(Point.fromLngLat(h.lon, h.lat)).also { it.addStringProperty("name", h.name); it.addStringProperty("kind", h.address) } })
-                            similar = tt.kind.ifBlank { "Похожие" } to hits
-                            fit(hits.map { GeoPt(it.lat, it.lon, 0) } + GeoPt(tt.lat, tt.lon, 0))
+                            similar = tt.kind.ifBlank { "Похожие" } to hits; simIdx = 0
+                            val h = hits[0]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon))
                         }
                     })
             }
             selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }, color = trackColor, onColor = { trackColor = it },
-                onEditRoute = { tr -> closeAll(); RoutePlan.load(tr) }) }
+                onEditRoute = { tr -> closeAll(); RoutePlan.load(tr) }, onGo = { tr -> goTrack(tr) }) }
         }
     }
 
@@ -690,18 +778,7 @@ fun MapScreen(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         MapSheet.NONE -> {}
     }
     renameTrack?.let { t -> TrackEditor(t, folders) { renameTrack = null } }
-    similar?.let { (title, hits) ->
-        BottomPanel({ similar = null }) {
-            Text("$title рядом · ${hits.size}", style = MaterialTheme.typography.titleMedium)
-            Text("На карте — оранжевые точки. Нажми, чтобы открыть.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
-            val from = target?.let { GeoPt(it.lat, it.lon, 0) } ?: myLoc
-            hits.forEach { h ->
-                MenuRow(Icons.Rounded.Place, h.name, sub = listOfNotNull(h.address.ifBlank { null }, from?.let { MapPrefs.dist(ctx, Osm.distance(it, GeoPt(h.lat, h.lon, 0))) }).joinToString(" · ")) {
-                    similar = null; flyAbove(h.lat, h.lon, 17.0); open(MapTarget(h.name, h.address, h.lat, h.lon))
-                }
-            }
-        }
-    }
+
     pickStop?.let { i ->
         MapPointPicker(onDismiss = { pickStop = null }) { (n, la, lo) ->
             val sp = MapPrefs.Spot(n, la, lo, "точка на карте")

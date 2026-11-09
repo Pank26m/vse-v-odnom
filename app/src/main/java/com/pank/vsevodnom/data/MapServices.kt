@@ -118,8 +118,20 @@ object GooglePlaces {
     fun cached(id: String?): Details? = id?.let { synchronized(mem) { mem[it] } }
     fun cachedPhoto(name: String): android.graphics.Bitmap? = synchronized(photoMem) { photoMem[name] }
 
+    /** Из памяти или зашифрованного кэша на телефоне (30 дней) — без запроса к Google. */
+    fun stored(ctx: Context, id: String?): Details? {
+        if (id == null) return null
+        cached(id)?.let { return it }
+        val raw = GCache.get(ctx, "d:$id") ?: return null
+        return runCatching { parse(JSONObject(String(raw))) }.getOrNull()?.also { d -> synchronized(mem) { mem[id] = d } }
+    }
+
     suspend fun details(ctx: Context, id: String): Details = withContext(Dispatchers.IO) {
-        cached(id) ?: parse(req(ctx, "https://places.googleapis.com/v1/places/$id?languageCode=ru", DETAIL_FIELDS, null)).also { d -> synchronized(mem) { mem[id] = d } }
+        stored(ctx, id) ?: run {
+            val o = req(ctx, "https://places.googleapis.com/v1/places/$id?languageCode=ru", DETAIL_FIELDS, null)
+            GCache.put(ctx, "d:$id", o.toString().toByteArray())
+            parse(o).also { d -> synchronized(mem) { mem[id] = d } }
+        }
     }
 
     /** Найти место Google по названию рядом с точкой и сразу взять сведения (2 запроса). */
@@ -127,10 +139,11 @@ object GooglePlaces {
         knownId(ctx, name, lat, lon)?.let { return@withContext details(ctx, it) }
         val body = JSONObject().put("textQuery", name).put("languageCode", "ru").put("pageSize", 1)
             .put("locationBias", JSONObject().put("circle", JSONObject().put("center", JSONObject().put("latitude", lat).put("longitude", lon)).put("radius", 300.0)))
-        val o = req(ctx, "https://places.googleapis.com/v1/places:searchText", "places.id,places.location", body).optJSONArray("places")?.optJSONObject(0) ?: return@withContext null
-        val loc = o.getJSONObject("location")
-        val r = FloatArray(1); android.location.Location.distanceBetween(lat, lon, loc.getDouble("latitude"), loc.getDouble("longitude"), r)
-        if (r[0] > 400) null else { rememberId(ctx, name, lat, lon, o.getString("id")); details(ctx, o.getString("id")) }
+        // только id — по тарифу Google это «IDs Only», самый дешёвый вид поиска; расстояние проверяем уже по сведениям
+        val o = req(ctx, "https://places.googleapis.com/v1/places:searchText", "places.id", body).optJSONArray("places")?.optJSONObject(0) ?: return@withContext null
+        val d = details(ctx, o.getString("id"))
+        val r = FloatArray(1); android.location.Location.distanceBetween(lat, lon, d.lat, d.lon, r)
+        if (r[0] > 400) null else { rememberId(ctx, name, lat, lon, o.getString("id")); d }
     }
 
     private fun parse(o: JSONObject): Details {
@@ -153,15 +166,20 @@ object GooglePlaces {
     }
 
     /** Фото — тоже платный запрос, поэтому грузим по одному и только по просьбе (листание). */
+    fun storedPhoto(ctx: Context, name: String): android.graphics.Bitmap? = cachedPhoto(name)
+        ?: GCache.get(ctx, "p:$name")?.let { b -> android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size) }?.also { bm -> synchronized(photoMem) { photoMem[name] = bm } }
+
     suspend fun photo(ctx: Context, name: String, maxPx: Int = 800): android.graphics.Bitmap? = withContext(Dispatchers.IO) {
-        cachedPhoto(name)?.let { return@withContext it }
+        storedPhoto(ctx, name)?.let { return@withContext it }
         val key = ApiKeys.google(ctx)
         if (key.isBlank() || !ApiKeys.take(ctx, "google")) return@withContext null
         runCatching {
             val c = URL("https://places.googleapis.com/v1/$name/media?maxWidthPx=$maxPx&key=" + URLEncoder.encode(key, "UTF-8")).openConnection() as HttpURLConnection
             c.setRequestProperty("X-Android-Package", ctx.packageName); c.setRequestProperty("X-Android-Cert", ApiKeys.certSha1(ctx))
             c.connectTimeout = 10_000; c.readTimeout = 20_000
-            c.inputStream.use { android.graphics.BitmapFactory.decodeStream(it) }
+            val bytes = c.inputStream.use { it.readBytes() }
+            GCache.put(ctx, "p:$name", bytes)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }.getOrNull()?.also { b -> synchronized(photoMem) { photoMem[name] = b } }
     }
 }

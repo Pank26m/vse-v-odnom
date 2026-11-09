@@ -63,6 +63,27 @@ object PlaceInfo {
         inf.copy(wiki = w)
     }
 
+    /**
+     * Статья Википедии для тропы/маршрута: по тегу wikipedia («uk:Название») или поиском по названию (в заголовке
+     * должно быть главное слово названия — чтобы не подсунуть случайную статью).
+     */
+    suspend fun wikiFor(name: String, tag: String?): Wiki? = withContext(Dispatchers.IO) {
+        tag?.takeIf { it.isNotBlank() }?.let { w ->
+            val lang = w.substringBefore(':', "uk").ifBlank { "uk" }; val title = w.substringAfter(':')
+            return@withContext summary(lang, title)?.let { s -> if (lang != "ru") ruTitle(lang, title)?.let { summary("ru", it) } ?: s else s }
+        }
+        val key = name.lowercase().split(Regex("[^a-zа-яёіїєґ0-9]+")).filter { it.length >= 4 }.maxByOrNull { it.length } ?: return@withContext null
+        for (lang in listOf("ru", "uk")) {
+            val t = runCatching {
+                val o = JSONObject(get("https://$lang.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=3&srsearch=" + URLEncoder.encode(name, "UTF-8")))
+                val a = o.getJSONObject("query").getJSONArray("search")
+                (0 until a.length()).map { a.getJSONObject(it).getString("title") }.firstOrNull { it.lowercase().contains(key.take(key.length - 1)) }
+            }.getOrNull() ?: continue
+            summary(lang, t)?.let { return@withContext it }
+        }
+        null
+    }
+
     private fun summary(lang: String, title: String): Wiki? = runCatching {
         val o = JSONObject(get("https://$lang.wikipedia.org/api/rest_v1/page/summary/" + URLEncoder.encode(title.replace(' ', '_'), "UTF-8").replace("+", "%20")))
         Wiki(o.optString("title"), o.optString("extract"), o.optJSONObject("thumbnail")?.optString("source"),

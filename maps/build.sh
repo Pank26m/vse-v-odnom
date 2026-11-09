@@ -105,6 +105,11 @@ json.dump(cat, open("work/catalog.json", "w"), ensure_ascii=False, indent=1)
 PY
 }
 
+# версия слоя заборов и троп: v2 — у троп все сведения из OSM (id, длина, откуда/куда, описание, Википедия)
+LINES_VER=2
+lines_ok() { python3 -c "import json,sys; c=json.load(open('work/catalog.json')); e=[x for x in c['countries'] if x['id']=='$1']; sys.exit(0 if e and int(e[0].get('lines_ver',1))>=$LINES_VER else 1)"; }
+export LINES_VER
+
 while IFS='|' read -r ID NAME PATHS RELID <&3; do
   NEED=()
   for part in map dem contours search; do
@@ -112,7 +117,7 @@ while IFS='|' read -r ID NAME PATHS RELID <&3; do
     if ! have "$f" || forced "$ID" || outdated "$ID" "$part"; then NEED+=("$part"); fi
   done
   # подъезды и метро собираются из выгрузки — если их ещё нет в каталоге, выгрузку тоже качаем
-  { have "$ID-entrances.mbtiles" && have "$ID-metro.json" && have "$ID-lines.mbtiles"; } || NEED+=(extra)
+  { have "$ID-entrances.mbtiles" && have "$ID-metro.json" && have "$ID-lines.mbtiles" && lines_ok "$ID"; } || NEED+=(extra)
   if [ ${#NEED[@]} -eq 0 ]; then log "$ID: всё собрано"; routing_part "$ID"; continue; fi
   log "$ID ($NAME): нужно ${NEED[*]}"
   needs() { [[ " ${NEED[*]} " == *" $1 "* ]]; }
@@ -237,7 +242,8 @@ meta = json.load(open(f"out/{cid}.json"))
 entry = dict(old); entry.update({"id": cid, "name": name, "bbox": meta["bbox"], "shape": f"{cid}.json"})
 if os.path.exists(f"out/{cid}-metro.json"): entry["metro"] = f"{cid}-metro.json"
 if os.path.exists(f"out/{cid}-entrances.mbtiles"): entry["entrances"] = f"{cid}-entrances.mbtiles"
-if os.path.exists(f"out/{cid}-lines.mbtiles"): entry["lines"] = f"{cid}-lines.mbtiles"
+if os.path.exists(f"out/{cid}-lines.mbtiles"):
+    entry["lines"] = f"{cid}-lines.mbtiles"; entry["lines_ver"] = int(os.environ.get("LINES_VER", "1")); entry["lines_built"] = datetime.datetime.now().isoformat(timespec="minutes")
 for k in names:
     if k in built: entry[k] = files(names[k]); entry[k + "_built"] = datetime.date.today().isoformat(); entry[k + "_ver"] = VER[k]
     else: entry.setdefault(k, [])

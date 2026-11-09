@@ -32,7 +32,7 @@ object OfflineMaps {
 
     data class Part(val file: String, val size: Long)
     data class Country(val id: String, val name: String, val bbox: List<Double>, val built: String, val parts: Map<String, List<Part>>, val shape: String,
-                       val partBuilt: Map<String, String> = emptyMap(), val metro: String? = null, val entrances: String? = null, val lines: String? = null) {
+                       val partBuilt: Map<String, String> = emptyMap(), val metro: String? = null, val entrances: String? = null, val lines: String? = null, val linesBuilt: String? = null) {
         fun size(kinds: Collection<String> = KINDS) = kinds.sumOf { k -> parts[k].orEmpty().sumOf { it.size } }
     }
     data class Catalog(val countries: List<Country>, val world: Part?, val labels: Part?)
@@ -129,7 +129,7 @@ object OfflineMaps {
             Country(c.getString("id"), c.optString("name", c.getString("id")), (0 until (bb?.length() ?: 0)).map { bb!!.getDouble(it) },
                 c.optString("built"), KINDS.associateWith { parts(c.optJSONArray(it)) }, c.optString("shape", c.getString("id") + ".json"),
                 KINDS.associateWith { k -> c.optString(k + "_built", c.optString("built")) }, c.optString("metro").ifBlank { null }, c.optString("entrances").ifBlank { null },
-                c.optString("lines").ifBlank { null })
+                c.optString("lines").ifBlank { null }, c.optString("lines_built").ifBlank { null })
         }
         fun one(k: String) = o.optJSONObject(k)?.let { Part(it.getString("file"), it.optLong("size")) }
         return Catalog(list.sortedBy { it.name }, one("world"), one("labels"))
@@ -213,13 +213,16 @@ object OfflineMaps {
         installed(ctx).filterValues { "map" in it.second }.keys.forEach { id ->
             val c = cat.countries.firstOrNull { it.id == id } ?: return@forEach
             listOfNotNull(c.metro?.let { it to metroFile(ctx, id) }, c.entrances?.let { it to entrancesFile(ctx, id) }, c.lines?.let { it to linesFile(ctx, id) }).forEach { (name, f) ->
-                if (f.exists() && f.length() > 0) return@forEach
+                // заборы и тропы пересобираются отдельно — новую версию докачиваем сами
+                val stamp = if (f == linesFile(ctx, id)) c.linesBuilt else null
+                val fresh = stamp == null || prefs(ctx).getString("built_$name", null) == stamp
+                if (f.exists() && f.length() > 0 && fresh) return@forEach
                 AppScope.io.launch {
                     runCatching {
                         val conn = URL(BASE + name).openConnection() as HttpURLConnection
                         conn.connectTimeout = 15_000; conn.readTimeout = 90_000; conn.instanceFollowRedirects = true
                         val tmp = File(f.path + ".tmp"); conn.inputStream.use { i -> tmp.outputStream().use { i.copyTo(it) } }
-                        if (tmp.length() > 0 && tmp.renameTo(f)) version++
+                        if (tmp.length() > 0 && tmp.renameTo(f)) { stamp?.let { prefs(ctx).edit().putString("built_$name", it).apply() }; version++ }
                     }
                 }
             }

@@ -316,9 +316,10 @@ fun TaskEditor(t0: TaskItem, knownTags: List<String>, onDone: () -> Unit) {
                     att.audio.forEach { a -> if (java.io.File(a).exists()) VoiceChip(a, voice, onDelete = { voice.stopPlay(); att = att.copy(audio = att.audio - a); java.io.File(a).delete() }) }
                     if (voice.recording) Row(verticalAlignment = Alignment.CenterVertically) { RecordingTimer(); TextButton({ voice.stop()?.let { att = att.copy(audio = att.audio + it) } }) { Text("Стоп") } }
                     FilesAndContacts(att) { att = it }
-                    att.place?.let { (name, lat, lon) ->
+                    if (att.track != null || att.place != null) MapLinkCard(att) { onDone() }
+                    att.place?.takeIf { att.track == null }?.let { (name, lat, lon) ->
                         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.75f)).clickable {
-                            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("geo:$lat,$lon?q=$lat,$lon(${android.net.Uri.encode(name)})"))) }
+                            com.pank.vsevodnom.ui.map.MapUi.request = com.pank.vsevodnom.ui.map.MapRequest(lat = lat, lon = lon, name = name); onDone()
                         }.padding(12.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Place, null, tint = Pal.RoseInk); Text(" $name", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             Icon(Icons.Rounded.Close, "Убрать", Modifier.size(16.dp).clickable { att = att.copy(place = null) }, tint = Pal.Muted)
@@ -435,6 +436,58 @@ private fun FilterDialog(f: TaskFilter, tags: List<String>, onChange: () -> Unit
             Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PillButton("Сбросить", { f.reset(); onChange() }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
                 PillButton("Готово", { onChange(); onDismiss() }, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+
+/** Окошко карты в задаче: схема маршрута (или точка), нажатие — открыть на «Карте», «Начать сейчас» — сразу в путь. */
+@Composable
+private fun MapLinkCard(att: NoteAtt, onLeave: () -> Unit) {
+    val ctx = LocalContext.current
+    val track by produceState<com.pank.vsevodnom.data.Track?>(null, att.track) { value = att.track?.let { AppDb.get(ctx).map().track(it) } }
+    val pts = remember(track) { track?.let { com.pank.vsevodnom.data.Osm.decode(it.points) }.orEmpty() }
+    val place = att.place
+    fun open(go: Boolean) {
+        com.pank.vsevodnom.ui.map.MapUi.request = com.pank.vsevodnom.ui.map.MapRequest(trackId = att.track, lat = place?.second ?: pts.lastOrNull()?.lat ?: 0.0,
+            lon = place?.third ?: pts.lastOrNull()?.lon ?: 0.0, name = place?.first ?: track?.name.orEmpty(), go = go)
+        onLeave()
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.85f))) {
+        Box(Modifier.fillMaxWidth().height(150.dp).background(Color(0xFFEDEBE5)).clickable { open(false) }) {
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(16.dp)) {
+                // сетка «как на карте»
+                val step = 28.dp.toPx(); var x = 0f
+                while (x < size.width) { drawLine(Color(0x14000000), androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height)); x += step }
+                var y = 0f
+                while (y < size.height) { drawLine(Color(0x14000000), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y)); y += step }
+                if (pts.size >= 2) {
+                    val k = Math.cos(Math.toRadians(pts[0].lat)).toFloat()
+                    val minX = pts.minOf { it.lon }.toFloat() * k; val maxX = pts.maxOf { it.lon }.toFloat() * k
+                    val minY = pts.minOf { it.lat }.toFloat(); val maxY = pts.maxOf { it.lat }.toFloat()
+                    val sc = minOf(size.width / (maxX - minX).coerceAtLeast(1e-6f), size.height / (maxY - minY).coerceAtLeast(1e-6f))
+                    val ox = (size.width - (maxX - minX) * sc) / 2; val oy = (size.height - (maxY - minY) * sc) / 2
+                    fun p(g: com.pank.vsevodnom.data.GeoPt) = androidx.compose.ui.geometry.Offset(ox + (g.lon.toFloat() * k - minX) * sc, size.height - oy - (g.lat.toFloat() - minY) * sc)
+                    val path = androidx.compose.ui.graphics.Path().apply { moveTo(p(pts[0]).x, p(pts[0]).y); pts.drop(1).forEach { lineTo(p(it).x, p(it).y) } }
+                    drawPath(path, Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(9.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                    drawPath(path, Color(0xFF3E6FA8), style = androidx.compose.ui.graphics.drawscope.Stroke(5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                    drawCircle(Color(0xFF3E6FA8), 7.dp.toPx(), p(pts.first())); drawCircle(Color.White, 3.dp.toPx(), p(pts.first()))
+                    drawCircle(Color(0xFFE5484D), 7.dp.toPx(), p(pts.last())); drawCircle(Color.White, 3.dp.toPx(), p(pts.last()))
+                } else {
+                    val c = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2)
+                    drawCircle(Color(0x33E5484D), 22.dp.toPx(), c); drawCircle(Color(0xFFE5484D), 8.dp.toPx(), c); drawCircle(Color.White, 3.dp.toPx(), c)
+                }
+            }
+            Text("Открыть на карте ›", style = MaterialTheme.typography.labelMedium, color = Pal.SkyInk, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
+        }
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(track?.name ?: place?.first.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                track?.let { Text(com.pank.vsevodnom.data.fmtKm(it.distanceM), style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
+            }
+            Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xFF3E6FA8)).clickable { open(true) }.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp)); Text(" Начать сейчас", color = Color.White, style = MaterialTheme.typography.labelLarge)
             }
         }
     }

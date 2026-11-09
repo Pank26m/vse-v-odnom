@@ -33,7 +33,7 @@ object Backup {
                 fun add(f: File, name: String) { z.putNextEntry(ZipEntry(name)); f.inputStream().use { it.copyTo(z) }; z.closeEntry(); n++ }
                 File(data, "databases").listFiles()?.filter { it.name.startsWith("app.db") }?.forEach { add(it, "databases/${it.name}") }
                 File(data, "shared_prefs").listFiles()?.filter { it.name !in SKIP_PREFS }?.forEach { add(it, "shared_prefs/${it.name}") }
-                ctx.filesDir.walkTopDown().filter { it.isFile && it.name !in SKIP_FILES && !it.name.startsWith("mbgl") && !it.path.contains("/.mbgl") && !it.path.contains("/files/map/") }.forEach { add(it, "files/" + it.relativeTo(ctx.filesDir).path) }
+                ctx.filesDir.walkTopDown().filter { it.isFile && it.name !in SKIP_FILES && !it.name.startsWith("mbgl") && !it.path.contains("/.mbgl") && !it.path.contains("/files/map/") && !it.path.contains("/files/gcache/") }.forEach { add(it, "files/" + it.relativeTo(ctx.filesDir).path) }
             }
         }
         "Сохранено файлов: $n"

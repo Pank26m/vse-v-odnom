@@ -132,4 +132,23 @@ class MapStyleTest {
         assertEquals(1197.0, p[0], 0.0); assertEquals(690.0, p[1], 0.0)
         assertTrue(p[2] in 0.0..256.0 && p[3] in 0.0..256.0)
     }
+
+    /** 0.24: нет файла букв (арабские, грузинские названия…) — MapLibre не рисовал весь кусок карты. Все диапазоны должны лежать в assets. */
+    @Test fun glyphRangesComplete() {
+        val root = File("src/main/assets/map/glyphs")
+        val st = JSONObject(MapStyle.compose(input("car", true), MapStyle.Opts()))
+        val fonts = HashSet<String>()
+        val ls = st.getJSONArray("layers")
+        for (i in 0 until ls.length()) ls.getJSONObject(i).optJSONObject("layout")?.optJSONArray("text-font")?.let { a -> for (j in 0 until a.length()) fonts += a.getString(j) }
+        assertTrue(fonts.isNotEmpty())
+        for (f in fonts) for (start in 0 until 65536 step 256) assertTrue("$f $start", File(root, "$f/$start-${start + 255}.pbf").exists())
+    }
+
+    @Test fun controlPointsOfTrack() {
+        // зигзаг из 500 точек → не больше 12 контрольных, начало и конец на месте
+        val pts = (0 until 500).map { i -> com.pank.vsevodnom.data.GeoPt(50.0 + i * 0.0002, 30.0 + (if ((i / 50) % 2 == 0) i % 50 else 50 - i % 50) * 0.0004, 0) }
+        val cp = com.pank.vsevodnom.ui.map.controlPoints(pts, 12)
+        assertTrue(cp.size in 3..12)
+        assertEquals(pts.first(), cp.first()); assertEquals(pts.last(), cp.last())
+    }
 }

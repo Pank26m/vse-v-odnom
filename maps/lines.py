@@ -43,8 +43,13 @@ class Rels(osmium.SimpleHandler):
         if r.tags.get("route") not in ROUTES: return
         name = r.tags.get("name:ru") or r.tags.get("name") or r.tags.get("ref") or ""
         if not name: return
-        self.routes[r.id] = {"name": name, "ref": r.tags.get("ref", ""), "network": r.tags.get("network", ""),
-                             "colour": r.tags.get("colour") or r.tags.get("color") or ""}
+        t = r.tags
+        self.routes[r.id] = {"name": name, "ref": t.get("ref", ""), "network": t.get("network", ""),
+                             "colour": t.get("colour") or t.get("color") or "", "osm": str(r.id),
+                             "distance": t.get("distance", ""), "from": t.get("from", ""), "to": t.get("to", ""),
+                             "operator": t.get("operator", ""), "description": (t.get("description:ru") or t.get("description") or "")[:300],
+                             "website": t.get("website", ""), "wikipedia": t.get("wikipedia", ""), "symbol": t.get("osmc:symbol", ""),
+                             "roundtrip": t.get("roundtrip", "")}
         for m in r.members:
             if m.type == "w": self.way_route.setdefault(m.ref, []).append(r.id)
 
@@ -99,7 +104,7 @@ for rid, parts in ways.route_lines.items():
 m = MBTiles(OUT, {"name": "Заборы и маршруты", "format": "pbf", "type": "overlay", "minzoom": ZR[0], "maxzoom": ZB,
                   "attribution": "© OpenStreetMap",
                   "json": json.dumps({"vector_layers": [{"id": "barrier", "fields": {"kind": "String"}},
-                                                        {"id": "route", "fields": {"name": "String", "ref": "String", "network": "String", "colour": "String"}}]})})
+                                                        {"id": "route", "fields": {k: "String" for k in ("name", "ref", "network", "colour", "osm", "distance", "from", "to", "operator", "description", "website", "wikipedia", "symbol", "roundtrip")}}]})})
 for (z, x, y), lays in buckets.items():
     tb = tile_bounds(z, x, y)
     out = [{"name": n, "features": [{"geometry": g.wkt, "properties": p} for g, p in items]} for n, items in lays.items()]

@@ -114,6 +114,7 @@ class MainActivity : FragmentActivity() {
                         else -> nav.navigate(r)
                     }
                 }
+                LaunchedEffect(com.pank.vsevodnom.ui.map.MapUi.request) { if (com.pank.vsevodnom.ui.map.MapUi.request != null && route != "map") go("map") }
                 LaunchedEffect(pendingRoute.value) {
                     pendingRoute.value?.let { go(it); pendingRoute.value = null }
                 }

@@ -8,5 +8,6 @@
     <exclude domain="file" path="mbgl-offline.db" />
     <exclude domain="file" path=".mbgl-offline.db" />
     <exclude domain="file" path="map/" />
+    <exclude domain="file" path="gcache/" />
     <exclude domain="external" path="maps/" />
 </full-backup-content>

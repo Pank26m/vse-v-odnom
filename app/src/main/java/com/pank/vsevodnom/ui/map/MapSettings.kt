@@ -372,9 +372,14 @@ private fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
             Text("Google Places", style = MaterialTheme.typography.titleMedium)
             AppTextField(google, { google = it }, "Ключ API (AIza…)")
             AppTextField(gLimit, { gLimit = it.filter(Char::isDigit) }, "Запросов в день (рекомендую 150)")
-            Text("Сегодня: ${ApiKeys.used(ctx, "google")} из ${ApiKeys.limit(ctx, "google")}. Поиск — 1 запрос, сведения о месте — 2, каждое фото — 1.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+            Text("Сегодня: ${ApiKeys.used(ctx, "google")} из ${ApiKeys.limit(ctx, "google")}. Поиск — 1 запрос, сведения о месте — 2, каждое фото — 1; из кэша — 0.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
             SwitchRow("Искать через Google по умолчанию", null, gSearch) { gSearch = it; MapPrefs.setBool(ctx, "google_default", it) }
             SwitchRow("Сведения Google сразу в карточке", "иначе — по кнопке, экономит лимит", gAuto) { gAuto = it; MapPrefs.setBool(ctx, "google_auto", it) }
+            var gc by remember { mutableStateOf(GCache.enabled(ctx)) }
+            var gcSize by remember { mutableLongStateOf(GCache.size(ctx)) }
+            SwitchRow("Хранить сведения и фото 30 дней", "зашифровано, во внутренней папке приложения · ${gcSize / 1024} КБ — повторный просмотр места не тратит лимит", gc) {
+                gc = it; GCache.setEnabled(ctx, it); gcSize = GCache.size(ctx) }
+            if (gcSize > 0) TextButton({ GCache.clear(ctx); gcSize = 0 }) { Text("Очистить кэш Google") }
         }
         PillButton("Сохранить", {
             ApiKeys.set(ctx, "google", google)

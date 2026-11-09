@@ -61,7 +61,12 @@ object RoutePlan {
         val rw = routeWay(t); val pts = Osm.decode(t.points)
         points.clear()
         if (rw != null) { points.addAll(rw.second); mode = rw.first }
-        else if (pts.size >= 2) { points.add(MapPrefs.Spot("Начало трека", pts.first().lat, pts.first().lon)); points.add(MapPrefs.Spot("Конец трека", pts.last().lat, pts.last().lon)); mode = "bike" }
+        else if (pts.size >= 2) {
+            // импорт/запись: сотни точек → до 12 контрольных (самые «изломы» трека) — они становятся остановками
+            val cp = controlPoints(pts, 12)
+            cp.forEachIndexed { i, p -> points.add(MapPrefs.Spot(when (i) { 0 -> "Начало трека"; cp.size - 1 -> "Конец трека"; else -> "Точка $i" }, p.lat, p.lon)) }
+            mode = trackMode(t)
+        }
         while (points.size < 2) points.add(null)
         editTrack = t; route = null; error = null; active = true; rev++
     }
@@ -117,10 +122,11 @@ internal fun RoutePlannerTop(onClose: () -> Unit, onSettings: () -> Unit) {
     }
 }
 
-private fun saveRouteAsTrack(ctx: android.content.Context, into: Track?) {
+internal fun saveRouteAsTrack(ctx: android.content.Context, into: Track?, planAt: Long? = null) {
     val r = RoutePlan.route ?: return
     val way = RoutePlan.points.mapIndexedNotNull { i, s -> s ?: if (i == 0) r.points.firstOrNull()?.let { MapPrefs.Spot("Моё место", it.lat, it.lon) } else null }
-    val meta = org.json.JSONObject().put("mode", RoutePlan.mode).put("way", org.json.JSONArray(way.map { org.json.JSONObject().put("name", it.name).put("lat", it.lat).put("lon", it.lon) })).toString()
+    val meta = org.json.JSONObject().put("mode", RoutePlan.mode).put("way", org.json.JSONArray(way.map { org.json.JSONObject().put("name", it.name).put("lat", it.lat).put("lon", it.lon) }))
+        .apply { if (planAt != null) put("plan", planAt) }.toString()
     val name = "Маршрут: " + RoutePlan.points.filterNotNull().joinToString(" → ") { it.name }.ifBlank { "без названия" }
     AppScope.io.launch {
         val pts = Dem.fill(ctx, r.points)?.takeIf { !Dem.hasAlt(r.points) } ?: r.points
@@ -128,9 +134,11 @@ private fun saveRouteAsTrack(ctx: android.content.Context, into: Track?) {
         val dao = AppDb.get(ctx).map()
         val folder = dao.foldersNow().firstOrNull { it.name == "Маршруты" && it.parentId == null }?.id ?: dao.upsertFolder(MapFolder(name = "Маршруты"))
         val now = System.currentTimeMillis()
-        if (into != null) dao.upsertTrack(withDesc(into.copy(distanceM = r.meters, points = Osm.encode(pts), meta = meta2), trackDesc(into).orEmpty()))
+        val id = if (into != null) { dao.upsertTrack(withDesc(into.copy(distanceM = r.meters, points = Osm.encode(pts), meta = meta2), trackDesc(into).orEmpty())); into.id }
         else dao.upsertTrack(Track(name = name.take(120), startedAt = now, endedAt = now, distanceM = r.meters, points = Osm.encode(pts), folderId = folder, meta = meta2))
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(ctx, if (into != null) "Трек обновлён" else "Сохранено в коллекции «Маршруты»", Toast.LENGTH_SHORT).show() }
+        if (planAt != null) planTask(ctx, id, name, way.lastOrNull(), planAt)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            Toast.makeText(ctx, when { planAt != null -> "Запланировано — в ToDo и в «Маршрутах»"; into != null -> "Трек обновлён"; else -> "Сохранено в коллекции «Маршруты»" }, Toast.LENGTH_SHORT).show() }
     }
 }
 
@@ -144,6 +152,10 @@ internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Uni
     val density = androidx.compose.ui.platform.LocalDensity.current
     var dragIdx by remember { mutableIntStateOf(-1) }
     var dragY by remember { mutableFloatStateOf(0f) }
+    var goMenu by remember { mutableStateOf(false) }
+    var plan by remember { mutableStateOf(false) }
+    var online by remember { mutableStateOf(MapPrefs.bool(ctx, "route_online", false)) }
+    if (plan) PlanDialog("Запланировать маршрут", RoutePlan.dest?.name ?: "маршрут", onDismiss = { plan = false }) { at -> plan = false; saveRouteAsTrack(ctx, null, planAt = at) }
     val rowH = 58.dp
     val rowPx = with(density) { rowH.toPx() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 8.dp).shadow(10.dp, RoundedCornerShape(22.dp)).clip(RoundedCornerShape(22.dp)).background(Pal.Card)
@@ -166,15 +178,18 @@ internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Uni
                         Text(listOfNotNull(RoutePlan.sourceName(r), RoutePlan.climb?.let { (a, d) -> "↑ %.0f м  ↓ %.0f м".format(a, d) }).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                     }
-                    if (RoutePlan.mode == "car") RoutePlan.dest?.let { d ->
-                        Box(Modifier.padding(end = 8.dp).size(40.dp).clip(CircleShape).background(Color(0xFFDDF4FB)).clickable { waze(ctx, d.lat, d.lon) }, contentAlignment = Alignment.Center) {
-                            Text("W", color = Color(0xFF1B7A99), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    val canGo = RoutePlan.points.first() == null && r.source != "line" && r.steps.isNotEmpty()
+                    // нажатие — в путь; долгое нажатие — Waze, запланировать, сохранить
+                    Box {
+                        Box(Modifier.size(52.dp).clip(CircleShape).background(if (canGo) Color(0xFF3E6FA8) else Pal.Line).combinedClickableCompat(onClick = {
+                            if (canGo) onGo() else Toast.makeText(ctx, if (r.source == "line") "Навигация — по дорогам: выбери авто, вело или пешком" else "Навигация ведёт от моего места — поставь «Откуда» = моё положение", Toast.LENGTH_LONG).show()
+                        }, onLongClick = { goMenu = true }), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PlayArrow, "Поехали (долгое нажатие — ещё)", tint = Color.White, modifier = Modifier.size(30.dp)) }
+                        DropdownMenu(goMenu, { goMenu = false }) {
+                            if (RoutePlan.mode == "car") RoutePlan.dest?.let { d -> DropdownMenuItem({ Text("Ехать через Waze") }, { goMenu = false; waze(ctx, d.lat, d.lon) }, leadingIcon = { Icon(Icons.Rounded.Navigation, null) }) }
+                            DropdownMenuItem({ Text("Запланировать этот маршрут") }, { goMenu = false; plan = true }, leadingIcon = { Icon(Icons.Rounded.EventAvailable, null) })
+                            DropdownMenuItem({ Text("Сохранить как трек") }, { goMenu = false; saveRouteAsTrack(ctx, null) }, leadingIcon = { Icon(Icons.Rounded.Save, null) })
                         }
                     }
-                    val canGo = RoutePlan.points.first() == null && r.source != "line" && r.steps.isNotEmpty()
-                    Box(Modifier.size(52.dp).clip(CircleShape).background(if (canGo) Color(0xFF3E6FA8) else Pal.Line).clickable {
-                        if (canGo) onGo() else Toast.makeText(ctx, if (r.source == "line") "Навигация — по дорогам: выбери авто, вело или пешком" else "Навигация ведёт от моего места — поставь «Откуда» = моё положение", Toast.LENGTH_LONG).show()
-                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PlayArrow, "Поехали", tint = Color.White, modifier = Modifier.size(30.dp)) }
                 }
                 RoutePlan.error != null -> Text(RoutePlan.error!!, style = MaterialTheme.typography.bodyMedium, color = Pal.RoseInk, modifier = Modifier.weight(1f))
                 else -> Text(if (expanded) "Маршрут" else "Маршрут — зажми карту, чтобы поставить точку", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -182,6 +197,16 @@ internal fun RoutePlannerBottom(me: GeoPt?, places: List<Place>, onGo: () -> Uni
             IconButton({ RoutePlan.collapsed = !RoutePlan.collapsed }) { Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess, if (expanded) "Свернуть" else "Развернуть", tint = Pal.Muted) }
         }
         if (expanded) Column(Modifier.fillMaxWidth().heightIn(max = (screenH * 0.42f).dp).verticalScroll(rememberScrollState(), enabled = dragIdx < 0).padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+            if (RoutePlan.mode != "line") Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(false to "Офлайн маршрут", true to "Онлайн маршрут").forEach { (on, t) ->
+                    val sel = online == on
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (sel) Pal.Sky else Pal.Bg).clickable {
+                        online = on; MapPrefs.setBool(ctx, "route_online", on); RoutePlan.rev++
+                    }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) {
+                        Text(t, style = MaterialTheme.typography.labelLarge, color = if (sel) Pal.SkyInk else Pal.Muted)
+                    }
+                }
+            }
             RoutePlan.points.forEachIndexed { i, sp ->
                 val last = i == RoutePlan.points.size - 1
                 val dragging = i == dragIdx
@@ -311,4 +336,58 @@ internal fun rulerMarks(ctx: android.content.Context, pts: List<GeoPt>): List<Pa
     val out = arrayListOf(pts.first() to "0 км", at(total / 2) to MapPrefs.dist(ctx, total / 2), pts.last() to MapPrefs.dist(ctx, total))
     for (i in 1 until pts.size - 1) out += pts[i] to MapPrefs.dist(ctx, cum[i])
     return out
+}
+
+/** Задача ToDo для запланированного маршрута: место назначения и трек во вложении, напоминание за 30 минут. */
+internal suspend fun planTask(ctx: android.content.Context, trackId: Long, name: String, dest: MapPrefs.Spot?, at: Long) {
+    val z = java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault())
+    val att = com.pank.vsevodnom.ui.todo.NoteAtt(place = dest?.let { Triple(it.name, it.lat, it.lon) }, track = trackId)
+    val item = TaskItem(title = name.take(120), dueDay = z.toLocalDate().toEpochDay(), dueMinute = z.hour * 60 + z.minute, remindBefore = 30, tags = "маршрут", attachments = att.toJson())
+    val id = AppDb.get(ctx).todo().upsertTask(item)
+    Todo.scheduleReminder(ctx, item.copy(id = id))
+}
+
+/** Выбор даты и времени (сначала день, потом время). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PlanDialog(title: String, what: String, onDismiss: () -> Unit, onPick: (Long) -> Unit) {
+    var step by remember { mutableIntStateOf(0) }
+    val dp = rememberDatePickerState(initialSelectedDateMillis = java.time.LocalDate.now().plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli())
+    val tp = rememberTimePickerState(10, 0, true)
+    if (step == 0) DatePickerDialog(onDismissRequest = onDismiss, confirmButton = { TextButton({ step = 1 }) { Text("Дальше") } }, dismissButton = { TextButton(onDismiss) { Text("Отмена") } }) {
+        DatePicker(dp, title = { Text("$title: «${what.take(30)}»", Modifier.padding(16.dp)) })
+    } else AlertDialog(onDismissRequest = onDismiss, title = { Text("Во сколько") }, text = { TimePicker(tp) },
+        confirmButton = { TextButton({
+            val day = java.time.Instant.ofEpochMilli(dp.selectedDateMillis ?: System.currentTimeMillis()).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+            onPick(day.atTime(tp.hour, tp.minute).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
+        }) { Text("Запланировать") } }, dismissButton = { TextButton({ step = 0 }) { Text("Назад") } })
+}
+
+/** Запланировано ли (meta «plan»): время или null. */
+internal fun trackPlan(t: Track): Long? = runCatching { org.json.JSONObject(t.meta).optLong("plan", 0L).takeIf { it > 0 } }.getOrNull()
+
+/** Контрольные точки трека (Дуглас — Пекер): порог растёт, пока точек не станет не больше [max]; начало и конец — всегда. */
+internal fun controlPoints(pts: List<GeoPt>, max: Int): List<GeoPt> {
+    if (pts.size <= max) return pts
+    val k = Math.cos(Math.toRadians(pts[0].lat))
+    fun d(p: GeoPt, a: GeoPt, b: GeoPt): Double {
+        val ax = a.lon * k * 111_320; val ay = a.lat * 110_540; val bx = b.lon * k * 111_320; val by = b.lat * 110_540; val px = p.lon * k * 111_320; val py = p.lat * 110_540
+        val dx = bx - ax; val dy = by - ay; val l2 = dx * dx + dy * dy
+        val t = if (l2 == 0.0) 0.0 else (((px - ax) * dx + (py - ay) * dy) / l2).coerceIn(0.0, 1.0)
+        return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+    }
+    fun rdp(eps: Double): List<Int> {
+        val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
+        val stack = ArrayDeque<Pair<Int, Int>>(); stack.add(0 to pts.size - 1)
+        while (stack.isNotEmpty()) {
+            val (i, j) = stack.removeLast(); var best = -1; var bd = eps
+            for (m in i + 1 until j) { val dd = d(pts[m], pts[i], pts[j]); if (dd > bd) { bd = dd; best = m } }
+            if (best >= 0) { keep[best] = true; stack.add(i to best); stack.add(best to j) }
+        }
+        return keep.indices.filter { keep[it] }
+    }
+    var eps = 20.0
+    var idx = rdp(eps)
+    while (idx.size > max && eps < 1e6) { eps *= 1.6; idx = rdp(eps) }
+    return idx.map { pts[it] }
 }

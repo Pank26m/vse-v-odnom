@@ -281,6 +281,8 @@ object MapStyle {
         val layers = JSONArray()
         val shapeGeoms = input.shapes
         val name = nameExpr(o.lang)
+        val worldName = if (o.lang == "en") JSONArray("""["coalesce",["get","name:en"],["get","name_en"],["get","name_int"],["get","name:latin"],["get","name"]]""")
+            else JSONArray("""["coalesce",["get","name:ru"],["get","name:uk"],["get","name_int"],["get","name:latin"],["get","name"]]""")
         val hasWorld = o.worldLabels && input.worldLabels != null
 
         layers.put(JSONObject("""{"id":"bg","type":"background","paint":{"background-color":"#e6e4de"}}"""))
@@ -320,7 +322,8 @@ object MapStyle {
         fun copyFor(l: JSONObject, c: String, src: String = "omt_$c"): JSONObject {
             val n = JSONObject(l.toString())
             n.put("id", l.getString("id") + "@" + c); n.put("source", src)
-            n.optJSONObject("layout")?.let { lay -> if (lay.optString("text-field") == "__NAME__") lay.put("text-field", name) }
+            // за границей (онлайн-мир) — подписи по-русски/латиницей: местные (арабские, грузинские, китайские…) шрифты в приложении не лежат
+            n.optJSONObject("layout")?.let { lay -> if (lay.optString("text-field") == "__NAME__") lay.put("text-field", if (c == "w") worldName else name) }
             // подписи стран/городов на мелких зумах даёт слой мира — чтобы не двоились
             if (hasWorld && n.optString("source-layer") == "place" && n.optDouble("minzoom", 0.0) < HATCH_MIN_ZOOM) n.put("minzoom", HATCH_MIN_ZOOM)
             // на мелких зумах в тайлах страны лежит океан Natural Earth для всего мира — давал синие прямоугольники поверх рельефа
@@ -372,7 +375,12 @@ object MapStyle {
             val hillAfter = "landuse_school"   // тени — под водой и дорогами
             nonSymbol.forEach { l ->
                 countries.forEach { c -> layers.put(copyFor(l, c)) }
-                if (l.getString("id") == hillAfter) terrain(o, input.files, sources, layers)
+                if (l.getString("id") == hillAfter) {
+                    terrain(o, input.files, sources, layers)
+                    // рельеф страны включает дно моря — поверх теней кладём воду онлайн-мира, иначе за границей по морю шли пятна
+                    if (o.hillshade && input.files.values.any { "dem" in it })
+                        layers.put(JSONObject("""{"id":"water-hs@w","type":"fill","source":"ofm","source-layer":"water","minzoom":6,"filter":["!=",["get","brunnel"],"tunnel"],"paint":{"fill-color":"rgb(158,189,255)"}}"""))
+                }
             }
         } else terrain(o, input.files, sources, layers)
 
@@ -421,7 +429,7 @@ object MapStyle {
             }
             if (showRoutes) input.lines.forEach { (c, _) ->
                 layers.put(JSONObject("""{"id":"route-n@$c","type":"symbol","source":"lines_$c","source-layer":"route","minzoom":12.5,
-                    "layout":{"symbol-placement":"line","text-field":["get","name"],"text-font":["Noto Sans Bold"],"text-size":11,"symbol-spacing":350,"text-max-angle":35},
+                    "layout":{"symbol-placement":"line","text-field":["get","name"],"text-font":["Noto Sans Bold"],"text-size":11,"symbol-spacing":350,"text-max-angle":35,"text-offset":[0,-1.0]},
                     "paint":{"text-color":["to-color",["get","colour"],"#b03a36"],"text-halo-color":"#ffffff","text-halo-width":1.6}}"""))
             }
             // метро: линии цветом линий, станции кружками
