@@ -51,6 +51,7 @@ class TerritoryGame(val players: Int = 4, seed: Long = System.nanoTime(), val ra
     var points = 0
     var log by mutableStateOf("")
     var winner: Int? = null
+    var turns = 0
 
     init {
         for (q in -radius..radius) for (r in -radius..radius) if (abs(q + r) <= radius) Hex(q, r).also { cells += it; byKey[key(q, r)] = it }
@@ -105,6 +106,7 @@ class TerritoryGame(val players: Int = 4, seed: Long = System.nanoTime(), val ra
         var n = turn
         do { n = (n + 1) % players } while (!alive(n) && n != turn)
         turn = n
+        if (n == 0) turns++
     }
     private fun checkWin() { val alive = (0 until players).filter { alive(it) }; if (alive.size == 1) winner = alive[0] }
 
@@ -163,7 +165,7 @@ fun TerritoryScreen(onBack: () -> Unit) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Canvas(Modifier.fillMaxSize().pointerInput(g) {
                 detectTapGestures { pos ->
-                    if (!myTurn) return@detectTapGestures
+                    if (g.turn != 0 || g.winner != null || layout.first <= 0f) return@detectTapGestures
                     val (sz, c, _) = layout
                     // перевод экрана в осевые координаты гекса (с округлением)
                     val x = (pos.x - c.x) / sz; val y = (pos.y - c.y) / sz
@@ -227,7 +229,12 @@ fun TerritoryScreen(onBack: () -> Unit) {
                 },
                 confirmButton = { androidx.compose.material3.TextButton({ tp.edit().putBoolean("dark", dark).putInt("size", mapSize).putInt("level", level).apply(); opts = false; g = newGame(); sel = null; ver++; turnSeq++ }) { Text("Новая карта") } },
                 dismissButton = { androidx.compose.material3.TextButton({ tp.edit().putBoolean("dark", dark).putInt("size", mapSize).putInt("level", level).apply(); opts = false; ver++ }) { Text("Готово") } })
-            g.winner?.let { w -> GameOverlay(if (w == 0) "Победа!" else "${P_NAMES[w]} захватила карту", if (w == 0) "Вся карта твоя" else "Попробуй начать с соседних пустых клеток", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ } }
+            key(ver) {
+                g.winner?.let { w ->
+                    if (w == 0) VictoryOverlay("Победа!", "Вся карта твоя: ${g.cells.size} клеток · ходов ${g.turns}", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ }
+                    else GameOverlay("${P_NAMES[w]} захватила карту", "Попробуй начать с соседних пустых клеток", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ }
+                }
+            }
             if (!g.alive(0) && g.winner == null) GameOverlay("Тебя вытеснили", "Боты ещё доигрывают", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ }
         }
         key(ver) {

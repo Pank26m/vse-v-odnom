@@ -335,7 +335,17 @@ private fun DailyCard(d: WeatherData, selected: Int, onDay: (Int) -> Unit) {
     val hi = d.days.maxOfOrNull { it.tMax } ?: 1.0
     val span = (hi - lo).coerceAtLeast(1.0)
     AppCard(modifier = Modifier.fillMaxWidth().padding(16.dp, 12.dp, 16.dp, 12.dp), padding = 16.dp) {
-        SectionLabel("На 10 дней")
+        SectionLabel("На 7 дней")
+        d.yesterday?.let { y ->
+            Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Вчера", style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, modifier = Modifier.width(86.dp))
+                MiniIcon(wmo(y.code).second, true)
+                Text(if ((y.precipSum ?: 0.0) >= 0.5) "%.0f мм".format(y.precipSum) else "", style = MaterialTheme.typography.labelMedium, color = Pal.Muted, modifier = Modifier.width(34.dp))
+                Text(fmtT(y.tMin), style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, modifier = Modifier.width(38.dp))
+                Spacer(Modifier.weight(1f))
+                Text(fmtT(y.tMax), style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, modifier = Modifier.width(38.dp))
+            }
+        }
         Spacer(Modifier.height(4.dp))
         d.days.forEachIndexed { i, day ->
             val name = when (day.date) {

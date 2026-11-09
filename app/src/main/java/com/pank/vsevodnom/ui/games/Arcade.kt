@@ -13,6 +13,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.animation.core.animateFloat
 import com.pank.vsevodnom.ui.common.PillButton
 import com.pank.vsevodnom.ui.theme.Pal
 
@@ -50,6 +55,31 @@ fun BoxScope.GameOverlay(title: String, sub: String, button: String, onClick: ()
         Text(title, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
         if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, textAlign = TextAlign.Center)
         PillButton(button, onClick, Modifier.widthIn(min = 180.dp))
+    }
+}
+
+/** Экран победы: на всё поле, кубок и конфетти. Нажатия под ним не проходят на поле. */
+@Composable
+fun BoxScope.VictoryOverlay(title: String, sub: String, button: String, onClick: () -> Unit) {
+    val anim = androidx.compose.animation.core.rememberInfiniteTransition(label = "win")
+    val t by anim.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(2600, easing = androidx.compose.animation.core.LinearEasing)), label = "t")
+    val bits = remember { List(46) { Triple(kotlin.random.Random.nextFloat(), kotlin.random.Random.nextFloat(), listOf(0xFFE5485D, 0xFFF2C94C, 0xFF3FB27F, 0xFF4A86E8, 0xFF8E5BD8).random()) } }
+    Box(Modifier.matchParentSize().background(Color(0xE6FFFFFF)).pointerInput(Unit) { detectTapGestures { } }) {
+        androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+            bits.forEach { (x, ph, c) ->
+                val y = ((t + ph) % 1f) * (size.height + 40f) - 20f
+                val w = 10f + ph * 8f
+                rotate(360f * ((t * 2 + ph) % 1f), androidx.compose.ui.geometry.Offset(x * size.width, y)) {
+                    drawRect(Color(c), androidx.compose.ui.geometry.Offset(x * size.width - w / 2, y - w / 4), androidx.compose.ui.geometry.Size(w, w / 2))
+                }
+            }
+        }
+        Column(Modifier.align(Alignment.Center).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("🏆", fontSize = 72.sp)
+            Text(title, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, textAlign = TextAlign.Center)
+            PillButton(button, onClick, Modifier.widthIn(min = 200.dp))
+        }
     }
 }
 

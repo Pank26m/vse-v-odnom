@@ -34,7 +34,9 @@ private val GAMES = listOf(
     Game("cells", "Клетки", "съешь меньших, беги от больших", "🫧", Tints.Rose),
     Game("ttt", "Крестики-нолики", "вдвоём или против бота", "✕", Tints.Sky),
     Game("territory", "Территории", "захват гексов против 3 ботов", "⬢", Tints.Lilac),
-    Game("random", "Рандом", "монетка, колесо, шар, бутылочка, кубики", "🎲", Tints.Butter),
+    Game("c4", "Четыре в ряд", "собери 4 фишки, против бота", "●", Tints.Rose),
+    Game("sea", "Морской бой", "на тетрадном листе, против бота", "⚓", Tints.Sky),
+    Game("random", "Рандом", "монетка, колесо, шар, бутылочка, кости", "🎲", Tints.Butter),
 )
 
 @Composable
@@ -54,6 +56,8 @@ fun GamesScreen(onBack: () -> Unit) {
         "cells" -> CellsScreen(close)
         "ttt" -> TicTacToeScreen(close)
         "territory" -> TerritoryScreen(close)
+        "c4" -> ConnectFourScreen(close)
+        "sea" -> BattleshipScreen(close)
         else -> ScreenScaffold("Игры", onBack) {
             LazyVerticalGrid(
                 GridCells.Fixed(2), contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp),

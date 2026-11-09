@@ -26,6 +26,12 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 private const val WORLD = 3000f
+/** Победа: клетка стала такой, что занимает заметную часть чашки (радиус ≈ 1/6 поля). */
+internal const val CELLS_WIN = 14000f
+private const val FOOD = 380
+private const val BOTS = 18
+/** Безопасное ограничение координаты: у огромной клетки r > WORLD/2 и обычный coerceIn падал (так вылетало приложение). */
+private fun clampIn(v: Float, r: Float): Float { val rr = r.coerceAtMost(WORLD / 2); return v.coerceIn(rr, WORLD - rr) }
 private val CELL_COLORS = listOf(Color(0xFFE5485D), Color(0xFFF2A33A), Color(0xFFF2C94C), Color(0xFF3FB27F), Color(0xFF4A86E8), Color(0xFF8E5BD8), Color(0xFFE48AA8), Color(0xFF2BB5B0))
 private val BOT_NAMES = listOf("Бублик", "Кекс", "Пельмень", "Клякса", "Шарик", "Мармелад", "Капля", "Пузырь", "Желе", "Комета", "Ватрушка", "Нюша")
 
@@ -35,6 +41,7 @@ private class Blob(var x: Float, var y: Float, var mass: Float, val color: Color
     var alive = true
     var vx = 0f; var vy = 0f          // толчок после деления
     var mergeIn = 0f                   // через сколько секунд кусок может слиться обратно
+    var dashIn = 0f                    // бот: перезарядка рывка
 }
 
 private class CellsGame {
@@ -43,13 +50,15 @@ private class CellsGame {
     val food = ArrayList<Triple<Float, Float, Color>>()
     var aim = Offset.Zero   // направление пальца относительно центра экрана, 0…1
     var over by androidx.compose.runtime.mutableStateOf(false); var started by androidx.compose.runtime.mutableStateOf(false)
+    var won by androidx.compose.runtime.mutableStateOf(false)
     var maxMass = 20f; var time = 0f
-    init { repeat(500) { food += rf() }; repeat(14) { spawnBot() } }
     private fun rf() = Triple(Random.nextFloat() * WORLD, Random.nextFloat() * WORLD, CELL_COLORS.random())
     private fun spawnBot() {
         var x: Float; var y: Float
         do { x = Random.nextFloat() * WORLD; y = Random.nextFloat() * WORLD } while (hypot(x - me.x, y - me.y) < 500)
-        bots += Blob(x, y, 10f + Random.nextFloat() * 60f + time * 0.4f, CELL_COLORS.random(), BOT_NAMES.random(), true)
+        // со временем приходят всё более крупные — и иногда «хищник» крупнее тебя
+        val big = if (Random.nextFloat() < 0.15f) mass * (0.8f + Random.nextFloat() * 0.6f) else 0f
+        bots += Blob(x, y, maxOf(12f + Random.nextFloat() * 70f + time * 0.9f, big), CELL_COLORS.random(), BOT_NAMES.random(), true)
     }
     private fun speed(b: Blob) = 260f / (1f + sqrt(b.mass) * 0.12f)
 
@@ -59,10 +68,12 @@ private class CellsGame {
     val cx get() = mine.filter { it.alive }.let { l -> l.sumOf { (it.x * it.mass).toDouble() } / l.sumOf { it.mass.toDouble() }.coerceAtLeast(1.0) }.toFloat()
     val cy get() = mine.filter { it.alive }.let { l -> l.sumOf { (it.y * it.mass).toDouble() } / l.sumOf { it.mass.toDouble() }.coerceAtLeast(1.0) }.toFloat()
     val biggest get() = mine.filter { it.alive }.maxByOrNull { it.mass } ?: me
+    // после mine: spawnBot смотрит на мой размер
+    init { repeat(FOOD) { food += rf() }; repeat(BOTS) { spawnBot() } }
 
     /** «Выстрел» половиной себя в сторону джойстика (как в оригинале — деление). */
     fun split() {
-        if (!started || over) return
+        if (!started || over || won) return
         val len = hypot(aim.x, aim.y).takeIf { it > 0.05f } ?: return
         val ux = aim.x / len; val uy = aim.y / len
         val add = ArrayList<Blob>()
@@ -78,7 +89,7 @@ private class CellsGame {
     }
 
     fun step(dt: Float) {
-        if (!started || over) return
+        if (!started || over || won) return
         time += dt
         // мои куски плывут туда, куда наклонён джойстик, плюс толчок после деления
         val len = hypot(aim.x, aim.y)
@@ -87,7 +98,7 @@ private class CellsGame {
             if (len > 0.05f) { val k = speed(p) * (len.coerceAtMost(1f)) * dt / len; p.x += aim.x * k; p.y += aim.y * k }
             p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= (1f - 4f * dt).coerceAtLeast(0f); p.vy *= (1f - 4f * dt).coerceAtLeast(0f)
             p.mergeIn = (p.mergeIn - dt).coerceAtLeast(0f)
-            p.x = p.x.coerceIn(p.r, WORLD - p.r); p.y = p.y.coerceIn(p.r, WORLD - p.r)
+            p.x = clampIn(p.x, p.r); p.y = clampIn(p.y, p.r)
         }
         // куски не наезжают друг на друга, пока не пришло время слиться
         for (i in mine.indices) for (j in i + 1 until mine.size) {
@@ -102,25 +113,36 @@ private class CellsGame {
         for (b in bots) {
             b.think -= dt
             if (b.think <= 0) {
-                b.think = 0.3f + Random.nextFloat() * 0.3f
-                val threat = all.filter { it !== b && it.mass > b.mass * 1.15f && hypot(it.x - b.x, it.y - b.y) < it.r + 260 }.minByOrNull { hypot(it.x - b.x, it.y - b.y) }
-                val prey = all.filter { it !== b && b.mass > it.mass * 1.15f && hypot(it.x - b.x, it.y - b.y) < b.r + 320 }.minByOrNull { hypot(it.x - b.x, it.y - b.y) }
+                b.think = 0.15f + Random.nextFloat() * 0.2f
+                val threat = all.filter { it !== b && it.mass > b.mass * 1.15f && hypot(it.x - b.x, it.y - b.y) < it.r + 300 }.minByOrNull { hypot(it.x - b.x, it.y - b.y) }
+                // охотятся охотнее на тебя: твои куски «ближе» на 40%
+                val prey = all.filter { it !== b && b.mass > it.mass * 1.15f && hypot(it.x - b.x, it.y - b.y) < b.r + 480 }
+                    .minByOrNull { hypot(it.x - b.x, it.y - b.y) * (if (it.bot) 1f else 0.6f) }
                 when {
                     threat != null -> { b.tx = b.x + (b.x - threat.x) * 3; b.ty = b.y + (b.y - threat.y) * 3 }
-                    prey != null -> { b.tx = prey.x; b.ty = prey.y }
+                    prey != null -> {
+                        // упреждение: целятся туда, куда добыча плывёт
+                        b.tx = prey.x + (if (prey.bot) 0f else aim.x * 120f); b.ty = prey.y + (if (prey.bot) 0f else aim.y * 120f)
+                        val d = hypot(prey.x - b.x, prey.y - b.y)
+                        if (b.dashIn <= 0f && b.mass > prey.mass * 2.2f && d < b.r + 260 && d > 1f) {
+                            b.vx = (prey.x - b.x) / d * 800f; b.vy = (prey.y - b.y) / d * 800f; b.mass *= 0.95f; b.dashIn = 6f
+                        }
+                    }
                     else -> food.minByOrNull { hypot(it.first - b.x, it.second - b.y) }?.let { b.tx = it.first; b.ty = it.second }
                 }
             }
             val dx = b.tx - b.x; val dy = b.ty - b.y; val d = hypot(dx, dy)
-            if (d > 1) { val k = speed(b) * 0.92f * dt / d; b.x += dx * k; b.y += dy * k }
-            b.x = b.x.coerceIn(b.r, WORLD - b.r); b.y = b.y.coerceIn(b.r, WORLD - b.r)
+            if (d > 1) { val k = speed(b) * dt / d; b.x += dx * k; b.y += dy * k }
+            b.x += b.vx * dt; b.y += b.vy * dt; b.vx *= (1f - 4f * dt).coerceAtLeast(0f); b.vy *= (1f - 4f * dt).coerceAtLeast(0f)
+            b.dashIn -= dt
+            b.x = clampIn(b.x, b.r); b.y = clampIn(b.y, b.r)
         }
         // корм
         for (b in all) {
             val it2 = food.iterator()
             while (it2.hasNext()) { val f = it2.next(); if (hypot(f.first - b.x, f.second - b.y) < b.r) { it2.remove(); b.mass += 1f } }
         }
-        while (food.size < 500) food += rf()
+        while (food.size < FOOD) food += rf()
         // кто кого съел: нужно быть больше на 15% и накрыть центр (свои куски друг друга не едят)
         for (a in all) for (b in all) {
             if (a === b || !a.alive || !b.alive) continue
@@ -131,10 +153,11 @@ private class CellsGame {
         mine.removeAll { !it.alive && it !== me }
         if (!me.alive && mine.any { it.alive }) { val n = mine.first { it.alive }; mine.remove(n); mine.add(0, n) }
         bots.removeAll { !it.alive }
-        while (bots.size < 14) spawnBot()
-        // медленное «похудение» больших, чтобы не росли бесконечно
-        (bots + mine).forEach { if (it.mass > 100) it.mass -= it.mass * 0.002f * dt }
+        while (bots.size < BOTS) spawnBot()
+        // «похудение» больших — чем больше, тем быстрее; без этого игра становилась слишком лёгкой
+        (bots + mine).forEach { if (it.mass > 100) it.mass -= it.mass * (0.002f + sqrt(it.mass) * 0.00004f) * dt }
         maxMass = maxOf(maxMass, mass)
+        if (mass >= CELLS_WIN) won = true
     }
 }
 
@@ -144,9 +167,9 @@ fun CellsScreen(onBack: () -> Unit) {
     var g by remember { mutableStateOf(CellsGame()) }
     var tick by remember { mutableIntStateOf(0) }
     var best by remember { mutableIntStateOf(Hi.get(ctx, "cells")) }
-    GameLoop(g.started && !g.over) { dt -> g.step(dt); tick++; if (g.over && Hi.submit(ctx, "cells", g.maxMass.toInt())) best = g.maxMass.toInt() }
+    GameLoop(g.started && !g.over && !g.won) { dt -> g.step(dt); tick++; if ((g.over || g.won) && Hi.submit(ctx, "cells", g.maxMass.toInt())) best = g.maxMass.toInt() }
     ScreenScaffold("Клетки", onBack) {
-        ScoreBar(g.mass.toInt(), best, "размер" + if (g.mine.size > 1) " · кусков ${g.mine.size}" else "")
+        ScoreBar(g.mass.toInt(), best, "до победы ${CELLS_WIN.toInt()}" + if (g.mine.size > 1) " · кусков ${g.mine.size}" else "")
         Box(Modifier.fillMaxSize()) {
             Canvas(Modifier.fillMaxSize()) {
                 tick
@@ -198,6 +221,7 @@ fun CellsScreen(onBack: () -> Unit) {
                 detectTapGestures { g.started = true; g.split() }
             }, contentAlignment = Alignment.Center) { Text("✦", color = Color.White, fontSize = 30.sp) }
             if (!g.started) GameOverlay("Клетки", "Джойстиком слева — куда плыть. Красная кнопка — выстрелить половиной себя: так догоняют добычу. Через 12 секунд куски сливаются обратно.", "Старт") { g.started = true }
+            if (g.won) VictoryOverlay("Ты съел чашку", "Размер ${g.maxMass.toInt()} за ${(g.time / 60).toInt()} мин ${(g.time % 60).toInt()} с · рекорд $best", "Ещё раз") { g = CellsGame().apply { started = true } }
             if (g.over) GameOverlay("Тебя съели", "Макс. размер ${g.maxMass.toInt()} · рекорд $best", "Ещё раз") { g = CellsGame().apply { started = true } }
         }
     }

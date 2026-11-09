@@ -42,7 +42,45 @@ fun MusicScreen(onBack: () -> Unit) {
     var group by remember { mutableIntStateOf(0) }   // 0 все, 1 исполнители, 2 альбомы, 3 папки
     var filter by remember { mutableStateOf<String?>(null) }
     var sort by remember { mutableIntStateOf(0) }
-    LaunchedEffect(granted) { if (granted) songs = withContext(Dispatchers.IO) { Music.scan(ctx) } }
+    var reload by remember { mutableIntStateOf(0) }
+    var hiddenSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var showHidden by remember { mutableStateOf(false) }
+    var showMin by remember { mutableStateOf(false) }
+    LaunchedEffect(granted, reload) {
+        if (granted) withContext(Dispatchers.IO) {
+            val all = Music.scan(ctx, withHidden = true); val hid = Music.hidden(ctx)
+            songs = all.filter { it.id !in hid }; hiddenSongs = all.filter { it.id in hid }
+        }
+    }
+    fun hide(s: Song, h: Boolean) { Music.setHidden(ctx, s.id, h); reload++ }
+    if (showHidden) AlertDialog({ showHidden = false }, confirmButton = { TextButton({ showHidden = false }) { Text("Готово") } },
+        title = { Text("Не музыка") },
+        text = {
+            if (hiddenSongs.isEmpty()) Text("Ничего не скрыто. Скрыть трек — ⋮ справа в строке → «Не музыка».")
+            else LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                itemsIndexed(hiddenSongs, key = { _, s -> s.id }) { _, s ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { Text(s.title, style = MaterialTheme.typography.titleSmall, maxLines = 1); Text("${s.artist} · ${mmss(s.durationMs)}", style = MaterialTheme.typography.bodySmall, maxLines = 1) }
+                        TextButton({ hide(s, false) }) { Text("Вернуть") }
+                    }
+                }
+            }
+        })
+    if (showMin) {
+        val cur = Music.minSec(ctx)
+        AlertDialog({ showMin = false }, confirmButton = { TextButton({ showMin = false }) { Text("Закрыть") } },
+            title = { Text("Короче — не музыка") },
+            text = {
+                Column {
+                    Text("Звонки, голосовые и звуки уведомлений короткие — они в список не попадают.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                    listOf(0 to "Показывать всё", 10 to "10 секунд", 30 to "30 секунд (по умолчанию)", 60 to "1 минута", 90 to "1,5 минуты").forEach { (v, t) ->
+                        Row(Modifier.fillMaxWidth().clickable { Music.setMinSec(ctx, v); showMin = false; reload++ }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(cur == v, { Music.setMinSec(ctx, v); showMin = false; reload++ }); Text(t)
+                        }
+                    }
+                }
+            })
+    }
     ScreenScaffold("Музыка", onBack) {
         if (!granted) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -58,6 +96,8 @@ fun MusicScreen(onBack: () -> Unit) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("Все треки", "Исполнители", "Альбомы", "Папки").forEachIndexed { i, s -> Chip(s, group == i, { group = i; filter = null }) }
                 Chip(if (sort == 0) "А→Я" else if (sort == 1) "Исполнитель" else "Длительность", false, { sort = (sort + 1) % 3 })
+                Chip("от ${Music.minSec(ctx)} с", false, { showMin = true })
+                Chip("Не музыка" + if (hiddenSongs.isNotEmpty()) " · ${hiddenSongs.size}" else "", false, { showHidden = true })
             }
             if (group != 0 && filter == null) {
                 val keys = all.map { when (group) { 1 -> it.artist; 2 -> it.album; else -> it.folder } }.groupingBy { it }.eachCount().entries.sortedBy { it.key.lowercase() }
@@ -90,6 +130,13 @@ fun MusicScreen(onBack: () -> Unit) {
                                 Text(s.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
                             Text(mmss(s.durationMs), style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                            Box {
+                                var menu by remember { mutableStateOf(false) }
+                                IconButton({ menu = true }, Modifier.size(32.dp)) { Icon(Icons.Rounded.MoreVert, "Ещё", tint = Pal.Muted) }
+                                DropdownMenu(menu, { menu = false }) {
+                                    DropdownMenuItem({ Text("Не музыка — убрать") }, { menu = false; hide(s, true) }, leadingIcon = { Icon(Icons.Rounded.VisibilityOff, null) })
+                                }
+                            }
                         }
                     }
                 }

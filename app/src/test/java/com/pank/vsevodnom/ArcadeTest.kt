@@ -65,4 +65,38 @@ class ArcadeTest {
         }
         assertNotNull(g.winner, "партия ботов заканчивается за $turns ходов")
     }
+
+    @Test fun connectFourWinAndBot() {
+        val b = C4.empty()
+        // три красных внизу — бот обязан закрыть четвёртую
+        for (c in 0..2) b[(C4.H - 1) * C4.W + c] = 1
+        assertEquals(3, C4.best(b, 2, 1))
+        b[(C4.H - 1) * C4.W + 3] = 1
+        assertEquals(1, C4.winner(b)?.first)
+        // сильный бот против случайных ходов не проигрывает
+        repeat(5) { seed ->
+            val rnd = kotlin.random.Random(seed)
+            val g = C4.empty(); var p = 1
+            while (C4.winner(g) == null && !C4.full(g)) {
+                val c = if (p == 1) (0 until C4.W).filter { C4.canDrop(g, it) }.random(rnd) else C4.best(g, 2, 2, rnd)
+                g[C4.dropRow(g, c) * C4.W + c] = p; p = 3 - p
+            }
+            assertEquals(2, C4.winner(g)?.first, "партия $seed")
+        }
+    }
+
+    @Test fun battleshipFleetAndBot() {
+        repeat(30) { seed ->
+            val sea = Sea(kotlin.random.Random(seed))
+            assertEquals(Sea.FLEET.sum(), sea.ship.count { it >= 0 })
+            // корабли не касаются: соседняя клетка чужого корабля запрещена
+            for (i in 0 until Sea.N * Sea.N) if (sea.ship[i] >= 0) sea.around(i).forEach { assertTrue(sea.ship[it] < 0 || sea.ship[it] == sea.ship[i]) }
+            for (level in 0..2) {
+                val s2 = Sea(kotlin.random.Random(seed)); val bot = SeaBot(level, kotlin.random.Random(seed))
+                var shots = 0
+                while (!s2.allSunk()) { assertTrue(s2.fire(bot.pick(s2)) != 0, "бот не стреляет дважды в клетку"); shots++ }
+                assertTrue(shots <= 100)
+            }
+        }
+    }
 }

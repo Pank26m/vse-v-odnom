@@ -64,6 +64,7 @@ data class WeatherData(
     val allHours: List<HourW>,
     val aqi: Int?, val pm25: Double?,
     val fetchedAt: Long,
+    val yesterday: DayW? = null,
 ) {
     val pressureMm get() = pressureHpa * 0.750062
 }
@@ -86,7 +87,7 @@ object WeatherApi {
                 "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m" +
                 "&hourly=temperature_2m,precipitation_probability,weather_code,is_day,visibility,wind_speed_10m,wind_direction_10m,relative_humidity_2m,apparent_temperature,precipitation" +
                 "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_speed_10m_max,precipitation_sum" +
-                "&timezone=auto&forecast_days=10&wind_speed_unit=ms"
+                "&timezone=auto&past_days=1&forecast_days=7&wind_speed_unit=ms"
         )
         val a = runCatching {
             get("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=$lat&longitude=$lon&current=european_aqi,pm2_5&timezone=auto")
@@ -122,7 +123,7 @@ object WeatherApi {
         }
         val hours = all.filter { !it.time.isBefore(now.withMinute(0)) }.take(24)
         val dT = d.getJSONArray("time")
-        val days = (0 until dT.length()).map { i ->
+        val allDays = (0 until dT.length()).map { i ->
             DayW(
                 LocalDate.parse(dT.getString(i)), d.getJSONArray("weather_code").optInt(i, 3),
                 d.getJSONArray("temperature_2m_max").optDouble(i), d.getJSONArray("temperature_2m_min").optDouble(i),
@@ -133,6 +134,10 @@ object WeatherApi {
                 d.optJSONArray("wind_speed_10m_max")?.optDoubleOrNull(i), d.optJSONArray("precipitation_sum")?.optDoubleOrNull(i),
             )
         }
+        // вчерашний день — отдельно (сравнить «вчера/сегодня»), в списке — с сегодняшнего, 7 дней
+        val today = now.toLocalDate()
+        val days = allDays.filter { !it.date.isBefore(today) }.take(7)
+        val yesterday = allDays.firstOrNull { it.date == today.minusDays(1) }
         val a = root.optJSONObject("a")?.optJSONObject("current")
         return WeatherData(
             temp = cur.optDouble("temperature_2m"), feels = cur.optDouble("apparent_temperature"),
@@ -141,7 +146,7 @@ object WeatherApi {
             windMs = cur.optDouble("wind_speed_10m"), windDir = cur.optInt("wind_direction_10m"),
             gustsMs = cur.optDouble("wind_gusts_10m"), cloud = cur.optInt("cloud_cover"),
             precip = cur.optDouble("precipitation", 0.0), visibilityM = visibility,
-            hours = hours, days = days, allHours = all,
+            hours = hours, days = days, allHours = all.filter { !it.time.toLocalDate().isBefore(today) }, yesterday = yesterday,
             aqi = a?.let { if (it.isNull("european_aqi")) null else it.optInt("european_aqi") },
             pm25 = a?.optDoubleOrNull("pm2_5"),
             fetchedAt = root.optLong("t", System.currentTimeMillis()),

@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
@@ -48,7 +49,7 @@ fun RandomScreen(onBack: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     ScreenScaffold("Рандом", onBack) {
         // все шесть видны сразу — без прокрутки вбок
-        val tools = listOf("🪙" to "Монетка", "🎡" to "Колесо", "🎱" to "Шар", "🍾" to "Бутылочка", "🔢" to "Число", "🎲" to "Кубики")
+        val tools = listOf("🪙" to "Монетка", "🎡" to "Колесо", "🎱" to "Шар", "🍾" to "Бутылочка", "🔢" to "Число", "🎲" to "Кости")
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             tools.chunked(3).forEachIndexed { r, row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -82,25 +83,24 @@ private val Gold = Color(0xFFE9C46A)
 private val GoldDark = Color(0xFFB08A2E)
 private val GoldLight = Color(0xFFF6DFA0)
 
-/** Упрощённый тризуб — силуэт из трёх зубцов на основании. */
-private fun DrawScope.tryzub(c: Offset, h: Float, color: Color) {
-    val w = h * 0.62f
-    val st = Stroke(h * 0.075f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-    val top = c.y - h / 2; val bot = c.y + h / 2
-    // центральный зубец
-    drawLine(color, Offset(c.x, top), Offset(c.x, bot - h * 0.12f), h * 0.075f)
-    drawPath(Path().apply { moveTo(c.x - h * 0.07f, top + h * 0.18f); lineTo(c.x, top); lineTo(c.x + h * 0.07f, top + h * 0.18f) }, color, style = st)
-    // боковые
-    for (s in listOf(-1f, 1f)) {
-        drawPath(Path().apply {
-            moveTo(c.x + s * w / 2, top + h * 0.05f)
-            lineTo(c.x + s * w / 2, bot - h * 0.3f)
-            quadraticBezierTo(c.x + s * w / 2, bot - h * 0.12f, c.x, bot - h * 0.12f)
-        }, color, style = st)
-        drawPath(Path().apply { moveTo(c.x + s * w * 0.18f, top + h * 0.38f); quadraticBezierTo(c.x + s * w * 0.3f, bot - h * 0.3f, c.x, bot - h * 0.22f) }, color, style = st)
+// Малый герб Украины (тризуб) — контуры из официального векторного изображения (государственный символ, общественное достояние).
+private const val TRYZUB_A = "M5.985561 78.82382a104.079383 104.079383 0 0 0 14.053598 56.017033 55 55 0 0 1-13.218774 70.637179A20 20 0 0 0 0 212.5a20 20 0 0 0-6.820384-7.021968 55 55 0 0 1-13.218774-70.637179A104.079383 104.079383 0 0 0-5.98556 78.82382l-1.599642-45.260519A30.103986 30.103986 0 0 1 0 12.5a30.103986 30.103986 0 0 1 7.585202 21.063301zM5 193.624749a45 45 0 0 0 6.395675-53.75496A114.079383 114.079383 0 0 1 0 112.734179a114.079383 114.079383 0 0 1-11.395675 27.13561A45 45 0 0 0-5 193.624749V162.5H5z"
+private const val TRYZUB_B = "M27.779818 75.17546A62.64982 62.64982 0 0 1 60 27.5v145H0l-5-10a22.5 22.5 0 0 1 17.560976-21.95122l14.634147-3.292683a10 10 0 1 0-4.427443-19.503751zm5.998315 34.353887a20 20 0 0 1-4.387889 37.482848l-14.634146 3.292683A12.5 12.5 0 0 0 5 162.5h45V48.265462a52.64982 52.64982 0 0 0-12.283879 28.037802zM42 122.5h10v10H42z"
+private val tryzubPaths by lazy {
+    val pp = androidx.compose.ui.graphics.vector.PathParser()
+    listOf(pp.parsePathString(TRYZUB_A).toPath(), androidx.compose.ui.graphics.vector.PathParser().parsePathString(TRYZUB_B).toPath())
+}
+
+/** Тризуб высотой [h] с центром в [c]: выпуклый, как отчеканенный (светлая тень снизу-справа). */
+private fun DrawScope.tryzub(c: Offset, h: Float, color: Color, light: Color) {
+    val k = h / 200f
+    val (a, b) = tryzubPaths
+    for ((dx, col) in listOf(h * 0.012f to light, 0f to color)) {
+        withTransform({ translate(c.x + dx, c.y - h / 2 - 12.5f * k + dx); scale(k, k, Offset.Zero) }) {
+            drawPath(a, col); drawPath(b, col)
+            withTransform({ scale(-1f, 1f, Offset.Zero) }) { drawPath(b, col) }
+        }
     }
-    drawLine(color, Offset(c.x - w * 0.25f, bot), Offset(c.x + w * 0.25f, bot), h * 0.07f)
-    drawLine(color, Offset(c.x, bot - h * 0.12f), Offset(c.x, bot), h * 0.075f)
 }
 
 private fun DrawScope.coinFace(heads: Boolean) {
@@ -111,7 +111,7 @@ private fun DrawScope.coinFace(heads: Boolean) {
     for (i in 0 until 72) { val a = i * 5.0 * PI / 180; drawLine(GoldDark.copy(alpha = 0.5f), Offset(c.x + cos(a).toFloat() * r * 0.94f, c.y + sin(a).toFloat() * r * 0.94f), Offset(c.x + cos(a).toFloat() * r, c.y + sin(a).toFloat() * r), r * 0.012f) }
     val p = android.graphics.Paint().apply { color = android.graphics.Color.rgb(140, 105, 30); isAntiAlias = true; textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true }
     if (heads) {
-        tryzub(Offset(c.x, c.y - r * 0.08f), r * 0.85f, GoldDark)
+        tryzub(Offset(c.x, c.y - r * 0.1f), r * 1.02f, GoldDark, GoldLight)
         p.textSize = r * 0.13f; drawContext.canvas.nativeCanvas.drawText("УКРАЇНА", c.x, c.y + r * 0.72f, p)
     } else {
         p.textSize = r * 0.75f; drawContext.canvas.nativeCanvas.drawText("1", c.x, c.y + r * 0.12f, p)
@@ -136,20 +136,21 @@ private fun Coin() {
     val lift = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Chip("Орёл / Решка", !yesNo, { yesNo = false }); Chip("Да / Нет", yesNo, { yesNo = true }) }
-    Spacer(Modifier.height(24.dp))
+    // монета ниже: сверху остаётся место для подброса
+    Spacer(Modifier.height(150.dp))
     // какая сторона видна в данный момент вращения
     val showHeads = run { val half = ((rot.value % 360f) + 360f) % 360f; val front = half < 90f || half > 270f; if (heads == null) true else if (front) heads!! else !heads!! }
     Canvas(Modifier.size(230.dp).graphicsLayer { rotationX = rot.value; translationY = -lift.value; cameraDistance = 14 * density }) { coinFace(showHeads) }
     Spacer(Modifier.height(16.dp))
     val label = when { heads == null || rot.isRunning -> " "; yesNo -> if (heads!!) "Да" else "Нет"; else -> if (heads!!) "Орёл" else "Решка" }
     Text(label, style = MaterialTheme.typography.displayMedium, color = Pal.PeachInk)
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(48.dp))
     PillButton("Подбросить", {
         scope.launch {
             val r = rnd.nextBoolean(); heads = r
             rot.snapTo(0f)
-            CoinSound.play()
-            launch { lift.animateTo(260f, tween(600, easing = FastOutSlowInEasing)); lift.animateTo(0f, tween(600, easing = FastOutLinearInEasing)) }
+            Sfx.play("coin") { Sfx.coin(1.2) }
+            launch { lift.animateTo(380f, tween(600, easing = FastOutSlowInEasing)); lift.animateTo(0f, tween(600, easing = FastOutLinearInEasing)) }
             rot.animateTo(360f * 6, tween(1200, easing = LinearOutSlowInEasing))
             rot.snapTo(0f)
             stats = if (r) stats.copy(first = stats.first + 1) else stats.copy(second = stats.second + 1)
@@ -202,7 +203,12 @@ private fun Wheel() {
         scope.launch {
             winner = null
             val target = angle.value + 360f * (5 + rnd.nextInt(3)) + rnd.nextFloat() * 360f
-            angle.animateTo(target, tween(3600, easing = CubicBezierEasing(0.1f, 0.7f, 0.1f, 1f)))
+            val ease = CubicBezierEasing(0.1f, 0.7f, 0.1f, 1f)
+            val from = angle.value
+            // щелчки язычка о границы секторов — по той же кривой, что и вращение
+            val pcm = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { Sfx.wheel(from, target, items.size, 3600, ease) }
+            Sfx.playPcm("wheel", pcm)
+            angle.animateTo(target, tween(3600, easing = ease))
             // под стрелкой (сверху) — сектор, в который попал угол
             val n = items.size; val sweep = 360f / n
             val a = ((360f - (angle.value % 360f)) % 360f)
@@ -235,6 +241,7 @@ private fun EightBall() {
         busy = true
         scope.launch {
             reveal.snapTo(0f)
+            Sfx.play("ball") { Sfx.ball(7, 0.06) }
             repeat(6) { shake.animateTo(if (it % 2 == 0) 22f else -22f, tween(60)) }
             shake.animateTo(0f, tween(60))
             answer = ANSWERS[rnd.nextInt(ANSWERS.size)]
@@ -260,8 +267,8 @@ private fun EightBall() {
         if (acc != null) sm.registerListener(l, acc, android.hardware.SensorManager.SENSOR_DELAY_GAME)
         onDispose { sm?.unregisterListener(l) }
     }
-    Spacer(Modifier.height(12.dp))
-    Box(Modifier.size(280.dp).graphicsLayer { translationX = shake.value }.clip(CircleShape), contentAlignment = Alignment.Center) {
+    Spacer(Modifier.height(72.dp))
+    Box(Modifier.size(330.dp).graphicsLayer { translationX = shake.value }.clip(CircleShape), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val r = size.minDimension / 2
             drawCircle(Brush.radialGradient(listOf(Color(0xFF55545F), Color(0xFF1B1A21), Color.Black), Offset(center.x - r * 0.35f, center.y - r * 0.4f), r * 1.4f), r)
@@ -277,15 +284,15 @@ private fun EightBall() {
             }
         }
         answer?.let {
-            Text(it.uppercase(), color = Color.White.copy(alpha = reveal.value), fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 15.sp,
-                modifier = Modifier.width(110.dp).offset(y = (-14).dp))
+            Text(it.uppercase(), color = Color.White.copy(alpha = reveal.value), fontSize = 15.sp, textAlign = TextAlign.Center, lineHeight = 17.sp,
+                modifier = Modifier.width(128.dp).offset(y = (-16).dp))
         }
     }
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(24.dp))
     Text("Задай вопрос про себя и встряхни телефон", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
 }
 
-// ---------------- Число и кубики ----------------
+// ---------------- Число и кости ----------------
 
 @Composable
 private fun BigResult(text: String, sub: String = "") {
@@ -350,7 +357,7 @@ private fun Dice() {
     Spacer(Modifier.height(16.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..6).forEach { k -> Chip("$k", n == k, { n = k; values = List(k) { 1 } }) } }
     Spacer(Modifier.height(16.dp))
-    PillButton("Бросить", { scope.launch { repeat(8) { values = List(n) { rnd.nextInt(6) + 1 }; delay(60L + it * 15) } } }, Modifier.fillMaxWidth())
+    PillButton("Бросить", { Sfx.playPcm("dice", Sfx.dice(n)); scope.launch { repeat(8) { values = List(n) { rnd.nextInt(6) + 1 }; delay(60L + it * 15) } } }, Modifier.fillMaxWidth())
 }
 
 // ---------------- Бутылочка ----------------
@@ -361,7 +368,14 @@ private fun Bottle() {
     val scope = rememberCoroutineScope()
     Spacer(Modifier.height(24.dp))
     Box(Modifier.size(300.dp).clip(CircleShape).background(Pal.Card).clickable {
-        if (!angle.isRunning) scope.launch { angle.animateTo(angle.value + 360f * (7 + rnd.nextInt(5)) + rnd.nextFloat() * 360f, tween(7500 + rnd.nextInt(2500), easing = CubicBezierEasing(0.08f, 0.55f, 0.02f, 1f))) }
+        if (!angle.isRunning) scope.launch {
+            val turns = 360f * (7 + rnd.nextInt(5)) + rnd.nextFloat() * 360f
+            val ms = 7500 + rnd.nextInt(2500)
+            val ease = CubicBezierEasing(0.08f, 0.55f, 0.02f, 1f)
+            val pcm = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { Sfx.bottle(turns, ms, ease) }
+            Sfx.playPcm("bottle", pcm)
+            angle.animateTo(angle.value + turns, tween(ms, easing = ease))
+        }
     }, contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(240.dp).graphicsLayer { rotationZ = angle.value }) {
             val w = size.width; val h = size.height; val cx = w / 2
@@ -377,33 +391,4 @@ private fun Bottle() {
     }
     Spacer(Modifier.height(16.dp))
     Text("Нажми на бутылочку — горлышко покажет, на кого", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, textAlign = TextAlign.Center)
-}
-
-/** Звук монетки: звон при подбрасывании, частые «тики» вращения, которые замедляются, и звонкое приземление. Синтезируется на лету. */
-object CoinSound {
-    private var track: android.media.AudioTrack? = null
-    private fun build(): ShortArray {
-        val sr = 44100; val n = (sr * 1.35).toInt(); val out = FloatArray(n)
-        fun ting(at: Int, freqs: List<Double>, len: Int, amp: Float, decay: Double) {
-            for (i in 0 until len) { val k = at + i; if (k >= n) break
-                val t = i.toDouble() / sr; val e = Math.exp(-t * decay)
-                out[k] += (amp * e * freqs.sumOf { Math.sin(2 * Math.PI * it * t) } / freqs.size).toFloat() }
-        }
-        ting(0, listOf(3150.0, 4720.0, 6800.0), sr / 3, 0.55f, 14.0)                         // щелчок пальцем
-        var t = 0.08; var gap = 0.045
-        while (t < 1.05) { ting((t * sr).toInt(), listOf(5200.0, 7600.0), (0.012 * sr).toInt(), 0.18f, 260.0); t += gap; gap *= 1.07 }  // вращение
-        ting((1.08 * sr).toInt(), listOf(2600.0, 3900.0, 5500.0), (0.27 * sr).toInt(), 0.7f, 11.0)      // приземление
-        val peak = out.maxOf { kotlin.math.abs(it) }.coerceAtLeast(1e-3f)
-        return ShortArray(n) { (out[it] / peak * 0.8f * Short.MAX_VALUE).toInt().toShort() }
-    }
-    fun play() = runCatching {
-        val t = track ?: run {
-            val pcm = build()
-            android.media.AudioTrack.Builder()
-                .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_GAME).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
-                .setAudioFormat(android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT).setSampleRate(44100).setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
-                .setTransferMode(android.media.AudioTrack.MODE_STATIC).setBufferSizeInBytes(pcm.size * 2).build().also { it.write(pcm, 0, pcm.size); track = it }
-        }
-        t.stop(); t.reloadStaticData(); t.play()
-    }
 }

@@ -34,15 +34,31 @@ object Music {
     val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
     fun granted(ctx: Context) = ContextCompat.checkSelfPermission(ctx, permission) == PackageManager.PERMISSION_GRANTED
 
-    fun scan(ctx: Context): List<Song> {
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("music", Context.MODE_PRIVATE)
+    /** Короче этого — «не музыка» (звонки, голосовые, звуки). По умолчанию 30 с. */
+    fun minSec(ctx: Context) = prefs(ctx).getInt("min_sec", 30)
+    fun setMinSec(ctx: Context, v: Int) = prefs(ctx).edit().putInt("min_sec", v).apply()
+    /** Треки, которые владелец пометил «Не музыка» — в списке не показываются. */
+    fun hidden(ctx: Context): Set<Long> = prefs(ctx).getStringSet("not_music", emptySet())!!.mapNotNull { it.toLongOrNull() }.toSet()
+    fun setHidden(ctx: Context, id: Long, hide: Boolean) {
+        val cur = prefs(ctx).getStringSet("not_music", emptySet())!!.toMutableSet()
+        if (hide) cur += id.toString() else cur -= id.toString()
+        prefs(ctx).edit().putStringSet("not_music", cur).apply()
+    }
+
+    /** Вся музыка без помеченных «не музыка»; [withHidden] — вернуть и их (для списка скрытых). */
+    fun scan(ctx: Context, withHidden: Boolean = false): List<Song> {
         if (!granted(ctx)) return emptyList()
+        val hid = if (withHidden) emptySet() else hidden(ctx)
+        val minMs = minSec(ctx) * 1000L
         val out = ArrayList<Song>()
         val proj = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.RELATIVE_PATH, MediaStore.Audio.Media.ALBUM_ID)
         runCatching {
-            ctx.contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj, "${MediaStore.Audio.Media.DURATION} > 20000", null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE")?.use { c ->
+            ctx.contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj, "${MediaStore.Audio.Media.DURATION} >= $minMs", null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE")?.use { c ->
                 while (c.moveToNext()) {
                     val id = c.getLong(0)
+                    if (id in hid) continue
                     out += Song(id, c.getString(1) ?: "Без названия", c.getString(2)?.takeIf { it != "<unknown>" } ?: "Неизвестный исполнитель", c.getString(3) ?: "",
                         c.getLong(4), (c.getString(5) ?: "").trimEnd('/').substringAfterLast('/'), ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id), c.getLong(6))
                 }

@@ -230,7 +230,10 @@ private fun StudySession(d: Deck, quiz: Boolean, reverse: Boolean, english: Bool
         }
         LinearProgressIndicator({ idx.toFloat() / q.size }, Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(6.dp).clip(RoundedCornerShape(3.dp)))
         Text("${idx + 1} из ${q.size}" + if (Srs.isNew(c)) " · новое" else "", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(16.dp, 6.dp))
-        val rot by animateFloatAsState(if (flipped || picked != null) 180f else 0f, tween(380), label = "flip")
+        // своя анимация на каждую карточку: новая начинается сразу лицом (раньше переворот назад на долю секунды показывал перевод следующего слова)
+        val rotA = remember(idx, round) { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(idx, round, flipped, picked) { rotA.animateTo(if (flipped || picked != null) 180f else 0f, tween(380)) }
+        val rot = rotA.value
         val t = Tints.all[d.tint % 6]
         Box(Modifier.fillMaxWidth().weight(1f).padding(16.dp).graphicsLayer { rotationY = rot; cameraDistance = 14f * density }
             .clip(RoundedCornerShape(24.dp)).background(if (rot > 90f) Pal.Card else t.bg).clickable(enabled = !quiz) { flipped = !flipped },

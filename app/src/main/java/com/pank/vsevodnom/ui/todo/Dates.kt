@@ -46,7 +46,17 @@ import java.time.format.DateTimeFormatter
 
 private val RU = java.util.Locale("ru")
 val DATE_COLORS = listOf(Color(0xFFE5485D), Color(0xFFF2A33A), Color(0xFFF2C94C), Color(0xFF3FB27F), Color(0xFF4A86E8), Color(0xFF8E5BD8), Color(0xFF9E9E9E))
-private val KINDS = listOf("birthday" to "День рождения", "holiday" to "Праздник", "anniversary" to "Годовщина", "other" to "Другое")
+private val BASE_KINDS = listOf("birthday" to "День рождения", "holiday" to "Праздник", "anniversary" to "Годовщина")
+/** Свои виды дат (вместо «Другое»): хранятся в prefs «dates»/kinds, в записи — kind = «c:Название». */
+private object DateKinds {
+    private fun p(ctx: android.content.Context) = ctx.getSharedPreferences("dates", android.content.Context.MODE_PRIVATE)
+    fun custom(ctx: android.content.Context): List<String> = p(ctx).getStringSet("kinds", emptySet())!!.sorted()
+    fun add(ctx: android.content.Context, name: String) = p(ctx).edit().putStringSet("kinds", (custom(ctx) + name).toSet()).apply()
+    fun remove(ctx: android.content.Context, name: String) = p(ctx).edit().putStringSet("kinds", (custom(ctx) - name).toSet()).apply()
+}
+private var customKinds by androidx.compose.runtime.mutableStateOf<List<String>>(emptyList())
+private val KINDS: List<Pair<String, String>> get() = BASE_KINDS + customKinds.map { "c:$it" to it } + (if (customKinds.isEmpty()) listOf("other" to "Другое") else emptyList())
+private fun kindName(k: String) = BASE_KINDS.firstOrNull { it.first == k }?.second ?: if (k.startsWith("c:")) k.removePrefix("c:") else "Другое"
 private fun kindIcon(k: String) = when (k) { "birthday" -> Icons.Rounded.Cake; "holiday" -> Icons.Rounded.Celebration; "anniversary" -> Icons.Rounded.Favorite; else -> Icons.Rounded.Event }
 
 fun nextOccurrence(b: Birthday, from: LocalDate = LocalDate.now()): LocalDate =
@@ -82,6 +92,7 @@ fun DatesPage(onBack: () -> Unit) {
     var sort by remember { mutableStateOf(runCatching { DSort.valueOf(prefs.getString("sort", "NEXT")!!) }.getOrDefault(DSort.NEXT)) }
     var edit by remember { mutableStateOf<Birthday?>(null) }
     var color by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(Unit) { customKinds = DateKinds.custom(ctx) }
     var kind by remember { mutableStateOf<String?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var gift by remember { mutableStateOf<Birthday?>(null) }
@@ -125,7 +136,7 @@ fun DatesPage(onBack: () -> Unit) {
                     val header = when (sort) {
                         DSort.NEXT -> n.format(DateTimeFormatter.ofPattern("LLLL yyyy", RU)).replaceFirstChar { it.uppercase() }
                         DSort.MONTH -> Month.of(b.month).getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, RU).replaceFirstChar { it.uppercase() }
-                        DSort.KIND -> KINDS.firstOrNull { it.first == b.kind }?.second ?: "Другое"
+                        DSort.KIND -> kindName(b.kind)
                         else -> null
                     }
                     if (header != null && header != lastHeader) { lastHeader = header; item(key = "h$header") { SectionLabel(header) } }
@@ -179,6 +190,7 @@ fun DatesPage(onBack: () -> Unit) {
 @Composable
 internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> Unit) {
     val ctx = LocalContext.current
+    LaunchedEffect(Unit) { customKinds = DateKinds.custom(ctx) }
     var b by remember { mutableStateOf(b0) }
     var year by remember { mutableStateOf(b0.year?.toString() ?: "") }
     var pick by remember { mutableStateOf(false) }
@@ -202,7 +214,19 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
                             decorationBox = { inner -> if (b.name.isEmpty()) Text("Имя или название", style = MaterialTheme.typography.titleLarge, color = Color(0xFFB8BCC6)); inner() })
                     }
                 }
-                FormCard("Что это") { ChoiceGrid(KINDS, { it == b.kind }, 2) { b = b.copy(kind = it) } }
+                FormCard("Что это") {
+                    var adding by remember { mutableStateOf<String?>(null) }
+                    ChoiceGrid(BASE_KINDS + customKinds.map { "c:$it" to it } + ("+" to "＋ Свой тег"), { it == b.kind }, 2) { k ->
+                        if (k == "+") adding = "" else b = b.copy(kind = k)
+                    }
+                    if (b.kind.startsWith("c:")) TextButton({ DateKinds.remove(ctx, b.kind.removePrefix("c:")); customKinds = DateKinds.custom(ctx) }) { Text("Убрать тег «${b.kind.removePrefix("c:")}» из списка", color = Pal.RoseInk) }
+                    adding?.let { a0 ->
+                        var t by remember { mutableStateOf(a0) }
+                        AlertDialog(onDismissRequest = { adding = null }, title = { Text("Свой тег даты") }, text = { AppTextField(t, { t = it }, "Например: Свадьба, Память, Работа") },
+                            confirmButton = { TextButton({ val n = t.trim(); if (n.isNotBlank()) { DateKinds.add(ctx, n); customKinds = DateKinds.custom(ctx); b = b.copy(kind = "c:$n") }; adding = null }) { Text("Добавить") } },
+                            dismissButton = { TextButton({ adding = null }) { Text("Отмена") } })
+                    }
+                }
                 FormCard("Когда (каждый год)") {
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Ink.copy(alpha = 0.05f)).clickable { pick = true }.padding(12.dp, 10.dp)) {
                         Text("Дата", style = MaterialTheme.typography.labelSmall)
