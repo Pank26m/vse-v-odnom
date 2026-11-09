@@ -48,8 +48,12 @@ val ACCENT = Pal.LilacInk
  * Приоритет: 0 нет, 1 низкий (зелёный), 2 средний (жёлтый), 3 высокий (красный).
  * Хранится в TaskItem.priority.
  */
-val PRIO = listOf("Без приоритета" to Color(0xFFB8BCC6), "Низкий" to Color(0xFF3FB27F), "Средний" to Color(0xFFF2B635), "Высокий" to Color(0xFFE5485D))
+val PRIO = listOf("Без приоритета" to Color(0xFFB8BCC6), "Низкий" to Color(0xFF3E7FD6), "Средний" to Color(0xFFF2B635), "Высокий" to Color(0xFFE5485D))
 fun prioColor(p: Int) = PRIO[p.coerceIn(0, 3)].second
+/** Галочка без приоритета — одна для всех строк (задачи, привычки, даты, покупки, праздники). */
+val CHECK_GREY = Color(0xFF8E939C)
+/** Одинаковый размер галочки во всех строках. */
+val CHECK_SIZE = 26.dp
 
 /** Строка, которая при выполнении сначала показывает галочку, а потом плавно уезжает. */
 @Composable
@@ -155,8 +159,9 @@ fun PriorityDots(value: Int, onChange: (Int) -> Unit) {
         listOf(3, 2, 1, 0).forEach { p ->
             val sel = value == p
             Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (sel) prioColor(p).copy(alpha = 0.16f) else Pal.Ink.copy(alpha = 0.04f))
+                .border(2.dp, if (sel) prioColor(p) else Color.Transparent, RoundedCornerShape(12.dp))
                 .clickable { onChange(p) }.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(if (sel) 22.dp else 18.dp).clip(CircleShape).then(if (p == 0) Modifier.border(2.dp, prioColor(p), CircleShape) else Modifier.background(prioColor(p))))
+                Box(Modifier.size(20.dp).clip(CircleShape).then(if (p == 0) Modifier.border(2.dp, prioColor(p), CircleShape) else Modifier.background(prioColor(p))))
                 Text(listOf("Нет", "Низкий", "Средний", "Высокий")[p], style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp), color = if (sel) Pal.Ink else Pal.Muted)
             }
         }

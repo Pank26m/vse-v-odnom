@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -35,6 +36,7 @@ import com.pank.vsevodnom.data.*
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
 import com.pank.vsevodnom.ui.theme.Tints
+import com.pank.vsevodnom.ui.markets.fmtPrice
 import kotlinx.coroutines.launch
 
 /** «Покупки»: несколько независимых списков (продукты, Эпицентр…). */
@@ -48,11 +50,20 @@ fun ShopListsPage(onBack: () -> Unit) {
     val lists = pages.filter { it.type == "SHOP" }
     var open by remember { mutableStateOf<ListPage?>(null) }
     var edit by remember { mutableStateOf<ListPage?>(null) }
+    val cart by remember { AppDb.get(ctx).life().cart() }.collectAsState(initial = emptyList())
+    val groupsPref = remember { ctx.getSharedPreferences("cart", android.content.Context.MODE_PRIVATE) }
+    var extraGroups by remember { mutableStateOf(groupsPref.getStringSet("groups", emptySet())!!.toList()) }
+    val markets = (cart.flatMap { with(com.pank.vsevodnom.ui.life.CartTags) { it.tagList() } } + extraGroups).distinct().sorted()
+    var market by remember { mutableStateOf<String?>(null) }
+    var addMenu by remember { mutableStateOf(false) }
+    var newMarket by remember { mutableStateOf<String?>(null) }
     open?.let { p -> BackHandler { open = null }; ShopPage(lists.firstOrNull { it.id == p.id } ?: p) { open = null }; return }
+    market?.let { m -> BackHandler { market = null }; MarketPage(m, markets) { market = null }; return }
     Box(Modifier.fillMaxSize()) {
         ScreenScaffold("Покупки", onBack) {
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (lists.isEmpty()) item { EmptyHint("Списков нет. Нажми «+» — например «Продукты» или «Эпицентр».") }
+                if (lists.isEmpty() && markets.isEmpty()) item { EmptyHint("Пусто. «+» — список покупок («Сходи в магазин») или корзина маркетплейса («Алик»).") }
+                if (lists.isNotEmpty()) item { SectionLabel("Списки покупок") }
                 items(lists, key = { it.id }) { p ->
                     val t = Tints.all[p.tint % 6]
                     val mine = entries.filter { it.pageId == p.id }
@@ -67,10 +78,37 @@ fun ShopListsPage(onBack: () -> Unit) {
                         IconButton({ edit = p }) { Icon(Icons.Rounded.MoreVert, "Изменить", tint = Pal.Muted) }
                     }
                 }
+                if (markets.isNotEmpty()) item { SectionLabel("Корзины маркетплейсов") }
+                items(markets, key = { "m$it" }) { m ->
+                    val mine = cart.filter { m in with(com.pank.vsevodnom.ui.life.CartTags) { it.tagList() } }
+                    val want = mine.filter { !it.bought }
+                    val sum = want.mapNotNull { it.price }.sum()
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pal.Card).clickable { market = m }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Peach), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storefront, null, tint = Pal.PeachInk) }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(m, style = MaterialTheme.typography.titleMedium)
+                            Text(if (mine.isEmpty()) "пусто" else "хочу ${want.size}" + (if (sum > 0) " · ≈ ${fmtPrice(sum)} ₴" else "") + " · куплено ${mine.size - want.size}", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = Pal.Muted)
+                    }
+                }
             }
         }
         Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(58.dp).clip(RoundedCornerShape(18.dp)).background(Pal.Ink)
-            .clickable { edit = ListPage(name = "", type = "SHOP", tint = lists.size % 6, sort = pages.size) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Новый список", tint = Color.White) }
+            .clickable { addMenu = true }, contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Add, "Создать", tint = Color.White)
+            DropdownMenu(addMenu, { addMenu = false }) {
+                DropdownMenuItem({ Text("Создать список покупок") }, { addMenu = false; edit = ListPage(name = "", type = "SHOP", tint = lists.size % 6, sort = pages.size) }, leadingIcon = { Icon(Icons.Rounded.ShoppingCart, null) })
+                DropdownMenuItem({ Text("Создать корзину маркетплейса") }, { addMenu = false; newMarket = "" }, leadingIcon = { Icon(Icons.Rounded.Storefront, null) })
+            }
+        }
+    }
+    newMarket?.let { g0 ->
+        var g by remember { mutableStateOf(g0) }
+        AlertDialog(onDismissRequest = { newMarket = null }, title = { Text("Новая корзина маркетплейса") }, text = { AppTextField(g, { g = it.replace(",", "") }, "Например: Алик, Rozetka, Temu") },
+            confirmButton = { TextButton({ val n = g.trim(); if (n.isNotBlank()) { extraGroups = (extraGroups + n).distinct(); groupsPref.edit().putStringSet("groups", extraGroups.toSet()).apply(); market = n }; newMarket = null }) { Text("Создать") } },
+            dismissButton = { TextButton({ newMarket = null }) { Text("Отмена") } })
     }
     edit?.let { p ->
         var name by remember { mutableStateOf(p.name) }
@@ -132,8 +170,6 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                     .padding(vertical = 3.dp).then(if (dragging) Modifier.shadow(8.dp, RoundedCornerShape(14.dp)) else Modifier)
                     .clip(RoundedCornerShape(14.dp)).background(if (e.done) t.bg.copy(alpha = 0.6f) else Pal.Card).clickable { edit = e }.padding(start = 12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    CheckCircle(e.done, t.ink, 24.dp) { AppScope.io.launch { dao.upsertEntry(e.copy(done = !e.done)) } }
-                    CheckDivider(height = 30.dp)
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (e.priority > 0) Box(Modifier.padding(end = 6.dp).size(9.dp).clip(CircleShape).background(prioColor(e.priority)))
@@ -159,6 +195,8 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                             else if (dragY < -rowPx / 2 && dragIdx > 0) { order.add(dragIdx - 1, order.removeAt(dragIdx)); dragIdx--; dragY += rowPx }
                         }
                     }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.DragIndicator, "Перетащить", tint = Pal.Muted) }
+                    CheckDivider(height = 30.dp)
+                    CheckCircle(e.done, CHECK_GREY, CHECK_SIZE) { AppScope.io.launch { dao.upsertEntry(e.copy(done = !e.done)) } }
                 }
               }
             }
@@ -179,4 +217,62 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
             confirmButton = { TextButton({ if (s.isNotBlank()) AppScope.io.launch { dao.upsertEntry(e.copy(text = s.trim(), note = n.trim(), priority = pr)) }; edit = null }) { Text("Сохранить") } },
             dismissButton = { TextButton({ AppScope.io.launch { dao.deleteEntry(e) }; edit = null }) { Text("Удалить", color = Pal.RoseInk) } })
     }
+}
+
+
+/** Корзина маркетплейса («Алик»): товары плитками по две — большое фото, название, цена, магазин; фильтры и сортировка. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun MarketPage(group: String, groups: List<String>, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val dao = remember { AppDb.get(ctx).life() }
+    val all by dao.cart().collectAsState(initial = emptyList())
+    var tab by remember { mutableIntStateOf(0) }
+    var sort by remember { mutableIntStateOf(0) }       // 0 — новые, 1 — дешевле, 2 — дороже, 3 — важнее
+    var prio by remember { mutableStateOf<Int?>(null) }
+    var edit by remember { mutableStateOf<CartItem?>(null) }
+    val mine = all.filter { group in with(com.pank.vsevodnom.ui.life.CartTags) { it.tagList() } }
+    val shown = mine.filter { it.bought == (tab == 1) && (prio == null || it.priority == prio) }.let { l ->
+        when (sort) { 1 -> l.sortedBy { it.price ?: Double.MAX_VALUE }; 2 -> l.sortedByDescending { it.price ?: -1.0 }; 3 -> l.sortedByDescending { it.priority }; else -> l.sortedByDescending { it.addedAt } }
+    }
+    Box(Modifier.fillMaxSize()) {
+        ScreenScaffold(group, onBack) {
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Segmented(listOf("Хочу · ${mine.count { !it.bought }}", "Куплено · ${mine.count { it.bought }}"), tab, { tab = it }, Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Новые", "Дешевле", "Дороже", "Важнее").forEachIndexed { i, n -> Chip(n, sort == i, { sort = i }) }
+                    Spacer(Modifier.width(6.dp))
+                    listOf(3, 2, 1).forEach { p -> Chip(listOf("", "Низкий", "Средний", "Высокий")[p], prio == p, { prio = if (prio == p) null else p }) }
+                }
+                val total = shown.mapNotNull { it.price }.sum()
+                if (total > 0) Text((if (tab == 0) "Всего ≈ " else "Потрачено ") + fmtPrice(total) + " ₴", style = MaterialTheme.typography.titleMedium)
+            }
+            if (shown.isEmpty()) EmptyHint(if (tab == 0) "Пусто. «+» — добавить товар: фото, ссылка, цена." else "Пока ничего не куплено", Modifier.padding(16.dp))
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Fixed(2), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(shown.size, key = { shown[it].id }) { i ->
+                    val c = shown[i]
+                    Column(Modifier.clip(RoundedCornerShape(16.dp)).background(Pal.Card).clickable { edit = c }) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Pal.Bg), contentAlignment = Alignment.Center) {
+                            if (c.photo.isNotBlank() || c.image.isNotBlank()) AppImage(c.photo.ifBlank { c.image }, Modifier.fillMaxSize(), maxPx = 600)
+                            else Icon(Icons.Rounded.ShoppingBag, null, tint = Pal.Muted, modifier = Modifier.size(40.dp))
+                            if (c.priority > 0) Box(Modifier.align(Alignment.TopStart).padding(8.dp).size(12.dp).clip(CircleShape).background(prioColor(c.priority)))
+                        }
+                        Row(Modifier.padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(c.title, style = MaterialTheme.typography.titleSmall.copy(textDecoration = if (c.bought) TextDecoration.LineThrough else null), maxLines = 2)
+                                c.price?.let { Text(fmtPrice(it) + " " + (if (c.currency.isBlank() || c.currency == "UAH") "₴" else c.currency), style = MaterialTheme.typography.titleMedium, color = Pal.Ink) }
+                                Text(listOfNotNull(c.store.ifBlank { null }, c.planDay?.let { "купить " + java.time.LocalDate.ofEpochDay(it).format(java.time.format.DateTimeFormatter.ofPattern("dd.MM")) }).joinToString(" · ").ifBlank { " " },
+                                    style = MaterialTheme.typography.labelSmall, color = Pal.Muted, maxLines = 1)
+                            }
+                            CheckCircle(c.bought, CHECK_GREY, 22.dp) { AppScope.io.launch { dao.upsertCart(c.copy(bought = !c.bought, boughtAt = if (!c.bought) System.currentTimeMillis() else null)) } }
+                        }
+                    }
+                }
+            }
+        }
+        Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(58.dp).clip(RoundedCornerShape(18.dp)).background(Pal.Ink)
+            .clickable { edit = CartItem(title = "", tags = group, priority = 0) }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, "Добавить товар", tint = Color.White) }
+    }
+    edit?.let { c -> com.pank.vsevodnom.ui.life.CartEditor(c, groups) { edit = null } }
 }

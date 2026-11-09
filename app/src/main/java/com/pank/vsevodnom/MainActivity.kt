@@ -161,8 +161,9 @@ class MainActivity : FragmentActivity() {
                     composable("files") { FilesScreen(back) }
                     composable("games") { GamesScreen(back) }
                     composable("passwords") { PasswordsScreen(back) }
-                    composable("sms") { SmsScreen(back) }
-                    composable("contacts") { ContactsScreen(back) }
+                    composable("sms") { com.pank.vsevodnom.ui.contacts.PhoneScreen(back, 1) }
+                    composable("phone?tab={tab}", arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 })) { com.pank.vsevodnom.ui.contacts.PhoneScreen(back, it.arguments?.getInt("tab") ?: 0) }
+                    composable("contacts") { com.pank.vsevodnom.ui.contacts.PhoneScreen(back, 0) }
                     composable("health") { HealthScreen(back, onOpenMap = { nav.navigate("map") }) }
                     composable("downloads") { DownloadsScreen(back) }
                     composable("map") { com.pank.vsevodnom.ui.map.MapScreen(back) }

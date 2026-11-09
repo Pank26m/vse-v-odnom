@@ -153,7 +153,7 @@ fun HabitRow(h: Habit, logs: List<HabitLog>, day: LocalDate, compact: Boolean = 
         // огонёк серии — слева от галочки
         StreakFlame(Todo.streak(h, logs, today), habitDone(h, logs, today), 18.dp)
         CheckDivider(height = 32.dp)
-        CheckCircle(done, t.ink, 30.dp) { AppScope.io.launch { Todo.tickHabit(ctx, h, day) } }
+        CheckCircle(done, CHECK_GREY, CHECK_SIZE) { AppScope.io.launch { Todo.tickHabit(ctx, h, day) } }
     }
 }
 

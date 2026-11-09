@@ -17,6 +17,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -92,6 +93,7 @@ fun TasksPage(onBack: () -> Unit) {
     val lessons by remember { sched.lessons(today, today + 14) }.collectAsState(initial = emptyList())
     val aliases by sched.aliases().collectAsState(initial = emptyList())
     var lessonDone by remember { mutableStateOf(prefs.getStringSet("lesson_done", emptySet())!!.toSet()) }
+    var lessonInfo by remember { mutableStateOf<com.pank.vsevodnom.data.schedule.Agenda.Pair?>(null) }
     val allTags = (tasks.flatMap { it.tagList() } + extraTags + if (lessons.isNotEmpty()) listOf(KNUBA) else emptyList()).distinct().sorted()
     var newTagDlg by remember { mutableStateOf(false) }
 
@@ -153,16 +155,18 @@ fun TasksPage(onBack: () -> Unit) {
                     items(left.take(if (f.tag == KNUBA) 200 else 6), key = { "l${it.id}" }) { l ->
                         val done = "${l.id}" in lessonDone
                         Leaving("l${l.id}", onLeft = { lessonDone = lessonDone + "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() }) { checked, leave ->
-                            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                CheckCircle(done || checked, Pal.LilacInk, 24.dp) {
-                                    if (done) { lessonDone = lessonDone - "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() } else leave()
-                                }
-                                CheckDivider(height = 30.dp)
+                            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card)
+                                .clickable { lessonInfo = com.pank.vsevodnom.data.schedule.Agenda.Pair(l, aliases.firstOrNull { it.abbr == l.subject }) }
+                                .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(aliases.firstOrNull { it.abbr == l.subject }?.fullName?.takeIf { it.isNotBlank() } ?: l.subject,
                                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold, textDecoration = if (done || checked) TextDecoration.LineThrough else null), maxLines = 2)
                                     Text("${dateLabel(l.epochDay)}, ${l.start}–${l.end}" + listOf(l.kind, l.room).filter { it.isNotBlank() }.joinToString(" · ", prefix = " · ") + " · #$KNUBA",
                                         style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+                                }
+                                CheckDivider(height = 30.dp)
+                                CheckCircle(done || checked, CHECK_GREY, CHECK_SIZE) {
+                                    if (done) { lessonDone = lessonDone - "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() } else leave()
                                 }
                             }
                         }
@@ -194,6 +198,7 @@ fun TasksPage(onBack: () -> Unit) {
             dismissButton = { TextButton({ newTagDlg = false }) { Text("Отмена") } })
     }
     if (filterOpen) FilterDialog(f, allTags, { f.save(prefs) }) { filterOpen = false }
+    lessonInfo?.let { com.pank.vsevodnom.ui.calendar.LessonDialog(it) { lessonInfo = null } }
 }
 
 const val KNUBA = "кнуба"
@@ -212,9 +217,10 @@ fun TaskRow(t: TaskItem, showMeta: Boolean = true, onClick: () -> Unit) {
 private fun TaskRowBody(t: TaskItem, checked: Boolean, showMeta: Boolean, onClick: () -> Unit, onCheck: () -> Unit) {
     val today = LocalDate.now().toEpochDay()
     val overdue = !t.done && (t.dueDay ?: Long.MAX_VALUE) < today
-    Row(Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        CheckCircle(checked, if (t.priority > 0) prioColor(t.priority) else Pal.LilacInk, 24.dp, onCheck)
-        CheckDivider(height = 30.dp)
+    val att = remember(t.attachments) { NoteAtt.of(t.attachments) }
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onClick).padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        if (t.priority > 0) Box(Modifier.padding(end = 10.dp).width(4.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(prioColor(t.priority)))
         Column(Modifier.weight(1f)) {
             Text(t.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold, textDecoration = if (checked) TextDecoration.LineThrough else null), color = if (checked) Pal.Muted else Pal.Ink, maxLines = 2)
             if (showMeta) {
@@ -222,14 +228,23 @@ private fun TaskRowBody(t: TaskItem, checked: Boolean, showMeta: Boolean, onClic
                     t.dueDay?.let { dateLabel(it) + (t.dueMinute?.let { m -> ", " + hm(m) + (t.durationMin?.let { d -> "–" + hm(m + d) } ?: "") } ?: "") },
                     t.tagList().takeIf { it.isNotEmpty() }?.joinToString(" ") { "#$it" },
                 )
-                if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = if (overdue) Pal.RoseInk else Pal.Muted, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = if (overdue) Pal.RoseInk else Pal.Muted, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    // что есть у задачи: описание, фото, голос, файлы, контакты, место, повтор, напоминание
+                    @Composable fun mark(ic: androidx.compose.ui.graphics.vector.ImageVector, d: String) = Icon(ic, d, Modifier.padding(start = 5.dp).size(14.dp), tint = Pal.Muted)
+                    if (t.note.isNotBlank()) mark(Icons.AutoMirrored.Rounded.Notes, "Есть описание")
+                    if (t.image.isNotBlank()) mark(Icons.Rounded.Image, "Фото")
+                    if (att.audio.isNotEmpty()) mark(Icons.Rounded.Mic, "Голос")
+                    if (att.files.isNotEmpty()) mark(Icons.Rounded.AttachFile, "Файлы")
+                    if (att.contacts.isNotEmpty()) mark(Icons.Rounded.Person, "Контакт")
+                    if (att.place != null || att.track != null) mark(Icons.Rounded.Place, "Место")
+                    if (t.repeat.isNotBlank()) mark(Icons.Rounded.Repeat, "Повтор")
+                    if (t.remindBefore != null) mark(Icons.Rounded.NotificationsNone, "Напоминание")
+                }
             }
         }
-        if (t.image.isNotBlank()) Icon(Icons.Rounded.Image, null, Modifier.padding(horizontal = 2.dp).size(16.dp), tint = Pal.Muted)
-        if (t.repeat.isNotBlank()) Icon(Icons.Rounded.Repeat, null, Modifier.padding(horizontal = 2.dp).size(16.dp), tint = Pal.Muted)
-        if (t.remindBefore != null) Icon(Icons.Rounded.NotificationsNone, null, Modifier.padding(horizontal = 2.dp).size(16.dp), tint = Pal.Muted)
-        if (t.priority > 0) Box(Modifier.padding(horizontal = 10.dp).size(10.dp).clip(CircleShape).background(prioColor(t.priority)))
-        else Spacer(Modifier.width(8.dp))
+        CheckDivider(height = 30.dp)
+        CheckCircle(checked, if (t.priority > 0) prioColor(t.priority) else CHECK_GREY, CHECK_SIZE, onCheck)
     }
 }
 
@@ -437,6 +452,8 @@ private fun FilterDialog(f: TaskFilter, tags: List<String>, onChange: () -> Unit
                 PillButton("Сбросить", { f.reset(); onChange() }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
                 PillButton("Готово", { onChange(); onDismiss() }, Modifier.weight(1f))
             }
+            // запас снизу: панель навигации и строка состояния не закрывают кнопки
+            Spacer(Modifier.height(LocalRootInsets.current.bottom + LocalRootInsets.current.top + 24.dp))
         }
     }
 }

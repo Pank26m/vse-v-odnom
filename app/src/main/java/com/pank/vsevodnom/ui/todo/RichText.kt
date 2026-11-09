@@ -55,7 +55,54 @@ object Rich {
         }
     }
 
-    val transformation = VisualTransformation { t -> TransformedText(styled(t.text), OffsetMapping.Identity) }
+    val transformation = VisualTransformation { t -> hide(t.text) }
+
+    /**
+     * Для поля ввода: служебные метки (** __ ~~ * # > [ ]) скрыты, текст уже оформлен; «- » показывается точкой,
+     * «[ ] »/«[x] » — квадратиком. Позиции курсора пересчитываются (OffsetMapping).
+     */
+    fun hide(text: String): TransformedText {
+        val n = text.length
+        val hidden = BooleanArray(n)
+        val subst = HashMap<Int, Char>()
+        val styles = ArrayList<Triple<SpanStyle, Int, Int>>()
+        fun hideRange(a: Int, b: Int) { for (k in a until b) if (k in 0 until n) hidden[k] = true }
+        val blue = SpanStyle(color = Color(0xFF4772F5), fontWeight = FontWeight.Bold)
+        var pos = 0
+        text.split('\n').forEach { line ->
+            when {
+                line.startsWith("### ") -> { hideRange(pos, pos + 4); styles += Triple(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 17.sp), pos + 4, pos + line.length) }
+                line.startsWith("## ") -> { hideRange(pos, pos + 3); styles += Triple(SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 19.sp), pos + 3, pos + line.length) }
+                line.startsWith("# ") -> { hideRange(pos, pos + 2); styles += Triple(SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 22.sp), pos + 2, pos + line.length) }
+                line.startsWith("> ") -> { hideRange(pos, pos + 2); styles += Triple(SpanStyle(fontStyle = FontStyle.Italic, color = Color(0xFF6B6A75)), pos + 2, pos + line.length) }
+                line.startsWith("- ") || line.startsWith("• ") -> { subst[pos] = '•'; styles += Triple(blue, pos, pos + 1) }
+                line.startsWith("[x] ") -> { subst[pos] = '☑'; hideRange(pos + 1, pos + 3); styles += Triple(SpanStyle(color = Color(0xFF4772F5)), pos, pos + 1)
+                    styles += Triple(SpanStyle(textDecoration = TextDecoration.LineThrough, color = Color(0xFF9AA0AA)), pos + 4, pos + line.length) }
+                line.startsWith("[ ] ") -> { subst[pos] = '☐'; hideRange(pos + 1, pos + 3); styles += Triple(SpanStyle(color = Color(0xFF4772F5)), pos, pos + 1) }
+                NUM.containsMatchIn(line) -> NUM.find(line)?.let { styles += Triple(blue, pos, pos + it.value.length) }
+            }
+            INLINE.forEach { (re, st) ->
+                re.findAll(line).forEach { m ->
+                    val open = (m.value.length - m.groupValues[1].length) / 2
+                    hideRange(pos + m.range.first, pos + m.range.first + open)
+                    hideRange(pos + m.range.last + 1 - open, pos + m.range.last + 1)
+                    styles += Triple(st, pos + m.range.first + open, pos + m.range.last + 1 - open)
+                }
+            }
+            pos += line.length + 1
+        }
+        val sb = StringBuilder(); val o2t = IntArray(n + 1); val t2o = ArrayList<Int>(n + 1)
+        for (i in 0 until n) { o2t[i] = sb.length; if (!hidden[i]) { t2o += i; sb.append(subst[i] ?: text[i]) } }
+        o2t[n] = sb.length; t2o += n
+        val out = buildAnnotatedString {
+            append(sb.toString())
+            styles.forEach { (st, a, b) -> val ta = o2t[a.coerceIn(0, n)]; val tb = o2t[b.coerceIn(0, n)]; if (tb > ta) addStyle(st, ta, tb) }
+        }
+        return TransformedText(out, object : OffsetMapping {
+            override fun originalToTransformed(offset: Int) = o2t[offset.coerceIn(0, n)]
+            override fun transformedToOriginal(offset: Int) = t2o[offset.coerceIn(0, t2o.size - 1)]
+        })
+    }
 
     /** Для плиток и просмотра: метки убраны. */
     fun render(text: String): AnnotatedString = buildAnnotatedString {

@@ -50,6 +50,8 @@ import com.pank.vsevodnom.data.Totp
 import com.pank.vsevodnom.data.Vault
 import com.pank.vsevodnom.data.VaultEntry
 import com.pank.vsevodnom.data.VaultExtra
+import com.pank.vsevodnom.data.VaultFile
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
@@ -135,7 +137,7 @@ fun PasswordsScreen(onBack: () -> Unit) {
         }
         return
     }
-    VaultContent(entries, onChange = { l -> Vault.save(ctx, l); entries = l }, onBack = onBack, onLock = { Vault.lock(); open = false; entries = emptyList() })
+    VaultContent(entries, onChange = { l -> Vault.save(ctx, l); runCatching { Vault.cleanupFiles(ctx, l) }; entries = l }, onBack = onBack, onLock = { Vault.lock(); open = false; entries = emptyList() })
 }
 
 @Composable
@@ -206,9 +208,7 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
             items(shown, key = { it.id }) { e ->
                 AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { edit = e }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Pal.Lilac), contentAlignment = Alignment.Center) {
-                            Text(e.title.take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = Pal.LilacInk)
-                        }
+                        VaultAvatar(e, 40.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(e.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
@@ -252,12 +252,12 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
                     if (exp) {
                         if (p1.length < 8) { msg = "Минимум 8 символов"; return@TextButton }
                         if (p1 != p2) { msg = "Пароли не совпадают"; return@TextButton }
-                        runCatching { ctx.contentResolver.openOutputStream(exportUri!!)!!.use { it.write(Vault.exportBackup(entries, p1.toCharArray())) } }
+                        runCatching { ctx.contentResolver.openOutputStream(exportUri!!)!!.use { it.write(Vault.exportBackup(entries, p1.toCharArray(), ctx)) } }
                             .onSuccess { Toast.makeText(ctx, "Бэкап сохранён (${entries.size})", Toast.LENGTH_SHORT).show(); backup = null }
                             .onFailure { msg = "Не удалось сохранить: ${it.message}" }
                     } else {
                         val blob = pendingBlob ?: run { msg = "Не удалось прочитать файл"; return@TextButton }
-                        runCatching { Vault.importBackup(blob, p1.toCharArray()) }
+                        runCatching { Vault.importBackup(blob, p1.toCharArray(), ctx) }
                             .onSuccess { imp ->
                                 val map = entries.associateBy { it.id }.toMutableMap()
                                 imp.forEach { n -> val old = map[n.id]; if (old == null || n.updatedAt >= old.updatedAt) map[n.id] = n }
@@ -319,6 +319,26 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
     var gen by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
+    var avatar by remember { mutableStateOf(e.avatar) }
+    val files = remember { mutableStateListOf<VaultFile>().apply { addAll(e.files) } }
+    val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
+        u ?: return@rememberLauncherForActivityResult
+        runCatching {
+            // аватарка — квадрат 256 px, PNG
+            val src = ctx.contentResolver.openInputStream(u)!!.use { android.graphics.BitmapFactory.decodeStream(it) }
+            val side = minOf(src.width, src.height)
+            val sq = android.graphics.Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+            val out = java.io.ByteArrayOutputStream(); android.graphics.Bitmap.createScaledBitmap(sq, 256, 256, true).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            avatar = Vault.putFile(ctx, out.toByteArray())
+        }.onFailure { Toast.makeText(ctx, "Не получилось: ${it.message}", Toast.LENGTH_SHORT).show() }
+    }
+    fun addFile(u: android.net.Uri) = runCatching {
+        val bytes = ctx.contentResolver.openInputStream(u)!!.use { it.readBytes() }
+        val name = ctx.contentResolver.query(u, null, null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(c.getColumnIndexOrThrow(android.provider.OpenableColumns.DISPLAY_NAME)) else null } ?: "файл"
+        files += VaultFile(Vault.putFile(ctx, bytes), name, ctx.contentResolver.getType(u) ?: "application/octet-stream", bytes.size.toLong())
+    }.onFailure { Toast.makeText(ctx, "Не получилось: ${it.message}", Toast.LENGTH_SHORT).show() }
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { l -> l.forEach { addFile(it) } }
+    val pickDoc = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { l -> l.forEach { addFile(it) } }
     val secure = DialogProperties(usePlatformDefaultWidth = false, securePolicy = SecureFlagPolicy.SecureOn, decorFitsSystemWindows = false)
 
     fun save() {
@@ -328,7 +348,7 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
         if (e.password.isNotBlank() && pass != e.password && ex.none { it.value == e.password })
             ex += VaultExtra("Старый пароль · " + java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")), e.password)
         val t = (tags + newTag.trim()).filter { it.isNotBlank() }.distinct()
-        onSave(e.copy(title = title.trim(), login = login.trim(), password = pass, url = url.trim(), notes = notes, tags = t, extra = ex))
+        onSave(e.copy(title = title.trim(), login = login.trim(), password = pass, url = url.trim(), notes = notes, tags = t, extra = ex, avatar = avatar, files = files.toList()))
     }
 
     Dialog(onDismiss, secure) {
@@ -341,6 +361,19 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
             LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item {
                     AppCard(Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.clip(RoundedCornerShape(14.dp)).clickable { pickAvatar.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                                VaultAvatar(e.copy(title = title.ifBlank { "?" }, avatar = avatar), 56.dp)
+                            }
+                            Column(Modifier.padding(start = 12.dp)) {
+                                Text("Аватарка", style = MaterialTheme.typography.labelLarge)
+                                Row {
+                                    TextButton({ pickAvatar.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text(if (avatar.isBlank()) "Из галереи" else "Другая") }
+                                    if (avatar.isNotBlank()) TextButton({ avatar = "" }) { Text("Убрать", color = Pal.RoseInk) }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
                         AppTextField(title, { title = it }, "Название (сайт, приложение)")
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(login, { login = it }, label = { Text("Логин / почта / телефон") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -405,6 +438,28 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
                 }
                 item {
                     AppCard(Modifier.fillMaxWidth()) {
+                        SectionLabel("Файлы и фото")
+                        Text("Хранятся зашифрованными вместе с паролями (КЭП, ключи, сканы документов…). Попадают в бэкап паролей.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                        files.forEachIndexed { i, f ->
+                            Row(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(12.dp)).background(Pal.Bg).clickable { openVaultFile(ctx, f, share = false) }.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Icon(if (f.mime.startsWith("image")) Icons.Rounded.Image else Icons.Rounded.Description, null, tint = Pal.LilacInk)
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text(f.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                    Text(com.pank.vsevodnom.ui.map.MapKit.human(f.size), style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                                }
+                                IconButton({ openVaultFile(ctx, f, share = true) }) { Icon(Icons.Rounded.Share, "Отправить", tint = Pal.Muted) }
+                                IconButton({ files.removeAt(i) }) { Icon(Icons.Rounded.DeleteOutline, "Убрать", tint = Pal.Muted) }
+                            }
+                        }
+                        Row {
+                            TextButton({ pickPhoto.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Rounded.AddPhotoAlternate, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Фото") }
+                            TextButton({ pickDoc.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.AttachFile, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Файл") }
+                        }
+                    }
+                }
+                item {
+                    AppCard(Modifier.fillMaxWidth()) {
                         SectionLabel("Теги")
                         Spacer(Modifier.height(6.dp))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -454,4 +509,34 @@ private fun EntryEditor(e: VaultEntry, knownTags: List<String>, onDismiss: () ->
 private fun BasicLabelField(value: String, onChange: (String) -> Unit, modifier: Modifier) {
     androidx.compose.foundation.text.BasicTextField(value, onChange, modifier, singleLine = true,
         textStyle = MaterialTheme.typography.labelLarge.copy(color = Pal.LilacInk))
+}
+
+
+/** Аватарка записи: своя картинка (расшифровывается в памяти) или первая буква. */
+@Composable
+private fun VaultAvatar(e: VaultEntry, size: androidx.compose.ui.unit.Dp) {
+    val ctx = LocalContext.current
+    val bmp by produceState<android.graphics.Bitmap?>(null, e.avatar) {
+        value = if (e.avatar.isBlank()) null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            Vault.readFile(ctx, e.avatar)?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+        }
+    }
+    Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(Pal.Lilac), contentAlignment = Alignment.Center) {
+        val b = bmp
+        if (b != null) androidx.compose.foundation.Image(b.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        else Text(e.title.take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = Pal.LilacInk)
+    }
+}
+
+/** Открыть или отправить вложение: расшифровка во временную папку (чистится при следующем открытии хранилища). */
+private fun openVaultFile(ctx: Context, f: VaultFile, share: Boolean) {
+    runCatching {
+        val bytes = Vault.readFile(ctx, f.id) ?: throw IllegalStateException("Файл не найден")
+        val dir = java.io.File(ctx.cacheDir, "vault_view").apply { deleteRecursively(); mkdirs() }
+        val out = java.io.File(dir, f.name.replace(Regex("[\\\\/:*?\"<>|]"), "_")); out.writeBytes(bytes)
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", out)
+        val i = if (share) android.content.Intent(android.content.Intent.ACTION_SEND).setType(f.mime).putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            else android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, f.mime)
+        ctx.startActivity(android.content.Intent.createChooser(i.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), f.name))
+    }.onFailure { Toast.makeText(ctx, "Не открылось: ${it.message}", Toast.LENGTH_LONG).show() }
 }

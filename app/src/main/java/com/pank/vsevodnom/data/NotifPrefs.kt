@@ -25,7 +25,7 @@ object NotifPrefs {
         Type("dl", "Загрузки", "прогресс скачивания", canOff = false),
     )
 
-    private fun p(ctx: Context) = ctx.getSharedPreferences("notif", Context.MODE_PRIVATE)
+    private fun p(ctx: Context) = ctx.getSharedPreferences("notif_on", Context.MODE_PRIVATE)
     fun on(ctx: Context, key: String) = p(ctx).getBoolean(key, true)
     fun set(ctx: Context, key: String, v: Boolean) = p(ctx).edit().putBoolean(key, v).apply()
 }

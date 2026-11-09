@@ -23,6 +23,9 @@ import kotlin.math.pow
 /** Дополнительное поле записи: «Старый пароль», «PIN», «Секретный вопрос»… */
 data class VaultExtra(val label: String, val value: String)
 
+/** Вложение записи (фото, ключ КЭП, любой файл) — лежит зашифрованным в files/vault_files/<id>. */
+data class VaultFile(val id: String, val name: String, val mime: String, val size: Long)
+
 data class VaultEntry(
     val id: String,
     val title: String,
@@ -34,11 +37,15 @@ data class VaultEntry(
     val updatedAt: Long = System.currentTimeMillis(),
     val tags: List<String> = emptyList(),
     val extra: List<VaultExtra> = emptyList(),
+    val avatar: String = "",                 // id зашифрованной картинки-аватарки (иконка банка и т. п.)
+    val files: List<VaultFile> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject().put("id", id).put("title", title).put("login", login).put("password", password)
         .put("url", url).put("notes", notes).put("totp", totp).put("updatedAt", updatedAt)
         .put("tags", org.json.JSONArray(tags))
         .put("extra", org.json.JSONArray(extra.map { JSONObject().put("label", it.label).put("value", it.value) }))
+        .put("avatar", avatar)
+        .put("files", org.json.JSONArray(files.map { JSONObject().put("id", it.id).put("name", it.name).put("mime", it.mime).put("size", it.size) }))
 
     companion object {
         fun fromJson(o: JSONObject) = VaultEntry(
@@ -46,6 +53,8 @@ data class VaultEntry(
             o.optString("url"), o.optString("notes"), o.optString("totp"), o.optLong("updatedAt"),
             o.optJSONArray("tags")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
             o.optJSONArray("extra")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).let { x -> VaultExtra(x.optString("label"), x.optString("value")) } } } ?: emptyList(),
+            o.optString("avatar"),
+            o.optJSONArray("files")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).let { x -> VaultFile(x.optString("id"), x.optString("name"), x.optString("mime"), x.optLong("size")) } } } ?: emptyList(),
         )
     }
 }
@@ -138,24 +147,65 @@ object Vault {
         tmp.renameTo(dataFile(ctx)) // атомарная замена — не потеряем данные при сбое записи
     }
 
+    // ---------- вложения (шифруются тем же ключом данных) ----------
+
+    private fun filesDir(ctx: Context) = File(ctx.filesDir, "vault_files").apply { mkdirs() }
+
+    /** Зашифровать и сохранить байты; вернуть id. */
+    fun putFile(ctx: Context, bytes: ByteArray): String {
+        val k = dek ?: throw IllegalStateException("Хранилище закрыто")
+        val id = java.util.UUID.randomUUID().toString()
+        File(filesDir(ctx), id).writeBytes(aesEncrypt(k, bytes))
+        return id
+    }
+    fun readFile(ctx: Context, id: String): ByteArray? {
+        val k = dek ?: return null
+        val f = File(filesDir(ctx), id); if (!f.exists()) return null
+        return runCatching { aesDecrypt(k, f.readBytes()) }.getOrNull()
+    }
+    fun deleteFile(ctx: Context, id: String) { if (id.isNotBlank()) File(filesDir(ctx), id).delete() }
+    /** Удалить файлы, на которые больше не ссылается ни одна запись. */
+    fun cleanupFiles(ctx: Context, list: List<VaultEntry>) {
+        val used = list.flatMap { e -> e.files.map { it.id } + e.avatar }.filter { it.isNotBlank() }.toSet()
+        filesDir(ctx).listFiles()?.forEach { if (it.name !in used) it.delete() }
+    }
+
     // ---------- бэкап с паролем ----------
 
     private fun derive(pass: CharArray, salt: ByteArray): ByteArray =
         SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(PBEKeySpec(pass, salt, 210_000, 256)).encoded
 
     /** Файл бэкапа: «VVO1» + соль + зашифрованный JSON. Открывается только паролем бэкапа. */
-    fun exportBackup(list: List<VaultEntry>, pass: CharArray): ByteArray {
+    fun exportBackup(list: List<VaultEntry>, pass: CharArray, ctx: Context? = null): ByteArray {
         val salt = ByteArray(16).also(rnd::nextBytes)
-        val arr = JSONArray(); list.forEach { arr.put(it.toJson()) }
+        val arr = JSONArray(); list.forEach { e ->
+            val o = e.toJson()
+            if (ctx != null) {
+                val blobs = JSONObject()
+                (e.files.map { it.id } + e.avatar).filter { it.isNotBlank() }.forEach { id -> readFile(ctx, id)?.let { blobs.put(id, b64(it)) } }
+                if (blobs.length() > 0) o.put("blobs", blobs)
+            }
+            arr.put(o)
+        }
         return "VVO1".toByteArray() + salt + aesEncrypt(derive(pass, salt), arr.toString().toByteArray(Charsets.UTF_8))
     }
 
-    fun importBackup(blob: ByteArray, pass: CharArray): List<VaultEntry> {
+    fun importBackup(blob: ByteArray, pass: CharArray, ctx: Context? = null): List<VaultEntry> {
         require(blob.size > 36 && String(blob, 0, 4) == "VVO1") { "Это не файл бэкапа паролей" }
         val salt = blob.copyOfRange(4, 20)
         val plain = runCatching { aesDecrypt(derive(pass, salt), blob.copyOfRange(20, blob.size)) }.getOrElse { throw IllegalArgumentException("Неверный пароль бэкапа") }
         val arr = JSONArray(String(plain, Charsets.UTF_8))
-        return (0 until arr.length()).map { VaultEntry.fromJson(arr.getJSONObject(it)) }
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val e = VaultEntry.fromJson(o)
+            val blobs = o.optJSONObject("blobs")
+            if (ctx == null || blobs == null || dek == null) e else {
+                // заново шифруем вложения ключом этого телефона, id меняются
+                val map = HashMap<String, String>()
+                blobs.keys().forEach { id -> runCatching { map[id] = putFile(ctx, unb64(blobs.getString(id))) } }
+                e.copy(avatar = map[e.avatar] ?: "", files = e.files.mapNotNull { f -> map[f.id]?.let { f.copy(id = it) } })
+            }
+        }
     }
 
     private fun b64(b: ByteArray) = Base64.encodeToString(b, Base64.NO_WRAP)

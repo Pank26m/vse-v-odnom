@@ -4,6 +4,7 @@
     <exclude domain="file" path="vault.key" />
     <exclude domain="file" path="vault.dat" />
     <exclude domain="file" path="vault.dat.tmp" />
+    <exclude domain="file" path="vault_files/" />
     <!-- офлайн-карты: большие и скачиваются заново -->
     <exclude domain="file" path="mbgl-offline.db" />
     <exclude domain="file" path=".mbgl-offline.db" />

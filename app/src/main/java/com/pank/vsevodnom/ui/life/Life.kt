@@ -261,9 +261,12 @@ fun CartScreen(onBack: () -> Unit, startNew: Boolean = false) {
 
 fun CartItem.tagList() = tags.split(',').map { it.trim() }.filter { it.isNotBlank() }
 
+/** Для других экранов (теги товара = корзины маркетплейсов). */
+object CartTags { fun CartItem.tagList() = tags.split(',').map { it.trim() }.filter { it.isNotBlank() } }
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Unit) {
+internal fun CartEditor(c: CartItem, knownTags: List<String>, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).life() }
     val scope = rememberCoroutineScope()

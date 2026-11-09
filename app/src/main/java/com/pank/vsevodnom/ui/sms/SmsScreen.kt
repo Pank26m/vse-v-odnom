@@ -128,26 +128,6 @@ fun SmsScreen(onBack: () -> Unit) {
         if (all == null) Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (tab == 1) {
-                val mail = com.pank.vsevodnom.data.Notif.mailCodes(ctx).filter { System.currentTimeMillis() - it.at < 24 * 3600_000L }
-                if (mail.isNotEmpty()) item { SectionLabel("Из почты") }
-                items(mail, key = { "mail" + it.code + it.at }) { m ->
-                    AppCard(Modifier.fillMaxWidth(), padding = 12.dp, onClick = { com.pank.vsevodnom.ui.vault.copySecret(ctx, "Код", m.code) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(m.code, style = MaterialTheme.typography.headlineMedium, color = Pal.SkyInk)
-                                Text(m.from + " · " + java.time.Instant.ofEpochMilli(m.at).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")), style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                            }
-                            Icon(Icons.Rounded.ContentCopy, "Скопировать", tint = Pal.Muted)
-                        }
-                    }
-                }
-                if (!com.pank.vsevodnom.data.Notif.enabled(ctx)) item {
-                    AppCard(Modifier.fillMaxWidth(), color = Pal.Sky, onClick = { com.pank.vsevodnom.data.Notif.openSettings(ctx) }) {
-                        Text("Коды из Gmail", style = MaterialTheme.typography.titleSmall, color = Pal.SkyInk)
-                        Text("Нажми и включи «Всё в одном» в доступе к уведомлениям — коды из писем будут здесь и в уведомлении с кнопкой «Скопировать». Письма приложение не открывает и никуда не отправляет. Если переключатель серый — «О приложении» → ⋮ → «Разрешить ограниченные настройки».", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                if (list.isNotEmpty()) item { SectionLabel("Из СМС") }
             }
             if (all != null && list.isEmpty() && tab != 1) item { EmptyHint(when (tab) { 2 -> "Спама нет"; else -> "Сообщений нет" }) }
             items(list, key = { it.address }) { t ->

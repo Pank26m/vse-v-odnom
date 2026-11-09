@@ -67,8 +67,7 @@ val TILES = listOf(
     Tile("Часы", Icons.Rounded.Schedule, Tints.Lilac, "clock/0"),
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, "health"),
     Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, "passwords"),
-    Tile("СМС", Icons.Rounded.Sms, Tints.Sky, "sms"),
-    Tile("Контакты", Icons.Rounded.Person, Tints.Sky, "contacts"),
+    Tile("Телефон", Icons.Rounded.Phone, Tints.Sky, "phone?tab=0"),
     Tile("Корзина", Icons.Rounded.ShoppingCart, Tints.Peach, "cart"),
     Tile("Калькулятор", Icons.Rounded.Calculate, Tints.Butter, "calc"),
     Tile("Копилки", Icons.Rounded.Savings, Tints.Mint, "piggy"),
@@ -89,7 +88,8 @@ val TILES = listOf(
 object HomeTiles {
     private val DEFAULT = listOf("todo", "money", "calendar", "map", "power", "passwords")
     private fun p(ctx: Context) = ctx.getSharedPreferences("home", Context.MODE_PRIVATE)
-    fun get(ctx: Context): List<String> = p(ctx).getString("tiles", null)?.split('|')?.filter { it.isNotBlank() } ?: DEFAULT
+    fun get(ctx: Context): List<String> = (p(ctx).getString("tiles", null)?.split('|')?.filter { it.isNotBlank() } ?: DEFAULT)
+        .map { if (it == "sms" || it == "contacts") "phone?tab=0" else it }.distinct()
     fun set(ctx: Context, l: List<String>) = p(ctx).edit().putString("tiles", l.joinToString("|")).apply()
 }
 
@@ -327,7 +327,7 @@ private fun Summary(open: (String) -> Unit, tick: Int) {
                             Text("государственный праздник", style = MaterialTheme.typography.bodySmall)
                         }
                         com.pank.vsevodnom.ui.todo.CheckDivider()
-                        com.pank.vsevodnom.ui.todo.CheckCircle(done, Pal.Muted, 26.dp) { leave() }
+                        com.pank.vsevodnom.ui.todo.CheckCircle(done, com.pank.vsevodnom.ui.todo.CHECK_GREY, com.pank.vsevodnom.ui.todo.CHECK_SIZE) { leave() }
                     }
                 }
             }
@@ -359,7 +359,7 @@ private fun Summary(open: (String) -> Unit, tick: Int) {
                             Text("привычка" + if (h.perDay > 1) " · ${logs.firstOrNull { it.habitId == h.id }?.count ?: 0}/${h.perDay}" else "", style = MaterialTheme.typography.bodySmall)
                         }
                         com.pank.vsevodnom.ui.todo.CheckDivider()
-                        com.pank.vsevodnom.ui.todo.CheckCircle(done, t.ink, 26.dp) {
+                        com.pank.vsevodnom.ui.todo.CheckCircle(done, com.pank.vsevodnom.ui.todo.CHECK_GREY, com.pank.vsevodnom.ui.todo.CHECK_SIZE) {
                             val c = logs.firstOrNull { it.habitId == h.id }?.count ?: 0
                             if (c + 1 >= h.perDay) leave() else AppScope.io.launch { Todo.tickHabit(ctx, h, today) }
                         }
@@ -465,6 +465,9 @@ private fun WeightDialog(onDismiss: () -> Unit) {
         dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
 }
 
+/** Разделы, которые уже есть в нижнем баре или внутри ToDo, — в «Всех» не дублируем. */
+private val IN_BAR = setOf("todo", "money", "calendar", "weather", "map", "power", "alerts", "cart", "recorder", "passwords")
+
 /** Все разделы плитками. */
 @Composable
 fun AppsScreen(open: (String) -> Unit) {
@@ -476,8 +479,10 @@ fun AppsScreen(open: (String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item(span = { GridItemSpan(4) }) { Text("Все приложения", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(4.dp, 8.dp)) }
-        items(TILES.size) { i ->
-            val t = TILES[i]
+        // в «Всех» — только то, чего нет в нижнем баре и в ToDo
+        val apps = TILES.filter { it.route !in IN_BAR }
+        items(apps.size) { i ->
+            val t = apps[i]
             Column(Modifier.clip(RoundedCornerShape(14.dp)).clickable { t.route?.let(open) }, horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(t.tint.bg), contentAlignment = Alignment.Center) {
                     Icon(t.icon, null, tint = t.tint.ink, modifier = Modifier.size(30.dp))

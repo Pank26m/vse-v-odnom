@@ -146,7 +146,7 @@ fun DatesPage(onBack: () -> Unit) {
                             // «поздравил» — на ближайшую дату; отметка снимается повторным нажатием
                             var doneMark by remember(b.id, n) { mutableStateOf(BdayDone.isDone(ctx, b.id, n)) }
                             CheckDivider()
-                            CheckCircle(doneMark, col, 26.dp) { if (doneMark) BdayDone.unmark(ctx, b.id, n) else BdayDone.mark(ctx, b.id, n); doneMark = !doneMark }
+                            CheckCircle(doneMark, CHECK_GREY, CHECK_SIZE) { if (doneMark) BdayDone.unmark(ctx, b.id, n) else BdayDone.mark(ctx, b.id, n); doneMark = !doneMark }
                         }
                     }
                 }
