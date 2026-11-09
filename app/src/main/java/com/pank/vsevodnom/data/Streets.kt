@@ -116,33 +116,44 @@ object Streets {
         }.getOrNull()
     }
 
-    /** Вся улица: все отрезки с этим названием в 4 км — офлайн из GLMap, иначе Overpass. */
-    suspend fun whole(name: String, lat: Double, lon: Double): List<List<GeoPt>> = withContext(Dispatchers.IO) {
+    private fun norm(s: String?) = s?.lowercase()?.replace('ё', 'е')?.replace(Regex("\\s+"), " ")?.trim()
+
+    /**
+     * Вся улица: все отрезки с этим названием в 6 км — офлайн из GLMap, иначе Overpass. [name] — тег name из OSM,
+     * [alt] — название, как его показывает карта (может быть по-русски): подходит любое из двух.
+     */
+    suspend fun whole(name: String, lat: Double, lon: Double, alt: String? = null): List<List<GeoPt>> = withContext(Dispatchers.IO) {
+        val names = setOfNotNull(norm(name), norm(alt))
         val off = runCatching {
             if (!GlMap.ready) return@runCatching emptyList<List<GeoPt>>()
-            val s = GLSearch()
-            try {
-                val bb = bbox(lat, lon, 4000.0)
-                s.setCenter(MapPoint.CreateFromGeoCoordinates(lat, lon)); s.setBBox(bb); s.setLimit(300)
-                runCatching { GLMapManager.VectorTilesAtBBox(bb)?.let { s.setTiles(it) } }
-                s.addFilter(GLSearchFilter.createWithQuery(name))
-                val objs = s.search()?.let { l -> l.toArray().also { runCatching { l.dispose() } } }.orEmpty()
-                val r = objs.filter { o -> o.tag("highway") != null && (o.tag("name") == name || runCatching { o.localizedName(GlMap.locale)?.use { it.string } }.getOrNull() == name) }
-                    .flatMap { it.lines() }
-                objs.forEach { runCatching { it.dispose() } }
-                r
-            } finally { runCatching { s.dispose() } }
+            val out = ArrayList<List<GeoPt>>()
+            for (q in listOfNotNull(name, alt?.takeIf { norm(it) != norm(name) })) {
+                val s = GLSearch()
+                try {
+                    val bb = bbox(lat, lon, 6000.0)
+                    s.setLocaleSettings(GlMap.locale)
+                    s.setCenter(MapPoint.CreateFromGeoCoordinates(lat, lon)); s.setBBox(bb); s.setLimit(500)
+                    runCatching { GLMapManager.VectorTilesAtBBox(bb)?.let { s.setTiles(it) } }
+                    s.addFilter(GLSearchFilter.createWithQuery(q))
+                    val objs = s.search()?.let { l -> l.toArray().also { runCatching { l.dispose() } } }.orEmpty()
+                    out += objs.filter { o -> o.tag("highway") != null &&
+                        (norm(o.tag("name")) in names || norm(runCatching { o.localizedName(GlMap.locale)?.use { it.string } }.getOrNull()) in names) }
+                        .flatMap { it.lines() }
+                    objs.forEach { runCatching { it.dispose() } }
+                } finally { runCatching { s.dispose() } }
+            }
+            out.distinctBy { l -> "${l.first().lat}|${l.first().lon}|${l.last().lat}|${l.last().lon}" }
         }.getOrDefault(emptyList())
-        if (off.isNotEmpty() || !Net.online) return@withContext off
+        if (off.size > 1 || !Net.online) return@withContext off
         runCatching {
-            val q = "[out:json][timeout:20];way(around:4000,$lat,$lon)[\"highway\"][\"name\"=\"${name.replace("\"", "\\\"")}\"];out geom;"
+            val q = "[out:json][timeout:20];way(around:6000,$lat,$lon)[\"highway\"][\"name\"=\"${name.replace("\"", "\\\"")}\"];out geom;"
             val o = JSONObject(get("https://overpass-api.de/api/interpreter", "data=" + URLEncoder.encode(q, "UTF-8")))
             val els = o.getJSONArray("elements")
             (0 until els.length()).mapNotNull { i ->
                 val g = els.getJSONObject(i).optJSONArray("geometry") ?: return@mapNotNull null
                 (0 until g.length()).map { val p = g.getJSONObject(it); GeoPt(p.getDouble("lat"), p.getDouble("lon"), 0) }.takeIf { it.size >= 2 }
             }
-        }.getOrDefault(emptyList())
+        }.getOrNull()?.takeIf { it.isNotEmpty() } ?: off
     }
 
     /** Граница района/города/страны (контур) — онлайн из Nominatim по названию рядом с точкой. */

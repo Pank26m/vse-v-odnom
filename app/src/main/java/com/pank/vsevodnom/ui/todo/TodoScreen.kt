@@ -44,9 +44,10 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).todo() }
     var page by rememberSaveable { mutableStateOf(start) }
+    var openTask by rememberSaveable { mutableStateOf<Long?>(null) }   // задача, которую открыть в «Задачах» (из сводки, с карты)
     val close = { page = null }
     when (page) {
-        "tasks" -> { BackHandler(onBack = close); TasksPage(close); return }
+        "tasks" -> { BackHandler(onBack = close); TasksPage(close, openTask) { openTask = null }; return }
         "notes" -> { BackHandler(onBack = close); NotesPage(close); return }
         "movies" -> { BackHandler(onBack = close); MoviesPage(close); return }
         "shop" -> { BackHandler(onBack = close); ShopListsPage(close); return }
@@ -93,7 +94,7 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
         val kind = t.substringBefore(':'); val id = t.substringAfter(':').toLongOrNull()
         when (kind) {
             "page" -> { TodoNav.target = null; page = t.substringAfter(':') }
-            "task" -> tasks.firstOrNull { it.id == id }?.let { TodoNav.target = null; edit = it }
+            "task" -> tasks.firstOrNull { it.id == id }?.let { TodoNav.target = null; openTask = it.id; page = "tasks" }
             "habit" -> habits.firstOrNull { it.id == id }?.let { TodoNav.target = null; detail = it }
             "bday" -> dates.firstOrNull { it.id == id }?.let { TodoNav.target = null; bday = it }
         }

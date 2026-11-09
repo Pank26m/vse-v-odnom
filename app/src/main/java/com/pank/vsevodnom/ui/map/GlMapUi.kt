@@ -231,7 +231,7 @@ internal fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
     var glKey by remember { mutableStateOf(GlMap.key(ctx)) }
     var google by remember { mutableStateOf(ApiKeys.google(ctx)) }
     var gLimit by remember { mutableStateOf(ApiKeys.limit(ctx, "google").toString()) }
-    var gAuto by remember { mutableStateOf(MapPrefs.bool(ctx, "google_auto", true)) }
+    var gAuto by remember { mutableStateOf(MapPrefs.bool(ctx, "google_auto2", false)) }
     var gSearch by remember { mutableStateOf(MapPrefs.bool(ctx, "google_default", true)) }
     var ewLogin by remember { mutableStateOf(ctx.getSharedPreferences("api_keys", 0).getString("easyway_login", "").orEmpty()) }
     var ewKey by remember { mutableStateOf(ctx.getSharedPreferences("api_keys", 0).getString("easyway", "").orEmpty()) }
@@ -253,7 +253,7 @@ internal fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
                 AppTextField(gLimit, { gLimit = it.filter(Char::isDigit) }, "Запросов в день (рекомендую 150)")
                 Text("Сегодня: ${ApiKeys.used(ctx, "google")} из ${ApiKeys.limit(ctx, "google")}. Поиск — 1 запрос, сведения о месте — 2, каждое фото — 1; из кэша — 0.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                 SwitchRow("Искать через Google по умолчанию", null, gSearch) { gSearch = it; MapPrefs.setBool(ctx, "google_default", it) }
-                SwitchRow("Сведения Google сразу в карточке", "иначе — по кнопке, экономит лимит", gAuto) { gAuto = it; MapPrefs.setBool(ctx, "google_auto", it) }
+                SwitchRow("Сведения Google сразу в карточке", "иначе — по кнопке, экономит лимит", gAuto) { gAuto = it; MapPrefs.setBool(ctx, "google_auto2", it) }
                 var gc by remember { mutableStateOf(GCache.enabled(ctx)) }
                 var gcSize by remember { mutableLongStateOf(GCache.size(ctx)) }
                 SwitchRow("Хранить сведения и фото 30 дней", "зашифровано · ${gcSize / 1024} КБ — повторный просмотр места не тратит лимит", gc) { gc = it; GCache.setEnabled(ctx, it); gcSize = GCache.size(ctx) }

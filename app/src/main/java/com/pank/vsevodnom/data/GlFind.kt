@@ -64,32 +64,91 @@ object GlFind {
     /** Есть ли скачанные карты GLMap (офлайн-поиск по ним). */
     fun offlineAvailable() = GlMap.downloaded().isNotEmpty()
 
+    /** Свойства места по виду «ключ:значение» (у результатов поиска и «похожих»), чтобы у них тоже работали «Похожие рядом». */
+    fun propsOf(kind: String): Map<String, String> {
+        val k = kind.substringBefore(':', ""); val v = kind.substringAfter(':', "")
+        return if (k in KEYS && v.isNotBlank()) mapOf(k to v, "osm_key" to k, "osm_value" to v) else emptyMap()
+    }
+
+    private fun http(url: String, body: String): String {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.setRequestProperty("User-Agent", "VseVOdnom/0.29 (personal Android app)")
+        c.connectTimeout = 10_000; c.readTimeout = 25_000; c.requestMethod = "POST"; c.doOutput = true
+        c.outputStream.use { it.write(body.toByteArray()) }
+        return c.inputStream.bufferedReader().use { it.readText() }
+    }
+    private fun overpass(q: String): org.json.JSONArray = org.json.JSONObject(http("https://overpass-api.de/api/interpreter", "data=" + java.net.URLEncoder.encode(q, "UTF-8"))).getJSONArray("elements")
+    private fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+    /** Вид места, если о нём ничего не известно (метка, Google): ближайший объект OSM в 40 м (с тем же названием, если есть). Онлайн. */
+    suspend fun kindNear(lat: Double, lon: Double, name: String?): Pair<String, String>? = withContext(Dispatchers.IO) {
+        if (!Net.online) return@withContext null
+        runCatching {
+            val els = overpass("[out:json][timeout:15];nwr(around:40,$lat,$lon)[~\"^(amenity|shop|tourism|leisure|historic|office|craft|healthcare)$\"~\".\"];out tags center 30;")
+            val all = (0 until els.length()).map { els.getJSONObject(it) }
+            val pick = all.firstOrNull { e -> name != null && e.optJSONObject("tags")?.optString("name")?.equals(name, true) == true } ?: all.firstOrNull()
+            val t = pick?.optJSONObject("tags") ?: return@runCatching null
+            KEYS.firstOrNull { t.has(it) }?.let { it to t.getString(it) }
+        }.getOrNull()
+    }
+
     /**
      * «Похожие рядом»: тот же тег (ключ=значение) в 3 км, если мало — в 10 км; само место не показываем, ближние первыми.
+     * С интернетом — Overpass (OpenStreetMap, все объекты, включая лавочки и урны), без — по скачанной карте GLMap.
      */
     suspend fun similar(ctx: Context, key: String, value: String, lat: Double, lon: Double, limit: Int = 30): List<GeoHit> = withContext(Dispatchers.IO) {
-        if (!GlMap.init(ctx) || key.isBlank() || value.isBlank()) return@withContext emptyList()
+        if (key.isBlank() || value.isBlank()) return@withContext emptyList()
         val here = GeoPt(lat, lon, 0)
+        val label = MapNames.label(key, value)
+        fun tidy(l: List<GeoHit>, km: Double) = l.filter { Osm.distance(here, GeoPt(it.lat, it.lon, 0)).let { d -> d > 15 && d < km * 1000 } }
+            .sortedBy { Osm.distance(here, GeoPt(it.lat, it.lon, 0)) }
+            .distinctBy { "${it.name}|${(it.lat * 3000).toInt()}|${(it.lon * 3000).toInt()}" }
         var out = emptyList<GeoHit>()
         for (km in listOf(3.0, 10.0)) {
-            val dLat = km / 111.0; val dLon = km / (111.0 * Math.cos(Math.toRadians(lat)))
-            val bb = GLMapBBox().apply { addPoint(MapPoint.CreateFromGeoCoordinates(lat - dLat, lon - dLon)); addPoint(MapPoint.CreateFromGeoCoordinates(lat + dLat, lon + dLon)) }
-            val found = runCatching {
-                val s = GLSearch()
-                try {
-                    s.setCenter(MapPoint.CreateFromGeoCoordinates(lat, lon))
-                    s.setBBox(bb)
-                    s.setLimit(200)
-                    runCatching { GLMapManager.VectorTilesAtBBox(bb)?.let { s.setTiles(it) } }
-                    s.addFilter(GLSearchFilter.createWithQueryAndTag(value, key))
-                    s.search()?.let { list(it) }.orEmpty()
-                } finally { runCatching { s.dispose() } }
-            }.getOrDefault(emptyList())
-            out = found.filter { Osm.distance(here, GeoPt(it.lat, it.lon, 0)).let { d -> d > 20 && d < km * 1000 } }
-                .sortedBy { Osm.distance(here, GeoPt(it.lat, it.lon, 0)) }
-                .distinctBy { "${it.name}|${(it.lat * 3000).toInt()}|${(it.lon * 3000).toInt()}" }
+            val online = if (Net.online) runCatching {
+                val els = overpass("[out:json][timeout:20];nwr(around:${(km * 1000).toInt()},$lat,$lon)[\"${esc(key)}\"=\"${esc(value)}\"];out tags center 150;")
+                (0 until els.length()).mapNotNull { i ->
+                    val e = els.getJSONObject(i)
+                    val la = e.optDouble("lat").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lat") ?: return@mapNotNull null
+                    val lo = e.optDouble("lon").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lon") ?: return@mapNotNull null
+                    val t = e.optJSONObject("tags")
+                    val nm = t?.optString("name:ru")?.ifBlank { null } ?: t?.optString("name")?.ifBlank { null } ?: label
+                    val addr = listOfNotNull(t?.optString("addr:street")?.ifBlank { null }, t?.optString("addr:housenumber")?.ifBlank { null }).joinToString(", ")
+                    GeoHit(nm, listOf(label, addr).filter { it.isNotBlank() }.distinct().joinToString(" · "), la, lo, "$key:$value")
+                }
+            }.getOrNull() else null
+            out = tidy(online ?: offlineSimilar(ctx, key, value, lat, lon, km, label), km)
             if (out.size >= 6) break
         }
         out.take(limit)
+    }
+
+    /** Без интернета: поиск по скачанным картам GLMap; имена — из тегов, без GetDisplayInfo. */
+    private fun offlineSimilar(ctx: Context, key: String, value: String, lat: Double, lon: Double, km: Double, label: String): List<GeoHit> {
+        if (!GlMap.init(ctx) || !offlineAvailable()) return emptyList()
+        val dLat = km / 111.0; val dLon = km / (111.0 * Math.cos(Math.toRadians(lat)))
+        val bb = GLMapBBox().apply { addPoint(MapPoint.CreateFromGeoCoordinates(lat - dLat, lon - dLon)); addPoint(MapPoint.CreateFromGeoCoordinates(lat + dLat, lon + dLon)) }
+        return runCatching {
+            val s = GLSearch()
+            try {
+                s.setLocaleSettings(GlMap.locale)
+                s.setCenter(MapPoint.CreateFromGeoCoordinates(lat, lon))
+                s.setBBox(bb)
+                s.setLimit(200)
+                runCatching { GLMapManager.VectorTilesAtBBox(bb)?.let { s.setTiles(it) } }
+                s.addFilter(GLSearchFilter.createWithQueryAndTag(value, key))
+                val l = s.search() ?: return@runCatching emptyList()
+                val r = l.toArray().mapNotNull { o ->
+                    runCatching {
+                        if (o.tag(key) != value) return@runCatching null
+                        val g = MapGeoPoint(o.point())
+                        val nm = runCatching { o.localizedName(GlMap.locale)?.use { it.string } }.getOrNull()?.ifBlank { null } ?: o.tag("name") ?: label
+                        GeoHit(nm, label, g.lat, g.lon, "$key:$value")
+                    }.getOrNull().also { runCatching { o.dispose() } }
+                }
+                runCatching { l.dispose() }
+                r
+            } finally { runCatching { s.dispose() } }
+        }.getOrDefault(emptyList())
     }
 }

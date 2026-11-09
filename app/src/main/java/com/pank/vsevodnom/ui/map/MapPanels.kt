@@ -156,7 +156,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
     val isStreet = t.props["kind"] == "street"
     val noName = isPoint || isRoute || isStreet || (t.place == null && t.props.isNotEmpty() && t.props["name"] == null && !t.props.containsKey("google_id"))
     var routeWiki by remember(t) { mutableStateOf<PlaceInfo.Wiki?>(null) }
-    LaunchedEffect(t) { if ((isRoute || isStreet) && Net.online && t.props["name"] != null) routeWiki = PlaceInfo.wikiFor(t.name, t.props["wikipedia"], t.lat, t.lon) }
+    LaunchedEffect(t) { if ((isRoute || isStreet) && Net.online && !t.name.contains(" без названия")) routeWiki = PlaceInfo.wikiFor(t.name, t.props["wikipedia"], t.lat, t.lon) }
     val hasKey = ApiKeys.google(ctx).isNotBlank()
     var gAsk by remember(t) { mutableStateOf(false) }     // лимит почти исчерпан — грузим только по кнопке
     var gSpent by remember(t) { mutableIntStateOf(0) }     // сколько запросов к Google потрачено на это место сейчас
@@ -192,7 +192,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         // уже смотрели это место, пока приложение открыто, — показываем без нового запроса
         val known = withContext(Dispatchers.IO) { GooglePlaces.stored(ctx, t.props["google_id"] ?: if (noName) null else GooglePlaces.knownId(ctx, t.name, t.lat, t.lon)) }
         if (known != null) { g = known; gSrc = GooglePlaces.source[known.id]; withContext(Dispatchers.IO) { known.photos.mapNotNull { n -> GooglePlaces.storedPhoto(ctx, n) } }.forEach { photos += it } }
-        else if (MapPrefs.bool(ctx, "google_auto", true) || t.props.containsKey("google_id")) { if (ApiKeys.nearlyOut(ctx, "google")) gAsk = hasKey && online && !noName else loadGoogle() }
+        else if (MapPrefs.bool(ctx, "google_auto2", false) || t.props.containsKey("google_id")) { if (ApiKeys.nearlyOut(ctx, "google")) gAsk = hasKey && online && !noName else loadGoogle() }
         if (online) {
             // у тропы с названием ищем её саму в OSM (теги: покрытие, сложность, ссылки)
             info = runCatching { PlaceInfo.load(t.name.takeIf { t.place == null && (!noName || (isRoute && t.props["name"] != null)) }, t.lat, t.lon) }.getOrNull()
@@ -226,18 +226,14 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                             Text(" (${d.count ?: 0})", style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
                         d.price?.let { Text(" · $it", style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
                     }
-                    d.openNow?.let { open ->
-                        val todayLine = d.hours.getOrNull(today)?.substringAfter(": ", "").orEmpty()
-                        Text((if (open) "Открыто" else "Закрыто") + if (todayLine.isNotBlank()) " · сегодня $todayLine" else "", style = MaterialTheme.typography.bodyMedium,
-                            color = if (open) Pal.MintInk else Pal.RoseInk, maxLines = 1)
-                    }
                 }
-                if (g?.openNow == null) osmWeek?.let { w ->
+                // статус считаем сейчас по недельному графику (Google или OSM); «открыто сейчас» из кэша Google устаревает
+                (g?.week ?: osmWeek)?.let { w ->
                     val now = java.time.LocalTime.now()
                     val st = OpeningHours.status(w, today, now.hour * 60 + now.minute)
                     Text(st.text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                         color = when { st.open && !st.soon -> Pal.MintInk; st.soon -> Color(0xFFB7791F); else -> Pal.RoseInk }, maxLines = 1)
-                } ?: tags["opening_hours"]?.takeIf { g == null }?.let { Text("Часы: $it", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1) }
+                } ?: tags["opening_hours"]?.let { Text("Часы: $it", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1) }
                 plan?.takeIf { it.first > System.currentTimeMillis() - 86_400_000L }?.let { (at, task) ->
                     Text("Запланировано на " + Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd.MM HH:mm")) + " ›",
                         style = MaterialTheme.typography.labelLarge, color = Color(0xFFD13B3B), fontWeight = FontWeight.Bold, modifier = Modifier.clickable { MapUi.openTodo = "task:$task" })
@@ -321,20 +317,36 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                 (tags["contact:instagram"] ?: tags["instagram"])?.let { u -> ActionChip(Icons.Rounded.PhotoCamera, "Instagram", Pal.Lilac, Pal.LilacInk) { web(ctx, if (u.startsWith("http")) u else "https://instagram.com/" + u.trimStart('@')) } }
                 (tags["contact:facebook"] ?: tags["facebook"])?.let { u -> ActionChip(Icons.Rounded.Groups, "Facebook", Pal.Lilac, Pal.LilacInk) { web(ctx, if (u.startsWith("http")) u else "https://facebook.com/$u") } }
                 (tags["contact:telegram"] ?: tags["telegram"])?.let { u -> ActionChip(Icons.AutoMirrored.Rounded.Send, "Telegram", Pal.Lilac, Pal.LilacInk) { web(ctx, if (u.startsWith("http")) u else "https://t.me/" + u.trimStart('@')) } }
-                if (!noName) ActionChip(Icons.Rounded.TravelExplore, "TripAdvisor", Color(0xFFDDF3E8), Color(0xFF00744A)) { web(ctx, "https://www.tripadvisor.com/Search?q=" + Uri.encode(q)) }
                 (ownBooking ?: if (stay && t.place == null) StayLinks.bookingSearch(q) else null)?.let { u -> ActionChip(Icons.Rounded.Hotel, "Booking", Color(0xFFDCE6F7), Color(0xFF003B95)) { web(ctx, u) } }
                 (ownAirbnb ?: if (stay && t.place == null) StayLinks.airbnbSearch(q) else null)?.let { u -> ActionChip(Icons.Rounded.Cottage, "Airbnb", Color(0xFFFDE3E7), Color(0xFFD9344F)) { web(ctx, u) } }
             }
             g?.address?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             info?.wiki?.takeIf { !isRoute }?.let { w -> Text(w.extract, style = MaterialTheme.typography.bodySmall, maxLines = 6) }
-            // отзывы
-            g?.reviews?.takeIf { it.isNotEmpty() }?.let { rs ->
-                Text("Отзывы", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                rs.take(5).forEach { r ->
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Bg).padding(10.dp)) {
-                        Text(r.author + " · " + r.when_, style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
-                        Text("★".repeat(r.rating.coerceIn(0, 5)), color = Color(0xFFE9A92B), fontSize = 12.sp)
-                        if (r.text.isNotBlank()) Text(r.text, style = MaterialTheme.typography.bodySmall, maxLines = 8)
+            // отзывы — только по кнопке (самые дорогие сведения Google)
+            g?.let { gd ->
+                var revs by remember(gd.id) { mutableStateOf<List<GooglePlaces.Review>?>(null) }
+                var revLoading by remember(gd.id) { mutableStateOf(false) }
+                val rs = revs
+                if (rs == null) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Bg).clickable(enabled = !revLoading) {
+                    revLoading = true
+                    scope.launch {
+                        revs = runCatching { GooglePlaces.reviews(ctx, gd.id) }.onFailure { Toast.makeText(ctx, it.message ?: "Не удалось загрузить отзывы", Toast.LENGTH_SHORT).show() }.getOrNull()
+                        revLoading = false
+                    }
+                }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.RateReview, null, tint = Pal.SkyInk); Spacer(Modifier.width(10.dp))
+                    Text("Показать отзывы Google" + (gd.count?.let { " ($it)" } ?: ""), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    if (revLoading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                }
+                else if (rs.isEmpty()) Text("Отзывов нет", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                else {
+                    Text("Отзывы", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    rs.take(5).forEach { r ->
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Bg).padding(10.dp)) {
+                            Text(r.author + " · " + r.when_, style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                            Text("★".repeat(r.rating.coerceIn(0, 5)), color = Color(0xFFE9A92B), fontSize = 12.sp)
+                            if (r.text.isNotBlank()) Text(r.text, style = MaterialTheme.typography.bodySmall, maxLines = 8)
+                        }
                     }
                 }
             }
@@ -344,7 +356,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                     Icon(if (gAsk) Icons.Rounded.Info else Icons.Rounded.CloudDownload, null, tint = if (gAsk) Pal.ButterInk else Pal.SkyInk); Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(if (gAsk) "Лимит Google почти исчерпан" else "Загрузить сведения Google", style = MaterialTheme.typography.titleSmall)
-                        Text(if (gAsk) "Использовано $used из $lim на сегодня. Подтянуть оценку, фото и часы для этого места?" else "оценка, фото, часы, отзывы · $used из $lim за сегодня",
+                        Text(if (gAsk) "Использовано $used из $lim на сегодня. Подтянуть оценку, фото и часы для этого места?" else "оценка, фото, часы · $used из $lim за сегодня",
                             style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                     }
                 }
@@ -362,11 +374,16 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                     Text("Сведения Google — $src · осталось $left из ${ApiKeys.limit(ctx, "google")} на сегодня", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
                 }
             }
+            // поиск этого места в других сервисах — серыми кнопками; ищем по названию и городу (улица — «название, город»), безымянное — по координатам
+            val sq = listOfNotNull(title.takeIf { !noName && !title.startsWith("Улица без") && !title.startsWith("Тропа без") }, city).joinToString(", ")
+            val coordsQ = String.format(Locale.US, "%.6f,%.6f", t.lat, t.lon)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // в Google Картах ищем по названию и городу — так открывается само заведение, а не голые координаты
-                PillButton("Google Карты", { web(ctx, g?.mapsUrl ?: if (noName) String.format(Locale.US, "https://www.google.com/maps/search/?api=1&query=%.6f,%.6f", t.lat, t.lon)
-                    else "https://www.google.com/maps/search/?api=1&query=" + Uri.encode(listOfNotNull(title, city).joinToString(", "))) }, Modifier.weight(1f), bg = Pal.Bg, fg = Pal.Ink)
-                PillButton("OpenStreetMap", { web(ctx, info?.osmUrl?.ifBlank { null } ?: String.format(Locale.US, "https://www.openstreetmap.org/?mlat=%.6f&mlon=%.6f#map=18/%.6f/%.6f", t.lat, t.lon, t.lat, t.lon)) }, Modifier.weight(1f), bg = Pal.Bg, fg = Pal.Ink)
+                PillButton("Google Карты", { web(ctx, g?.mapsUrl ?: "https://www.google.com/maps/search/?api=1&query=" + Uri.encode(if (sq.isBlank() || noName) coordsQ else sq)) }, Modifier.weight(1f), bg = Pal.Bg, fg = Pal.Ink)
+                PillButton("OpenStreetMap", { web(ctx, t.props["osm_url"] ?: info?.osmUrl?.ifBlank { null } ?: String.format(Locale.US, "https://www.openstreetmap.org/?mlat=%.6f&mlon=%.6f#map=18/%.6f/%.6f", t.lat, t.lon, t.lat, t.lon)) }, Modifier.weight(1f), bg = Pal.Bg, fg = Pal.Ink)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PillButton("Википедия", { web(ctx, (routeWiki ?: info?.wiki)?.url ?: "https://uk.wikipedia.org/w/index.php?search=" + Uri.encode(sq.ifBlank { title })) }, Modifier.weight(1f), bg = Pal.Bg, fg = Pal.Ink)
+                PillButton("TripAdvisor", { web(ctx, "https://www.tripadvisor.com/Search?q=" + Uri.encode(sq.ifBlank { coordsQ })) }, Modifier.weight(1f), bg = Pal.Bg, fg = Pal.Ink)
             }
             // мелочь
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { copy(ctx, MapPrefs.coords(ctx, t.lat, t.lon)) }, verticalAlignment = Alignment.CenterVertically) {
@@ -797,7 +814,6 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
     var variant by remember { mutableStateOf(p.getString("variant", "car") ?: "car") }
     var hill by remember { mutableStateOf(p.getBoolean("hillshade", true)) }
     var contours by remember { mutableStateOf(p.getBoolean("contours", true)) }
-    var worldRelief by remember { mutableStateOf(p.getBoolean("world_relief", true)) }
     val scope = rememberCoroutineScope()
     var sources by remember { mutableStateOf(OnlineMaps.all(ctx)) }
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -814,7 +830,6 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
         AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
             SwitchRow("Тени рельефа", "горы и холмы объёмнее", hill) { hill = it; set("hillshade", it) }
             SwitchRow("Линии высот", "горизонтали с подписями высот", contours) { contours = it; set("contours", it) }
-            SwitchRow("Рельеф мира", "цветной рельеф с тенями гор на мелких масштабах (как в Maps.me)", worldRelief) { worldRelief = it; set("world_relief", it) }
             Text("3D-рельеф включён всегда — наклони карту двумя пальцами. Без интернета он работает там, где скачана «Топография». 3D-домов в движке GLMap нет (как и в Guru Maps).",
                 style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp, 12.dp, 10.dp))
         }
@@ -969,7 +984,7 @@ internal fun withDesc(t: Track, d: String): Track {
 private fun StreetBlock(t: MapTarget, wiki: PlaceInfo.Wiki?, info: PlaceInfo.Info?, city: String?, onWhole: ((MapTarget) -> Unit)?, onRoute: (String, MapPrefs.Spot) -> Unit) {
     val ctx = LocalContext.current
     val p = t.props
-    val named = p["name"] != null
+    val named = !t.name.startsWith("Улица без") && t.name.isNotBlank()
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Bg).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Об улице", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         @Composable fun row(k: String, v: String?) { if (!v.isNullOrBlank()) Row { Text(k, style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, modifier = Modifier.width(120.dp)); Text(v, style = MaterialTheme.typography.bodyMedium) } }
@@ -987,17 +1002,7 @@ private fun StreetBlock(t: MapTarget, wiki: PlaceInfo.Wiki?, info: PlaceInfo.Inf
             Text(w.extract, style = MaterialTheme.typography.bodyMedium, maxLines = if (full) Int.MAX_VALUE else 6, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp).clickable { full = !full })
         }
-        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (named && onWhole != null) ActionChip(Icons.Rounded.Timeline, "Показать всю улицу", Pal.Sky, Pal.SkyInk) { onWhole(t) }
-            ActionChip(Icons.Rounded.Directions, "Маршрут сюда", Pal.Mint, Pal.MintInk) { onRoute("to", MapPrefs.Spot(t.name, t.lat, t.lon, "улица")) }
-        }
-        val q = listOfNotNull(t.name.takeIf { named }, city).joinToString(", ").ifBlank { "%.5f,%.5f".format(java.util.Locale.US, t.lat, t.lon) }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            LinkTile(Icons.AutoMirrored.Rounded.MenuBook, "Вики", Modifier.weight(1f)) { web(ctx, wiki?.url ?: "https://uk.wikipedia.org/w/index.php?search=" + Uri.encode(q)) }
-            LinkTile(Icons.Rounded.Map, "Google", Modifier.weight(1f)) { web(ctx, "https://www.google.com/maps/search/?api=1&query=" + Uri.encode(q)) }
-            LinkTile(Icons.Rounded.Public, "OSM", Modifier.weight(1f)) { web(ctx, p["osm_url"] ?: info?.osmUrl?.ifBlank { null } ?: "https://www.openstreetmap.org/?mlat=${t.lat}&mlon=${t.lon}#map=17/${t.lat}/${t.lon}") }
-            LinkTile(Icons.Rounded.TravelExplore, "TripAdvisor", Modifier.weight(1f)) { web(ctx, "https://www.tripadvisor.com/Search?q=" + Uri.encode(q)) }
-        }
+        if (named && onWhole != null) Row(Modifier.padding(top = 6.dp)) { ActionChip(Icons.Rounded.Timeline, "Показать всю улицу", Pal.Sky, Pal.SkyInk) { onWhole(t) } }
     }
 }
 

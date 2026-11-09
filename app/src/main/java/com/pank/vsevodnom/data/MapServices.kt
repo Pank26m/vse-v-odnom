@@ -59,6 +59,8 @@ object GooglePlaces {
         val rating: Double?, val count: Int?, val price: String?, val type: String?,
         val phone: String?, val site: String?, val mapsUrl: String?, val openNow: Boolean?, val hours: List<String>,
         val reviews: List<Review>, val photos: List<String>,
+        /** График по дням (0 — понедельник), минуты от полуночи — из периодов Google; статус «открыто» считаем по нему сейчас. */
+        val week: List<List<IntRange>>? = null,
     )
 
     private fun req(ctx: Context, url: String, fields: String, body: JSONObject?): JSONObject {
@@ -98,7 +100,7 @@ object GooglePlaces {
     }
 
     private const val DETAIL_FIELDS = "id,displayName,formattedAddress,location,rating,userRatingCount,priceLevel,primaryTypeDisplayName," +
-        "nationalPhoneNumber,websiteUri,googleMapsUri,currentOpeningHours,regularOpeningHours,reviews,photos"
+        "nationalPhoneNumber,websiteUri,googleMapsUri,regularOpeningHours,photos"
 
     /**
      * Повторно не платим: по правилам Google хранить можно только id места (без срока) — его и запоминаем для объектов
@@ -160,12 +162,30 @@ object GooglePlaces {
         } }.orEmpty()
         val photos = o.optJSONArray("photos")?.let { a -> (0 until minOf(a.length(), 6)).map { a.getJSONObject(it).getString("name") } }.orEmpty()
         val price = when (o.optString("priceLevel")) { "PRICE_LEVEL_INEXPENSIVE" -> "₴"; "PRICE_LEVEL_MODERATE" -> "₴₴"; "PRICE_LEVEL_EXPENSIVE" -> "₴₴₴"; "PRICE_LEVEL_VERY_EXPENSIVE" -> "₴₴₴₴"; else -> null }
+        // периоды: day 0 = воскресенье; закрытие на другой день — конец после полуночи; без закрытия — круглосуточно
+        val week = (o.optJSONObject("regularOpeningHours") ?: o.optJSONObject("currentOpeningHours"))?.optJSONArray("periods")?.let { a ->
+            val w = MutableList<MutableList<IntRange>>(7) { ArrayList() }
+            for (i in 0 until a.length()) {
+                val pr = a.getJSONObject(i); val op = pr.optJSONObject("open") ?: continue; val cl = pr.optJSONObject("close")
+                val d = (op.optInt("day") + 6) % 7; val st = op.optInt("hour") * 60 + op.optInt("minute")
+                if (cl == null) { (0..6).forEach { w[it] = mutableListOf(0..1440) }; continue }
+                val days = (cl.optInt("day") - op.optInt("day") + 7) % 7
+                w[d] += st..(days * 1440 + cl.optInt("hour") * 60 + cl.optInt("minute")).let { if (it <= st) it + 1440 else it }
+            }
+            w.map { l -> l.sortedBy { it.first } }.takeIf { l -> l.any { it.isNotEmpty() } }
+        }
         return Details(o.optString("id"), o.optJSONObject("displayName")?.optString("text").orEmpty(), o.optString("formattedAddress"),
             loc?.optDouble("latitude") ?: 0.0, loc?.optDouble("longitude") ?: 0.0,
             if (o.has("rating")) o.optDouble("rating") else null, if (o.has("userRatingCount")) o.optInt("userRatingCount") else null, price,
             o.optJSONObject("primaryTypeDisplayName")?.optString("text"), o.optString("nationalPhoneNumber").ifBlank { null }, o.optString("websiteUri").ifBlank { null },
             o.optString("googleMapsUri").ifBlank { null }, o.optJSONObject("currentOpeningHours")?.let { if (it.has("openNow")) it.optBoolean("openNow") else null },
-            hours, revs, photos)
+            hours, revs, photos, week)
+    }
+
+    /** Отзывы — отдельным запросом и только по кнопке (это самый дорогой вид сведений Google). Кэш — как у сведений. */
+    suspend fun reviews(ctx: Context, id: String): List<Review> = withContext(Dispatchers.IO) {
+        val raw = GCache.get(ctx, "r:$id") ?: req(ctx, "https://places.googleapis.com/v1/places/$id?languageCode=ru", "reviews", null).toString().toByteArray().also { GCache.put(ctx, "r:$id", it) }
+        parse(JSONObject(String(raw))).reviews
     }
 
     /** Фото — тоже платный запрос, поэтому грузим по одному и только по просьбе (листание). */

@@ -60,6 +60,8 @@ object MapNames {
         "christian" to "Храм", "muslim" to "Мечеть", "jewish" to "Синагога", "charging_station" to "Зарядка электромобилей", "car_wash" to "Автомойка",
         "car_repair" to "Автосервис", "car_parts" to "Автозапчасти", "clothes" to "Одежда", "beauty" to "Салон красоты", "florist" to "Цветы",
     )
-    fun kind(k: String): String = M[k] ?: CLASS[k.substringBefore(':')] ?: ""
+    fun kind(k: String): String = M[k] ?: OMT[k.substringAfter(':')] ?: CLASS[k.substringBefore(':')] ?: ""
+    /** Вид объекта по тегу OSM: сначала точное «ключ:значение», потом по значению (лавочка, урна…), потом общий класс. */
+    fun label(key: String, value: String): String = M["$key:$value"] ?: OMT[value] ?: value.replace('_', ' ').replaceFirstChar { it.uppercase() }
     fun omt(cls: String?, sub: String?): String = (sub?.let { OMT[it] } ?: cls?.let { OMT[it] } ?: sub?.replace('_', ' ') ?: cls?.replace('_', ' ') ?: "").replaceFirstChar { it.uppercase() }
 }

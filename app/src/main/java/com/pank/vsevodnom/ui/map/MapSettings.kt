@@ -240,6 +240,8 @@ private fun FilterPage(onChanged: () -> Unit, onBack: () -> Unit) {
         group(MapStyle.GROUPS)
         Text("Маршруты OpenStreetMap", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
         group(MapStyle.ROUTE_GROUPS)
+        Text("Подписи и метро", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+        group(MapStyle.LABEL_GROUPS)
         Text("Пешие маршруты видны в виде «Пешком», веломаршруты — в виде «Вело» (Слои). Твои треки скрываются в Коллекциях.",
             style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

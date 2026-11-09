@@ -77,13 +77,15 @@ private class TaskFilter(p: android.content.SharedPreferences) {
 }
 
 @Composable
-fun TasksPage(onBack: () -> Unit) {
+fun TasksPage(onBack: () -> Unit, openId: Long? = null, onOpened: () -> Unit = {}) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).todo() }
     val tasks by dao.tasks().collectAsState(initial = emptyList())
     val prefs = remember { ctx.getSharedPreferences("tasks", android.content.Context.MODE_PRIVATE) }
     val f = remember { TaskFilter(prefs) }
     var edit by remember { mutableStateOf<TaskItem?>(null) }
+    // открыть конкретную задачу (переход из сводки или с карты): раздел «Задачи» + её окно
+    LaunchedEffect(openId, tasks) { if (openId != null) tasks.firstOrNull { it.id == openId }?.let { edit = it; onOpened() } }
     var filterOpen by remember { mutableStateOf(false) }
     var q by remember { mutableStateOf("") }
     val today = LocalDate.now().toEpochDay()

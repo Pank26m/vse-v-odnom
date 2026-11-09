@@ -154,8 +154,20 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         val t = f.target
         if (t.props["kind"] == "street") {
             val mid = f.lines?.maxByOrNull { it.size }?.let { it[it.size / 2] }
-            open(if (mid != null) t.copy(lat = mid.lat, lon = mid.lon) else t)
+            val tt = if (mid != null) t.copy(lat = mid.lat, lon = mid.lon) else t
+            open(tt)
             pin(null, null); f.lines?.let { eng.setHighlight(it) }
+            // сразу вся улица: все отрезки с тем же названием (OSM режет улицу на куски от перекрёстка до перекрёстка)
+            val nm = t.props["name_tag"] ?: t.props["name"]
+            if (nm != null && !t.name.contains(" без названия")) scope.launch {
+                val all = Streets.whole(nm, t.lat, t.lon, t.name)
+                if (all.size > (f.lines?.size ?: 0) && target == tt) {
+                    eng.setHighlight(all)
+                    // середина всей улицы — для маршрута и сведений
+                    val pts = all.flatten(); val c = pts[pts.size / 2]
+                    target = tt.copy(lat = c.lat, lon = c.lon, props = tt.props + ("whole" to "1"))
+                }
+            }
             return
         }
         open(t)
@@ -297,7 +309,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     val visF = remember(folders) { visibleFolders(folders) }
     LaunchedEffect(gen, places, visF, showAll, MapUi.clusterTick) {
         eng.setPlaces(if (!showAll) emptyList() else places.filter { it.visible && (it.folderId == null || it.folderId in visF) }.map { pl ->
-            OvPlace(pl.id, pl.lat, pl.lon, pl.name, colorOr(pl.color, PLACE_COLOR), pl.icon.removePrefix("t:")) }, MapPrefs.bool(ctx, "cluster_places", false))
+            OvPlace(pl.id, pl.lat, pl.lon, pl.name, colorOr(pl.color, PLACE_COLOR), pl.icon.removePrefix("t:")) }, false)
     }
     LaunchedEffect(gen, tracks, visF, showAll, RoutePlan.editTrack, RoutePlan.active) {
         // правленый трек прячем — на его месте новый маршрут планировщика
@@ -579,7 +591,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     startNav(r, RoutePlan.dest?.name ?: "", way, RoutePlan.mode); RoutePlan.close() }
             }, onPickMap = { i -> pickStop = i }, onSearch = { i -> searchFor = i; sheet = MapSheet.SEARCH })
             similar?.let { (title, hits) -> if (target != null) {
-                fun go(i: Int) { simIdx = (i + hits.size) % hits.size; val h = hits[simIdx]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon)) }
+                fun go(i: Int) { simIdx = (i + hits.size) % hits.size; val h = hits[simIdx]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon, props = GlFind.propsOf(h.kind))) }
                 Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 6.dp).fillMaxWidth().shadow(6.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(Pal.Card)
                     .clickable(interactionSource = null, indication = null) {}.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ go(simIdx - 1) }) { Icon(Icons.Rounded.ChevronLeft, "Назад", tint = Pal.Ink) }
@@ -594,17 +606,22 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl, if (t.place == null) mapOf("edit" to "1") else emptyMap())) },
                     onSimilar = { tt ->
                         scope.launch {
-                            val key = GlFind.KEYS.firstOrNull { tt.props[it] != null }
-                            val hits = if (key != null) GlFind.similar(ctx, key, tt.props[key]!!, tt.lat, tt.lon) else emptyList()
-                            if (hits.isEmpty()) { Toast.makeText(ctx, if (!GlFind.offlineAvailable()) "Похожие ищутся по скачанной карте (Загрузка карт)" else "Похожих рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
+                            // вид места: из свойств объекта карты, иначе — ближайший объект OSM (для меток и мест из поиска Google)
+                            val kv = tt.props["osm_key"]?.let { k -> tt.props["osm_value"]?.let { k to it } }
+                                ?: GlFind.KEYS.firstOrNull { tt.props[it] != null && it != "building" }?.let { it to tt.props[it]!! }
+                                ?: GlFind.kindNear(tt.lat, tt.lon, tt.place?.name ?: tt.name)
+                            if (kv == null) { Toast.makeText(ctx, if (!Net.online) "Не знаю, что это за место — без интернета похожие не найти" else "Не удалось понять, что это за место", Toast.LENGTH_LONG).show(); return@launch }
+                            Toast.makeText(ctx, "Ищу: ${MapNames.label(kv.first, kv.second).lowercase()} рядом…", Toast.LENGTH_SHORT).show()
+                            val hits = GlFind.similar(ctx, kv.first, kv.second, tt.lat, tt.lon)
+                            if (hits.isEmpty()) { Toast.makeText(ctx, if (!Net.online && !GlFind.offlineAvailable()) "Без интернета похожие ищутся по скачанной карте (Загрузка карт)" else "Похожих рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
                             eng.setSimilar(hits)
-                            similar = tt.kind.ifBlank { "Похожие" } to hits; simIdx = 0
-                            val h = hits[0]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon))
+                            similar = MapNames.label(kv.first, kv.second) to hits; simIdx = 0
+                            val h = hits[0]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon, props = GlFind.propsOf(h.kind)))
                         }
                     },
                     onWhole = { tt -> scope.launch {
                         Toast.makeText(ctx, "Ищу всю улицу…", Toast.LENGTH_SHORT).show()
-                        val ln = Streets.whole(tt.props["name"] ?: tt.name, tt.lat, tt.lon)
+                        val ln = Streets.whole(tt.props["name_tag"] ?: tt.props["name"] ?: tt.name, tt.lat, tt.lon, tt.name)
                         if (ln.isEmpty()) Toast.makeText(ctx, "Не нашлось других отрезков улицы", Toast.LENGTH_SHORT).show() else highlight(ln)
                     } })
             }
@@ -637,7 +654,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             MapPrefs.addRecent(ctx, MapPrefs.Spot(hit.name, hit.lat, hit.lon, hit.address))
             fly(hit.lat, hit.lon, if (hit.kind.startsWith("place:city")) 12.0 else if (hit.kind.startsWith("place:")) 14.0 else 17.0)
             val pl = places.firstOrNull { it.lat == hit.lat && it.lon == hit.lon && it.name == hit.name }
-            open(MapTarget(hit.name, pl?.let { "Моя метка" } ?: hit.address, hit.lat, hit.lon, pl, if (hit.kind.startsWith("google:")) mapOf("google_id" to hit.kind.removePrefix("google:")) else emptyMap()))
+            open(MapTarget(hit.name, pl?.let { "Моя метка" } ?: hit.address, hit.lat, hit.lon, pl, if (hit.kind.startsWith("google:")) mapOf("google_id" to hit.kind.removePrefix("google:")) else GlFind.propsOf(hit.kind)))
         }
         MapSheet.COLLECTIONS -> CollectionsScreen(places, tracks, folders, showAll, onShowAll = { showAll = it; prefs.edit().putBoolean("show_collections", it).apply() },
             onDismiss = { sheet = MapSheet.NONE },

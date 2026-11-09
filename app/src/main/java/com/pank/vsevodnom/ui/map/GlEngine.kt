@@ -76,20 +76,33 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         }
         for ((k, g) in MapStyle.GROUPS) if (k !in o.hidden) m[g.option] = "1"
         for ((k, g) in MapStyle.ROUTE_GROUPS) if (k in o.hidden) m[g.option] = "1"
+        if (patched) for ((k, g) in MapStyle.LABEL_GROUPS) if (k in o.hidden) m[g.option] = "1"
         return m
     }
 
     /** Ресурсы стиля: наши сервисные значки, свои опции в relations.mapcss, остальное — стандартный стиль GLMap. */
     private fun resource(name: String): ByteArray? {
         MapStyle.SERVICE_SVG[name]?.let { serviceSvg(it)?.let { svg -> return svg.toByteArray() } }
+        if (name == "hide_user.mapcss") return MapStyle.HIDE_CSS.toByteArray()
         val raw = asset("DefaultStyle.bundle/$name") ?: asset(name) ?: return null
         if (name == "relations.mapcss") return patchRelations(String(raw)).toByteArray()
+        if (name == "Style.mapcss" && patched) return (String(raw) + "\n@import \"hide_user.mapcss\";\n").toByteArray()
         return raw
     }
 
     /** Пешие и вело маршруты OSM — под своими опциями «скрыть» (HideHiking / HideBike). */
     private fun patchRelations(src: String): String {
         var s = src
+        // линии метро (цветные, из отношений) — под опцией HideMetro
+        if (patched) {
+            val sel = s.indexOf("relation[route=subway]")
+            val start = if (sel >= 0) s.lastIndexOf("@if SubStyle != Car", sel) else -1
+            val end = if (sel >= 0) s.indexOf("@endif", sel) else -1
+            if (start >= 0 && end > sel) {
+                val head = start + "@if SubStyle != Car".length
+                s = s.substring(0, head) + "\n@if !HideMetro" + s.substring(head, end) + "@endif\n" + s.substring(end)
+            }
+        }
         for ((cond, opt) in listOf("@if SubStyle == Hike" to "HideHiking", "@if SubStyle == Bike" to "HideBike")) {
             val i = s.indexOf(cond); if (i < 0) continue
             val e = s.indexOf("@endif", i); if (e < 0) continue
@@ -99,16 +112,44 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         return s
     }
 
-    /** Сервисный значок: тёмная иконка Tabler с белой обводкой. Чёрное и белое не меняются от подкраски (icon-tint) стиля. */
+    /**
+     * Сервисный значок — как в прежней карте: серая иконка с белой обводкой, мелкая. Подкраска стиля (icon-tint)
+     * — наложение, серый под ней чуть окрашивается; чтобы цвет был ровно наш, рисуем серый полупрозрачным чёрным.
+     */
     private fun serviceSvg(icon: String): String? {
-        val paths = com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: return null
-        val sb = StringBuilder("""<svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="-1 -1 26 26"><g fill="none" stroke-linecap="round" stroke-linejoin="round">""")
-        paths.forEach { d -> sb.append("""<path d="$d" stroke="#FFFFFF" stroke-width="5"/>""") }
-        paths.forEach { d -> sb.append("""<path d="$d" stroke="#000000" stroke-opacity="0.78" stroke-width="2.1"/>""") }
+        val paths = MapStyle.CUSTOM_ICONS[icon] ?: com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: return null
+        val sb = StringBuilder("""<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="-1.5 -1.5 27 27"><g fill="none" stroke-linecap="round" stroke-linejoin="round">""")
+        paths.forEach { d -> sb.append("""<path d="$d" stroke="#FFFFFF" stroke-width="5.2"/>""") }
+        paths.forEach { d -> sb.append("""<path d="$d" stroke="#000000" stroke-opacity="0.6" stroke-width="2.1"/>""") }
         return sb.append("</g></svg>").toString()
     }
 
+    /** Подключены ли наши правила скрытия (hide_user.mapcss, метро в relations). */
+    private var patched = true
     private var relief: ReliefTileSource? = null
+    private var extraOverlays: List<GLMapTileSource> = emptyList()
+    private var reliefWanted = true
+    private var reliefShown: Boolean? = null
+    private var reliefAlpha = -1f
+
+    /**
+     * Рельеф мира — только на мелких масштабах: полный до z7.5, дальше плавно гаснет и с z9 (~20 км над землёй)
+     * убирается совсем — дальше обычная карта (раньше он растягивался на все масштабы и не выключался).
+     */
+    private fun reliefByZoom(z: Double) {
+        val show = reliefWanted && z < RELIEF_OFF
+        val a = (0.55 * ((RELIEF_OFF - z) / (RELIEF_OFF - RELIEF_FADE)).coerceIn(0.0, 1.0)).toFloat()
+        if (show != reliefShown) {
+            reliefShown = show
+            runCatching {
+                val over = ArrayList<GLMapTileSource>()
+                if (show) over += (relief ?: ReliefTileSource(ctx).also { relief = it })
+                over += extraOverlays
+                r.setOverlays(over.toTypedArray())
+            }
+        }
+        if (show) { val q = Math.round(a * 20) / 20f; if (q != reliefAlpha) { reliefAlpha = q; runCatching { relief?.setOpacity(q) } } }
+    }
     private var base: String? = null
 
     override fun reloadStyle() {
@@ -119,12 +160,16 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             r.drawElevationLines = o.contours
             r.drawSlopes = false
         }
-        val ok = runCatching {
+        fun parse() = runCatching {
             GLMapStyleParser { name -> resource(name) }.use { p ->
                 p.setOptions(styleOptions(o), true)
                 p.parseFromResources()?.use { st -> r.setStyle(st); true } ?: false
             }
         }.getOrDefault(false)
+        // свои правила скрытия подписей/метро; если стиль с ними не разобрался — без них (карта важнее)
+        patched = true
+        var ok = parse()
+        if (!ok) { patched = false; ok = parse() }
         // онлайн-карта (OSM, спутник, .ms) вместо векторной; первый слой — основа, остальные — поверх
         val want = o.online?.id
         if (want != base) {
@@ -140,9 +185,11 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         // рельеф мира на мелких масштабах (поверх, полупрозрачный) + слои .ms сверх первого
         runCatching {
             val over = ArrayList<GLMapTileSource>()
-            if (o.worldRelief && o.online == null) over += (relief ?: ReliefTileSource(ctx).also { relief = it })
             o.online?.let { src -> src.layers.drop(1).forEachIndexed { i, l -> over += MsTileSource(ctx, l, src.id + "_" + (i + 1), "") } }
-            r.setOverlays(over.toTypedArray())
+            extraOverlays = over
+            reliefWanted = o.online == null
+            reliefShown = null
+            reliefByZoom(zoom)
         }
         runCatching { mapView.setShowsFpsMeter(MapPrefs.bool(ctx, "dev_fps", false)) }
         if (ok) r.reloadTiles()
@@ -506,7 +553,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
 
     override fun setPlaces(items: List<OvPlace>, cluster: Boolean) {
         placeHits = items
-        val key = items.hashCode().toString() + cluster
+        val key = items.hashCode().toString() + labelsOn
         if (key == markerKey) return
         markerKey = key
         markers?.let { runCatching { r.remove(it); it.dispose() } }; markers = null
@@ -530,10 +577,11 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
                 override fun fillData(marker: Any, nativeMarker: Long) {
                     val p = marker as OvPlace
                     GLMapMarkerStyleCollection.setMarkerStyle(nativeMarker, index["${p.color}|${p.icon}"] ?: 0)
-                    if (p.name.isNotBlank()) GLMapMarkerStyleCollection.setMarkerText(nativeMarker, p.name, GLMapTextAlignment.Bottom, txtOffset, markerText)
+                    if (labelsOn && p.name.isNotBlank()) GLMapMarkerStyleCollection.setMarkerText(nativeMarker, p.name, GLMapTextAlignment.Bottom, txtOffset, markerText)
                 }
             })
-            markers = GLMapMarkerLayer(items.toTypedArray<Any>(), styles, if (cluster) (cb.width / density / 2.0) else 0.0, 40).also { r.add(it) }
+            // без группировки (владелец попросил): каждая метка на своём месте
+            markers = GLMapMarkerLayer(items.toTypedArray<Any>(), styles, 0.0, 40).also { r.add(it) }
         }
     }
     override fun setSimilar(hits: List<GeoHit>) {
@@ -547,7 +595,14 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         pRuler.put(fc(items.map { (p, t) -> feat(p.lat, p.lon, "\"t\":${q(t)}") }),
             "node{text:eval(tag('t'));text-color:#3E6FA8;font-size:12.5;font-weight:bold;font-stroke-width:3pt;font-stroke-color:#FFFFFF;text-priority:30;}")
     }
-    private fun labelsByZoom() {}
+    /** Подписи меток — только вблизи (масштаб ~500 м и крупнее), иначе на мелком масштабе они «живут своей жизнью». */
+    private var labelsOn = false
+    private fun labelsByZoom() {
+        val z = zoom
+        val want = z >= LABEL_ZOOM
+        if (want != labelsOn) { labelsOn = want; markerKey = ""; if (placeHits.isNotEmpty()) setPlaces(placeHits, false) }
+        reliefByZoom(z)
+    }
 
     // остановки маршрута — картинки (кружок с номером)
     private val stops = ArrayList<GLMapImage>()
@@ -614,9 +669,13 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val title = info?.title?.let { runCatching { it.string }.getOrNull() }
             val cat = info?.category?.let { c -> runCatching { c.localizedName(loc)?.use { it.string } }.getOrNull() }
             runCatching { info?.close() }
-            val name = runCatching { o.localizedName(loc)?.use { it.string } }.getOrNull()?.takeIf { it.isNotBlank() } ?: props["name"] ?: title
+            // своё имя объекта; «заголовок» GLMap у безымянных — это адрес/город (так лавочка называлась «Киев»), его берём только для дорог
+            val own = runCatching { o.localizedName(loc)?.use { it.string } }.getOrNull()?.takeIf { it.isNotBlank() } ?: props["name"]
+            val name = own ?: title?.takeIf { props["highway"] != null }
+            props["name"]?.let { props["name_tag"] = it }   // исходный тег name (по-украински) — для «всей улицы» и поиска
             name?.let { props["name"] = it }
-            val kind = cat ?: MapNames.omt(props["class"], props["subclass"])
+            if (key != null && v != null) { props["osm_key"] = key; props["osm_value"] = v }
+            val kind = (if (key != null && v != null && key != "building") MapNames.label(key, v) else null) ?: cat ?: MapNames.omt(props["class"], props["subclass"])
             val g = runCatching { MapGeoPoint(o.point()) }.getOrNull()
             val path = props["highway"] in PATHS
             if (o.lineCount > 0 && !path && props["highway"] != null) return@use FeatureHit(MapTarget(name ?: "Улица без названия", Streets.kind(props["highway"]), lat, lon,
@@ -657,12 +716,15 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val path = st.highway in PATHS
             val nm = st.name ?: if (path) "Тропа без названия" else "Улица без названия"
             return FeatureHit(MapTarget(nm, if (path) "Тропа · ${Streets.kind(st.highway).lowercase()}" else Streets.kind(st.highway), lat, lon,
-                props = st.tags + ("kind" to if (path) "route" else "street")), st.lines.ifEmpty { null })
+                props = st.tags + ("kind" to if (path) "route" else "street") + (st.tags["name"]?.let { mapOf("name_tag" to it) } ?: emptyMap())), st.lines.ifEmpty { null })
         }
         return null
     }
 
     companion object {
+        const val LABEL_ZOOM = 14.0
+        const val RELIEF_FADE = 7.5
+        const val RELIEF_OFF = 9.0
         val PRIMARY = listOf("amenity", "shop", "tourism", "leisure", "historic", "office", "craft", "healthcare", "emergency", "natural", "railway",
             "public_transport", "aeroway", "aerialway", "man_made", "barrier", "sport", "highway", "place", "waterway", "landuse", "building")
         val TAGS = PRIMARY + listOf("name", "name:ru", "name:uk", "name:en", "opening_hours", "phone", "contact:phone", "website", "contact:website", "email",

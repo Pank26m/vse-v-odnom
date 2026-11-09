@@ -48,6 +48,35 @@ object MapStyle {
         "hike" to Group("Пешие маршруты (туристические тропы)", "trekking", 0xFFD9534F.toInt(), "HideHiking"),
         "bike" to Group("Веломаршруты", "bike", 0xFF2E7D32.toInt(), "HideBike"),
     )
+    /** Подписи и метро: наши опции «скрыть» (правило в hide_user.mapcss поверх стандартного стиля). */
+    val LABEL_GROUPS = linkedMapOf(
+        "l_districts" to Group("Названия районов и микрорайонов", "map", 0xFF8D6E63.toInt(), "HideDistricts"),
+        "l_streets" to Group("Названия улиц и дорог", "road", 0xFF78909C.toInt(), "HideStreets"),
+        "l_water" to Group("Названия рек, озёр, морей", "droplet", 0xFF42A5F5.toInt(), "HideWaterNames"),
+        "l_countries" to Group("Названия стран и областей", "world", 0xFF5C6BC0.toInt(), "HideCountries"),
+        "metro" to Group("Метро: линии, станции, входы", "train", 0xFFE53935.toInt(), "HideMetro"),
+    )
+    /** Правила скрытия: применяются последними и перекрывают стандартный стиль. */
+    const val HIDE_CSS = """
+@if HideDistricts
+node, area { [place=suburb], [place=quarter], [place=neighbourhood], [place=city_block], [place=locality], [place=borough] { text: none; } }
+@endif
+@if HideStreets
+line { [highway] { text: none; } }
+area { [highway=pedestrian], [highway=footway], [place=square] { text: none; } }
+@endif
+@if HideWaterNames
+node, area { [natural=water], [water], [waterway], [place=sea], [place=ocean], [place=bay], [natural=bay], [natural=strait] { text: none; } }
+line { [waterway] { text: none; } }
+@endif
+@if HideCountries
+node, area { [place=country], [place=state], [place=region], [place=province] { text: none; } }
+@endif
+@if HideMetro
+node, area { [station=subway], [railway=subway_entrance] { icon-image: none; text: none; } }
+line { [railway=subway] { width: none; dashes-width: none; } }
+@endif
+"""
     /** По умолчанию маршруты из OSM скрыты (владельцу почти всегда не нужны). */
     val DEFAULT_HIDDEN = setOf("hike", "bike")
 
@@ -55,15 +84,22 @@ object MapStyle {
     fun setHidden(ctx: Context, h: Set<String>) = ctx.getSharedPreferences("map", Context.MODE_PRIVATE).edit().putStringSet("gl_hidden", h).apply()
 
     /**
-     * Сервисные значки GLMap → наши (тёмная иконка Tabler с белой обводкой, без кружка — как было в прежней карте).
-     * Ключ — имя картинки в стиле GLMap.
+     * Сервисные значки GLMap → наши (серая иконка с белой обводкой, без кружка — как было в прежней карте).
+     * Ключ — имя картинки в стиле GLMap; значение — иконка Tabler или своя «c:…» из [CUSTOM_ICONS].
      */
     val SERVICE_SVG = mapOf(
-        "poi_bench.svg" to "chair-director", "poi_WC.svg" to "toilet-paper", "poi_drinking_water.svg" to "droplet", "poi_fountain.svg" to "fountain",
+        "poi_bench.svg" to "c:bench", "poi_WC.svg" to "toilet-paper", "poi_drinking_water.svg" to "droplet", "poi_fountain.svg" to "fountain",
         "poi_info.svg" to "info-circle", "poi_info_board.svg" to "info-circle", "poi_info_map.svg" to "info-circle", "poi_guidepost.svg" to "sign-right",
         "poi_picnic_table.svg" to "grill", "poi_BBQ.svg" to "grill", "poi_firepit.svg" to "flame", "poi_shelter.svg" to "umbrella",
-        "poi_gate.svg" to "door", "poi_lift_gate.svg" to "barrier-block", "poi_barrier.svg" to "barrier-block", "poi_barrier_entrance.svg" to "door",
-        "poi_barrier_toll_booth.svg" to "cash", "poi_playground.svg" to "mood-kid", "poi_bike_parking.svg" to "bike",
+        "poi_gate.svg" to "c:gate", "poi_lift_gate.svg" to "barrier-block", "poi_barrier.svg" to "barrier-block", "poi_barrier_entrance.svg" to "c:gate",
+        "poi_barrier_toll_booth.svg" to "cash", "poi_playground.svg" to "c:swing", "poi_bike_parking.svg" to "bike",
+    )
+
+    /** Свои значки в стиле Tabler (24×24, линии): лавочка, детская площадка (качели), калитка. */
+    val CUSTOM_ICONS = mapOf(
+        "c:bench" to listOf("M4 6h16", "M4 9.5h16", "M3 13h18", "M6 6v12", "M18 6v12", "M6 13l-1.5 5", "M18 13l1.5 5"),
+        "c:swing" to listOf("M3 20l4 -16h10l4 16", "M10 4v9", "M14 4v9", "M8.5 13h7"),
+        "c:gate" to listOf("M4 4v16", "M20 4v16", "M7 8h10", "M7 16h10", "M7 7v10", "M12 7v10", "M17 7v10", "M7 16l10 -8"),
     )
 
     fun opts(ctx: Context): Opts {

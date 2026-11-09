@@ -73,10 +73,6 @@ internal fun CollectionsScreen(
 
     val title = cur?.let { byId[it]?.name } ?: "Коллекции"
     FullScreen(title, onDismiss = { if (selected.isNotEmpty()) selected = emptySet() else if (cur != null) cur = byId[cur]?.parentId else onDismiss() }, actions = {
-        var cluster by remember { mutableStateOf(MapPrefs.bool(ctx, "cluster_places", false)) }
-        IconButton({ cluster = !cluster; MapPrefs.setBool(ctx, "cluster_places", cluster); MapUi.clusterTick++
-            Toast.makeText(ctx, if (cluster) "Метки рядом группируются в кружок с числом" else "Группировка меток выключена", Toast.LENGTH_SHORT).show() }) {
-            Icon(Icons.Rounded.Workspaces, "Группировать метки", tint = if (cluster) Pal.SkyInk else Pal.Muted) }
         var byDate by remember { mutableStateOf(MapPrefs.bool(ctx, "coll_by_date", false)) }
         IconButton({ byDate = !byDate; MapPrefs.setBool(ctx, "coll_by_date", byDate) }) {
             Icon(if (byDate) Icons.Rounded.Schedule else Icons.Rounded.SortByAlpha, if (byDate) "Сначала новые" else "По алфавиту", tint = Pal.Muted) }
