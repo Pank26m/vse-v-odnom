@@ -10,4 +10,10 @@
     <exclude domain="file" path="map/" />
     <exclude domain="file" path="gcache/" />
     <exclude domain="external" path="maps/" />
+    <!-- GLMap: кэш тайлов и рельефа, онлайн-карты, рельеф мира, мир -->
+    <exclude domain="file" path="tileCache.db" />
+    <exclude domain="file" path="elevationCache.db" />
+    <exclude domain="file" path="world.vm" />
+    <exclude domain="file" path="raster/" />
+    <exclude domain="file" path="relief/" />
 </full-backup-content>

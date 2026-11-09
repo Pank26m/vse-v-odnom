@@ -4,8 +4,6 @@ import android.content.Context
 import android.util.Xml
 import org.json.JSONArray
 import org.json.JSONObject
-import org.maplibre.android.offline.OfflineManager
-import org.maplibre.android.storage.FileSource
 import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.io.InputStream
@@ -13,7 +11,7 @@ import java.io.InputStream
 /**
  * Онлайн-карты (растровые тайлы): встроенные + свои из файлов .ms (формат Guru Maps / Galileo:
  * `<customMapSource><name/><minZoom/><maxZoom/><url/><serverParts/></customMapSource>`, слои — `<layers>`).
- * Тайлы попадают в кэш MapLibre на телефоне и лежат там, пока его не очистить в «Кэше карт».
+ * Рисует их GLMap поверх (вместо) векторной карты, тайлы кэшируются на телефоне (Настройки → Кэш карт).
  */
 object OnlineMaps {
     data class Layer(val tiles: List<String>, val minZoom: Int = 0, val maxZoom: Int = 19, val tileSize: Int = 256, val tms: Boolean = false)
@@ -89,19 +87,20 @@ object OnlineMaps {
         return Source("ms_" + System.currentTimeMillis(), name.ifBlank { fileName.substringBeforeLast('.') }, layers, name)
     }
 
-    // ---------- кэш ----------
-    fun cacheFile(ctx: Context) = File(FileSource.getResourcesCachePath(ctx), "mbgl-offline.db")
-    fun cacheBytes(ctx: Context) = cacheFile(ctx).length()
-    /** Предел кэша в байтах; 0 — без предела (MapLibre по умолчанию держит 50 МБ). */
-    fun cacheLimit(ctx: Context) = prefs(ctx).getLong("cache_limit", 2L shl 30)
-    fun applyCacheLimit(ctx: Context, bytes: Long = cacheLimit(ctx)) {
-        prefs(ctx).edit().putLong("cache_limit", bytes).apply()
-        runCatching { OfflineManager.getInstance(ctx).setMaximumAmbientCacheSize(if (bytes <= 0) Long.MAX_VALUE / 4 else bytes, null) }
+    /** Адрес тайла: {z} {x} {y} {quadkey}, у TMS — перевёрнутый y; сервер выбирается по x+y. */
+    fun url(l: Layer, z: Int, x: Int, y: Int): String {
+        val t = l.tiles[Math.floorMod(x + y, l.tiles.size)]
+        val yy = if (l.tms) (1 shl z) - 1 - y else y
+        return t.replace("{z}", z.toString()).replace("{x}", x.toString()).replace("{y}", yy.toString()).replace("{quadkey}", quad(x, y, z))
     }
-    fun clearCache(ctx: Context, done: () -> Unit) = runCatching {
-        OfflineManager.getInstance(ctx).clearAmbientCache(object : OfflineManager.FileSourceCallback {
-            override fun onSuccess() = done()
-            override fun onError(message: String) = done()
-        })
+    private fun quad(x: Int, y: Int, z: Int): String {
+        val sb = StringBuilder()
+        for (i in z downTo 1) { val m = 1 shl (i - 1); sb.append(((if (x and m != 0) 1 else 0) + (if (y and m != 0) 2 else 0)).toString()) }
+        return sb.toString()
     }
+
+    // ---------- кэш (тайлы онлайн-карт хранит GLMap, по файлу на карту) ----------
+    fun cacheDir(ctx: Context) = File(ctx.filesDir, "raster").apply { mkdirs() }
+    fun cacheBytes(ctx: Context) = cacheDir(ctx).walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    fun clearCache(ctx: Context) { cacheDir(ctx).listFiles()?.forEach { runCatching { it.deleteRecursively() } } }
 }

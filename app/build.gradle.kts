@@ -5,8 +5,6 @@ plugins {
 }
 
 android {
-    // движок маршрутов BRouter (MIT, исходники в app/src/brouter — см. BROUTER_LICENSE)
-    sourceSets["main"].java.srcDir("src/brouter/java")
     namespace = "com.pank.vsevodnom"
     compileSdk = 37
 
@@ -76,7 +74,6 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
     // карты: MapLibre (векторные тайлы, офлайн-области). 12.3.1 — последняя, что собирается с AGP 8.7 / compileSdk 35
-    implementation("org.maplibre.gl:android-sdk:12.3.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")   // та же, что у MapLibre: свой User-Agent для онлайн-слоёв
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
@@ -85,6 +82,7 @@ dependencies {
     // GLMap (движок Guru Maps): карта с 3D-рельефом, офлайн-данные, поиск объекта под пальцем. Ключ — в «Ключах и сервисах».
     implementation("globus:glmap:2.3.0")
     implementation("globus:glsearch:2.3.0")
+    implementation("globus:glroute:2.3.0")
     // RAR5 (и RAR4, 7z): libarchive 3.7.4. Версия 1.1.0 — новее требуют compileSdk 37
     implementation("me.zhanghai.android.libarchive:library:1.1.0")
     implementation("org.apache.commons:commons-compress:1.21")

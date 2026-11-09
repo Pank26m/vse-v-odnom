@@ -73,6 +73,13 @@ internal fun CollectionsScreen(
 
     val title = cur?.let { byId[it]?.name } ?: "Коллекции"
     FullScreen(title, onDismiss = { if (selected.isNotEmpty()) selected = emptySet() else if (cur != null) cur = byId[cur]?.parentId else onDismiss() }, actions = {
+        var cluster by remember { mutableStateOf(MapPrefs.bool(ctx, "cluster_places", false)) }
+        IconButton({ cluster = !cluster; MapPrefs.setBool(ctx, "cluster_places", cluster); MapUi.clusterTick++
+            Toast.makeText(ctx, if (cluster) "Метки рядом группируются в кружок с числом" else "Группировка меток выключена", Toast.LENGTH_SHORT).show() }) {
+            Icon(Icons.Rounded.Workspaces, "Группировать метки", tint = if (cluster) Pal.SkyInk else Pal.Muted) }
+        var byDate by remember { mutableStateOf(MapPrefs.bool(ctx, "coll_by_date", false)) }
+        IconButton({ byDate = !byDate; MapPrefs.setBool(ctx, "coll_by_date", byDate) }) {
+            Icon(if (byDate) Icons.Rounded.Schedule else Icons.Rounded.SortByAlpha, if (byDate) "Сначала новые" else "По алфавиту", tint = Pal.Muted) }
         IconButton({ onShowAll(!showAll) }) { Icon(if (showAll) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, if (showAll) "Скрыть всё на карте" else "Показать всё на карте", tint = if (showAll) Pal.SkyInk else Pal.Muted) }
         IconButton({ newFolder = true }) { Icon(Icons.Rounded.CreateNewFolder, "Новая папка") }
         IconButton({ import.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.FileOpen, "Импорт GPX/KML") }
@@ -99,7 +106,8 @@ internal fun CollectionsScreen(
         if (cur == null) AppTextField(query, { query = it }, "Найти в коллекциях", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         val q = query.trim().lowercase()
         val subFolders = if (q.isNotEmpty()) folders.filter { it.name.lowercase().contains(q) } else folders.filter { it.parentId == cur }.sortedWith(compareBy({ it.sort }, { it.name.lowercase() }))
-        val ps = if (q.isNotEmpty()) places.filter { it.name.lowercase().contains(q) } else places.filter { it.folderId == cur }.sortedBy { it.name.lowercase() }
+        val byDate = MapPrefs.bool(ctx, "coll_by_date", false)
+        val ps = if (q.isNotEmpty()) places.filter { it.name.lowercase().contains(q) } else places.filter { it.folderId == cur }.let { l -> if (byDate) l.sortedByDescending { it.createdAt } else l.sortedBy { it.name.lowercase() } }
         val ts = if (q.isNotEmpty()) tracks.filter { it.name.lowercase().contains(q) } else tracks.filter { it.folderId == cur }
         LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (subFolders.isEmpty() && ps.isEmpty() && ts.isEmpty()) item {

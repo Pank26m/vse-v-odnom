@@ -33,11 +33,16 @@ object Backup {
                 fun add(f: File, name: String) { z.putNextEntry(ZipEntry(name)); f.inputStream().use { it.copyTo(z) }; z.closeEntry(); n++ }
                 File(data, "databases").listFiles()?.filter { it.name.startsWith("app.db") }?.forEach { add(it, "databases/${it.name}") }
                 File(data, "shared_prefs").listFiles()?.filter { it.name !in SKIP_PREFS }?.forEach { add(it, "shared_prefs/${it.name}") }
-                ctx.filesDir.walkTopDown().filter { it.isFile && it.name !in SKIP_FILES && !it.name.startsWith("mbgl") && !it.path.contains("/.mbgl") && !it.path.contains("/files/map/") && !it.path.contains("/files/gcache/") }.forEach { add(it, "files/" + it.relativeTo(ctx.filesDir).path) }
+                ctx.filesDir.walkTopDown().filter { it.isFile && it.name !in SKIP_FILES && !it.name.startsWith("mbgl") && !it.path.contains("/.mbgl") && !it.path.contains("/files/map/") && !it.path.contains("/files/gcache/") && !isMapData(it) }.forEach { add(it, "files/" + it.relativeTo(ctx.filesDir).path) }
             }
         }
         "Сохранено файлов: $n"
     }
+
+    /** Карты и кэши GLMap (скачиваются заново, сотни мегабайт) — в копию не кладём. */
+    private val MAP_EXT = setOf("vm", "vmtar", "navtar", "eletar", "ele", "nav", "mbtiles", "rd5")
+    private fun isMapData(f: File): Boolean = f.extension.lowercase() in MAP_EXT || f.name in setOf("tileCache.db", "elevationCache.db", "borders.cache") ||
+        f.path.contains("/files/raster/") || f.path.contains("/files/relief/") || f.path.contains("/files/brouter/") || f.name.startsWith(".glmap-")
 
     /** Восстановление: заменяет текущие данные и перезапускает приложение. */
     suspend fun restore(ctx: Context, src: Uri) = withContext(Dispatchers.IO) {

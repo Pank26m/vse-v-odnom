@@ -37,12 +37,12 @@ import kotlinx.coroutines.launch
  * плюс свои метки и треки и координаты «50.45, 30.52». Google-поиск — второй этап (нужен ключ).
  */
 @Composable
-internal fun SearchScreen(center: com.pank.vsevodnom.data.GeoPt?, places: List<Place>, tracks: List<Track>, onDismiss: () -> Unit, onPick: (GeoHit) -> Unit) {
+internal fun SearchScreen(center: com.pank.vsevodnom.data.GeoPt?, places: List<Place>, tracks: List<Track>, onDismiss: () -> Unit, myLoc: GeoPt? = null, forRoute: Boolean = false, onPick: (GeoHit) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var q by remember { mutableStateOf("") }
     val canOnline = Net.online && !MapPrefs.offlineOnly(ctx)
-    val hasOffline = remember { OfflineSearch.available(ctx).isNotEmpty() }
+    val hasOffline = remember { GlFind.offlineAvailable() }
     var offline by remember { mutableStateOf(!canOnline) }
     val hasGoogle = remember { ApiKeys.google(ctx).isNotBlank() }
     var google by remember { mutableStateOf(hasGoogle && canOnline && MapPrefs.bool(ctx, "google_default", true)) }
@@ -65,10 +65,10 @@ internal fun SearchScreen(center: com.pank.vsevodnom.data.GeoPt?, places: List<P
         busy = true; error = null
         val mine = own(query)
         val found = if (!offline && google && final) runCatching { GooglePlaces.search(ctx, query, lat, lon) }.onFailure { error = it.message }.getOrElse { emptyList() }
-        else if (offline) runCatching { OfflineSearch.search(ctx, query, lat, lon) }.getOrElse { emptyList() }
+        else if (offline) runCatching { GlFind.search(ctx, query, lat, lon, offline = true) }.getOrElse { emptyList() }
         else if (final) runCatching { Osm.search(query, lat, lon) }.onFailure { error = "Онлайн-поиск не ответил" }.getOrElse { emptyList() } else emptyList()
         results = mine + found
-        if (offline && !hasOffline) error = "Для офлайн-поиска скачай страну с частью «Поиск» (Настройки → Загрузка карт)"
+        if (offline && !hasOffline) error = "Для поиска без сети скачай карту страны или области (Настройки → Загрузка карт)"
         else if (final && results.isEmpty()) error = "Ничего не нашлось"
         busy = false
         if (final) { MapPrefs.addHistory(ctx, query); history = MapPrefs.history(ctx) }
@@ -110,6 +110,15 @@ internal fun SearchScreen(center: com.pank.vsevodnom.data.GeoPt?, places: List<P
             error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk, modifier = Modifier.padding(16.dp, 6.dp)) }
             LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (q.isBlank()) {
+                    // для точки маршрута — сперва «Моё местоположение»
+                    if (forRoute) item {
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pal.Sky).clickable {
+                            onPick(GeoHit("Моё местоположение", "по геолокации", myLoc?.lat ?: Double.NaN, myLoc?.lon ?: Double.NaN, "me"))
+                        }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.MyLocation, null, tint = Pal.SkyInk); Spacer(Modifier.width(12.dp))
+                            Column { Text("Моё местоположение", style = MaterialTheme.typography.titleSmall, color = Pal.SkyInk); Text(if (myLoc != null) "сейчас здесь" else "жду геолокацию", style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
+                        }
+                    }
                     // избранное плитками, как в маршруте: дом, работа и все свои
                     val favTiles = listOfNotNull(MapPrefs.home(ctx)?.let { Triple(Icons.Rounded.Home, "Дом", it) }, MapPrefs.work(ctx)?.let { Triple(Icons.Rounded.Work, "Работа", it) }) +
                         MapPrefs.favs(ctx).map { Triple(Icons.Rounded.Star, it.name, it) }

@@ -64,25 +64,31 @@ object PlaceInfo {
     }
 
     /**
-     * Статья Википедии для тропы/маршрута: по тегу wikipedia («uk:Название») или поиском по названию (в заголовке
-     * должно быть главное слово названия — чтобы не подсунуть случайную статью).
+     * Статья Википедии для тропы/маршрута/улицы: по тегу wikipedia («uk:Название») или поиском статей РЯДОМ с местом
+     * (геопоиск Википедии, 15 км) — в заголовке должны быть все значимые слова названия. Раньше искалось по всему миру
+     * по одному слову, и треку «Be more human» досталась статья об игре «Detroit: Become Human».
      */
-    suspend fun wikiFor(name: String, tag: String?): Wiki? = withContext(Dispatchers.IO) {
+    suspend fun wikiFor(name: String, tag: String?, lat: Double = Double.NaN, lon: Double = Double.NaN): Wiki? = withContext(Dispatchers.IO) {
         tag?.takeIf { it.isNotBlank() }?.let { w ->
             val lang = w.substringBefore(':', "uk").ifBlank { "uk" }; val title = w.substringAfter(':')
             return@withContext summary(lang, title)?.let { s -> if (lang != "ru") ruTitle(lang, title)?.let { summary("ru", it) } ?: s else s }
         }
-        val key = name.lowercase().split(Regex("[^a-zа-яёіїєґ0-9]+")).filter { it.length >= 4 }.maxByOrNull { it.length } ?: return@withContext null
-        for (lang in listOf("ru", "uk")) {
+        if (lat.isNaN() || lon.isNaN()) return@withContext null
+        val words = name.lowercase().split(Regex("[^a-zа-яёіїєґ0-9]+")).filter { it.length >= 3 && it !in STOP_WORDS }
+        if (words.isEmpty()) return@withContext null
+        for (lang in listOf("uk", "ru")) {
             val t = runCatching {
-                val o = JSONObject(get("https://$lang.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=3&srsearch=" + URLEncoder.encode(name, "UTF-8")))
-                val a = o.getJSONObject("query").getJSONArray("search")
-                (0 until a.length()).map { a.getJSONObject(it).getString("title") }.firstOrNull { it.lowercase().contains(key.take(key.length - 1)) }
+                val o = JSONObject(get("https://$lang.wikipedia.org/w/api.php?action=query&list=geosearch&format=json&gsradius=10000&gslimit=100&gscoord=$lat%7C$lon"))
+                val a = o.getJSONObject("query").getJSONArray("geosearch")
+                (0 until a.length()).map { a.getJSONObject(it).getString("title") }
+                    .firstOrNull { t -> val tl = t.lowercase(); words.all { w -> tl.contains(w.take(maxOf(3, w.length - 2))) } }
             }.getOrNull() ?: continue
-            summary(lang, t)?.let { return@withContext it }
+            summary(lang, t)?.let { s -> return@withContext if (lang != "ru") ruTitle(lang, t)?.let { summary("ru", it) } ?: s else s }
         }
         null
     }
+    private val STOP_WORDS = setOf("вулиця", "улица", "вул", "ул", "проспект", "просп", "провулок", "переулок", "пров", "бульвар", "площа", "площадь",
+        "street", "the", "trail", "тропа", "стежка", "маршрут", "route", "шлях", "дорога", "узвіз", "спуск", "набережна", "набережная")
 
     private fun summary(lang: String, title: String): Wiki? = runCatching {
         val o = JSONObject(get("https://$lang.wikipedia.org/api/rest_v1/page/summary/" + URLEncoder.encode(title.replace(' ', '_'), "UTF-8").replace("+", "%20")))

@@ -12,7 +12,7 @@ import com.pank.vsevodnom.data.GeoPt
 
 /**
  * Движок, который рисует карту. Экран карты (кнопки, карточки, маршрут, навигация) общий, а рисование — через этот
- * интерфейс: GLMap (основной, 3D-рельеф всегда) или MapLibre (запасной, переключатель в настройках карты).
+ * интерфейс (сейчас одна реализация — GLMap, 3D-рельеф всегда; MapLibre вырезан в 0.28).
  */
 internal interface MapEngine {
     val view: android.view.View
@@ -49,7 +49,7 @@ internal interface MapEngine {
     fun endNav()
 
     // ---- свои слои ----
-    fun setPlaces(items: List<OvPlace>)
+    fun setPlaces(items: List<OvPlace>, cluster: Boolean = false)
     fun setTracks(items: List<OvLine>)
     fun setSelected(items: List<OvLine>)
     fun setRec(pts: List<GeoPt>)
@@ -83,12 +83,14 @@ internal interface MapEngine {
     }
 }
 
-internal data class OvPlace(val id: Long, val lat: Double, val lon: Double, val name: String, val color: Int)
+internal data class OvPlace(val id: Long, val lat: Double, val lon: Double, val name: String, val color: Int, val icon: String = "")
 internal data class OvLine(val id: Long, val pts: List<GeoPt>, val color: Int)
 internal data class OvStop(val lat: Double, val lon: Double, val text: String, val color: Int)
 
 internal sealed class UserHit {
     data class PlaceHit(val id: Long) : UserHit()
+    /** Кружок с числом (сгруппированные метки) — приблизить. */
+    data class ClusterHit(val lat: Double, val lon: Double) : UserHit()
     data class TrackHit(val id: Long) : UserHit()
     data class SimHit(val lat: Double, val lon: Double, val name: String, val kind: String) : UserHit()
 }
@@ -99,27 +101,23 @@ internal fun hex(c: Int) = String.format("#%06X", c and 0xFFFFFF)
 internal fun argb(hex: String): Int = android.graphics.Color.parseColor(hex)
 internal fun colorOr(c: Int, def: String) = if (c == 0) argb(def) else (c or 0xFF000000.toInt())
 
-/** Движок по настройке: GLMap, если есть ключ и он запустился, иначе MapLibre. С жизненным циклом экрана. */
+/** Движок карты — GLMap (нужен ключ). Без ключа или если GLMap не запустился — null (экран карты попросит ключ). С жизненным циклом экрана. */
 @Composable
-internal fun rememberEngine(): MapEngine {
+internal fun rememberEngine(): MapEngine? {
     val ctx = LocalContext.current
     val density = ctx.resources.displayMetrics.density
-    val eng = remember {
-        if (com.pank.vsevodnom.data.GlMap.use(ctx)) GlEngine(ctx, density) else LibreEngine(ctx, density)
-    }
+    val eng = remember { if (com.pank.vsevodnom.data.GlMap.use(ctx)) GlEngine(ctx, density) else null } ?: return null
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
         val obs = LifecycleEventObserver { _, e ->
             when (e) {
                 Lifecycle.Event.ON_START -> eng.onStart(); Lifecycle.Event.ON_STOP -> eng.onStop()
-                Lifecycle.Event.ON_RESUME -> (eng as? LibreEngine)?.mv?.onResume(); Lifecycle.Event.ON_PAUSE -> (eng as? LibreEngine)?.mv?.onPause()
                 else -> {}
             }
         }
         owner.lifecycle.addObserver(obs)
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) eng.onStart()
-        if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) (eng as? LibreEngine)?.mv?.onResume()
-        onDispose { owner.lifecycle.removeObserver(obs); (eng as? LibreEngine)?.mv?.onPause(); eng.onStop(); eng.dispose() }
+        onDispose { owner.lifecycle.removeObserver(obs); eng.onStop(); eng.dispose() }
     }
     return eng
 }

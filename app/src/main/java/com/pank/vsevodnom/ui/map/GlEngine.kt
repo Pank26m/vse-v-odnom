@@ -8,7 +8,6 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
-import android.view.GestureDetector
 import android.view.MotionEvent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -75,10 +74,42 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             MapStyle.Variant.FOOT -> { m["Style"] = "Outdoor"; m["SubStyle"] = "Hike" }
             MapStyle.Variant.BIKE -> { m["Style"] = "Outdoor"; m["SubStyle"] = "Bike" }
         }
-        val shown = MapStyle.POI_GROUPS.keys - o.hiddenPoi
-        for ((opt, groups) in GL_GROUPS) if (groups.any { it in shown }) m[opt] = "1"
+        for ((k, g) in MapStyle.GROUPS) if (k !in o.hidden) m[g.option] = "1"
+        for ((k, g) in MapStyle.ROUTE_GROUPS) if (k in o.hidden) m[g.option] = "1"
         return m
     }
+
+    /** Ресурсы стиля: наши сервисные значки, свои опции в relations.mapcss, остальное — стандартный стиль GLMap. */
+    private fun resource(name: String): ByteArray? {
+        MapStyle.SERVICE_SVG[name]?.let { serviceSvg(it)?.let { svg -> return svg.toByteArray() } }
+        val raw = asset("DefaultStyle.bundle/$name") ?: asset(name) ?: return null
+        if (name == "relations.mapcss") return patchRelations(String(raw)).toByteArray()
+        return raw
+    }
+
+    /** Пешие и вело маршруты OSM — под своими опциями «скрыть» (HideHiking / HideBike). */
+    private fun patchRelations(src: String): String {
+        var s = src
+        for ((cond, opt) in listOf("@if SubStyle == Hike" to "HideHiking", "@if SubStyle == Bike" to "HideBike")) {
+            val i = s.indexOf(cond); if (i < 0) continue
+            val e = s.indexOf("@endif", i); if (e < 0) continue
+            s = s.substring(0, e) + "@endif\n" + s.substring(e)
+            s = s.substring(0, i + cond.length) + "\n@if !$opt" + s.substring(i + cond.length)
+        }
+        return s
+    }
+
+    /** Сервисный значок: тёмная иконка Tabler с белой обводкой. Чёрное и белое не меняются от подкраски (icon-tint) стиля. */
+    private fun serviceSvg(icon: String): String? {
+        val paths = com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: return null
+        val sb = StringBuilder("""<svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="-1 -1 26 26"><g fill="none" stroke-linecap="round" stroke-linejoin="round">""")
+        paths.forEach { d -> sb.append("""<path d="$d" stroke="#FFFFFF" stroke-width="5"/>""") }
+        paths.forEach { d -> sb.append("""<path d="$d" stroke="#000000" stroke-opacity="0.78" stroke-width="2.1"/>""") }
+        return sb.append("</g></svg>").toString()
+    }
+
+    private var relief: ReliefTileSource? = null
+    private var base: String? = null
 
     override fun reloadStyle() {
         val o = MapStyle.opts(ctx)
@@ -89,11 +120,31 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             r.drawSlopes = false
         }
         val ok = runCatching {
-            GLMapStyleParser { name -> asset("DefaultStyle.bundle/$name") ?: asset(name) }.use { p ->
+            GLMapStyleParser { name -> resource(name) }.use { p ->
                 p.setOptions(styleOptions(o), true)
                 p.parseFromResources()?.use { st -> r.setStyle(st); true } ?: false
             }
         }.getOrDefault(false)
+        // онлайн-карта (OSM, спутник, .ms) вместо векторной; первый слой — основа, остальные — поверх
+        val want = o.online?.id
+        if (want != base) {
+            base = want
+            runCatching {
+                val src = o.online
+                if (src == null) r.setBase(GLMapVectorTileSource())
+                else {
+                    r.setBase(MsTileSource(ctx, src.layers.first(), src.id, src.attribution))
+                }
+            }
+        }
+        // рельеф мира на мелких масштабах (поверх, полупрозрачный) + слои .ms сверх первого
+        runCatching {
+            val over = ArrayList<GLMapTileSource>()
+            if (o.worldRelief && o.online == null) over += (relief ?: ReliefTileSource(ctx).also { relief = it })
+            o.online?.let { src -> src.layers.drop(1).forEachIndexed { i, l -> over += MsTileSource(ctx, l, src.id + "_" + (i + 1), "") } }
+            r.setOverlays(over.toTypedArray())
+        }
+        runCatching { mapView.setShowsFpsMeter(MapPrefs.bool(ctx, "dev_fps", false)) }
         if (ok) r.reloadTiles()
         gen++
     }
@@ -105,6 +156,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     override fun dispose() {
         if (disposed) return
         disposed = true; scope.cancel(); stopLoc(); main.removeCallbacksAndMessages(null)
+        runCatching { relief?.closeDb() }
         runCatching { mapView.dispose() }
     }
 
@@ -173,32 +225,44 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     private var dragged = false
     private var downX = 0f; private var downY = 0f
     private val slop = 10 * density
-    private val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(e: MotionEvent) = true
-        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            val g = runCatching { MapGeoPoint(r.convertDisplayToInternal(e.x.toDouble(), e.y.toDouble())) }.getOrNull() ?: return false
-            l.onTap(e.x, e.y, g.lat, g.lon); return true
+    /**
+     * Жесты карты — детектор GLMap, но щипок вдвое быстрее (с вида на Украину до района — ~5 движений, как в прежней карте),
+     * зум одним пальцем (двойной тап и вести) — в 1,5 раза. Тап и долгое нажатие — наши.
+     */
+    private val gestures = object : GLMapGesturesDetector(r, main) {
+        override fun onZoom(scale: Float, x: Float, y: Float) {
+            val k = if (numberOfTouches <= 1) 1.5 else 2.0
+            super.onZoom(scale.toDouble().pow(k).toFloat(), x, y)
         }
-        override fun onLongPress(e: MotionEvent) {
-            if (dragged) return
-            val g = runCatching { MapGeoPoint(r.convertDisplayToInternal(e.x.toDouble(), e.y.toDouble())) }.getOrNull() ?: return
+        override fun onTap(fingers: Int, taps: Int, x: Float, y: Float) {
+            if (fingers == 1 && taps == 1) {
+                val g = runCatching { MapGeoPoint(r.convertDisplayToInternal(x.toDouble(), y.toDouble())) }.getOrNull() ?: return
+                l.onTap(x, y, g.lat, g.lon); return
+            }
+            l.onGesture()
+            super.onTap(fingers, taps, x, y)
+        }
+        override fun onLongPress(fingers: Int, x: Float, y: Float) {
+            if (fingers != 1 || dragged) return
+            val g = runCatching { MapGeoPoint(r.convertDisplayToInternal(x.toDouble(), y.toDouble())) }.getOrNull() ?: return
             l.onLongTap(g.lat, g.lon)
         }
-    })
+        override fun onPitch(angle: Float) { super.onPitch(angle); l.onGesture() }
+    }
     @SuppressLint("ClickableViewAccessibility")
-    private val touch = android.view.View.OnTouchListener { _, e ->
-        detector.onTouchEvent(e)
+    private val touch = android.view.View.OnTouchListener { v, e ->
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { down = true; dragged = false; downX = e.x; downY = e.y }
             MotionEvent.ACTION_POINTER_DOWN -> { dragged = true; l.onGesture() }
             MotionEvent.ACTION_MOVE -> if (!dragged && hypot(e.x - downX, e.y - downY) > slop) {
                 dragged = true; l.onGesture()
-                // сдвинули карту одним пальцем — ведение за мной снимается (как в MapLibre); щипок и поворот его не снимают
+                // сдвинули карту одним пальцем — ведение за мной снимается; щипок и поворот его не снимают
                 if (e.pointerCount == 1 && follow != 0) { follow = 0; compass.fine = false; l.onFollow(0) }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { down = false; scheduleIdle() }
         }
-        false     // жесты карты (сдвиг, щипок, поворот, наклон, зум одним пальцем) обрабатывает сам GLMap
+        gestures.onTouch(v, e)
+        true
     }
 
     private val idle = Runnable { onIdle() }
@@ -235,10 +299,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     private var navGps = false
     private var locAnim: GLMapAnimation? = null
     private val locListener = LocationListener { onLocation(it) }
-    private val compassListener = object : org.maplibre.android.location.CompassListener {
-        override fun onCompassChanged(userHeading: Float) { heading = userHeading; onHeading() }
-        override fun onCompassAccuracyChange(compassStatus: Int) {}
-    }
+    private val compassListener = SmoothCompass.Listener { heading = it; onHeading() }
 
     override fun enableLocation() { locOn = true; if (started) startLoc() }
 
@@ -251,13 +312,13 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         }
         runCatching { lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locListener, Looper.getMainLooper()) }
         runCatching { lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000L, 0f, locListener, Looper.getMainLooper()) }
-        runCatching { compass.addCompassListener(compassListener) }
+        runCatching { compass.add(compassListener) }
     }
     private fun stopLoc() {
         if (!locRunning) return
         locRunning = false
         runCatching { lm.removeUpdates(locListener) }
-        runCatching { compass.removeCompassListener(compassListener) }
+        runCatching { compass.remove(compassListener) }
     }
 
     private fun onLocation(loc: Location) {
@@ -428,27 +489,52 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         }
         fun hide(h: Boolean) { layer?.isHidden = h }
     }
-    private val pPlaces = Points(40)
     private val pSim = Points(41)
     private val pRuler = Points(42)
     private var placeHits: List<OvPlace> = emptyList()
     private var simHits: List<GeoHit> = emptyList()
-    private var placesHaveLabels = false
 
     private fun q(s: String) = org.json.JSONObject.quote(s)
     private fun fc(feats: List<String>) = """{"type":"FeatureCollection","features":[${feats.joinToString(",")}]}"""
     private fun feat(lat: Double, lon: Double, props: String) = """{"type":"Feature","geometry":{"type":"Point","coordinates":[$lon,$lat]},"properties":{$props}}"""
 
-    override fun setPlaces(items: List<OvPlace>) {
+    // свои метки — слой маркеров GLMap: значок (кружок цвета метки с иконкой Tabler), подпись, группировка соседних (как в Guru)
+    private var markers: GLMapMarkerLayer? = null
+    private var markerKey = ""
+    private val markerText by lazy { GLMapVectorStyle.createStyle("{text-color:#2B2A33;font-size:10.5;font-weight:semibold;font-stroke-width:2pt;font-stroke-color:#FFFFFFE6;}")!! }
+    private val clusterText by lazy { GLMapVectorStyle.createStyle("{text-color:#FFFFFF;font-size:12;font-weight:bold;}")!! }
+
+    override fun setPlaces(items: List<OvPlace>, cluster: Boolean) {
         placeHits = items
-        if (items.isEmpty()) { pPlaces.put(null, ""); return }
-        val colors = items.map { it.color and 0xFFFFFF }.distinct()
-        val css = buildString {
-            append("node{icon-image:\"u-dot.svg\";icon-scale:1;z-index:5;}")
-            append("node|z11-{text:eval(tag('name'));text-color:#2B2A33;font-size:11.5;font-weight:bold;font-stroke-width:3pt;font-stroke-color:#FFFFFFE6;text-priority:20;}")
-            colors.forEach { c -> append("node[c=c%06X]{icon-tint:#%06X;}".format(c, c)) }
+        val key = items.hashCode().toString() + cluster
+        if (key == markerKey) return
+        markerKey = key
+        markers?.let { runCatching { r.remove(it); it.dispose() } }; markers = null
+        if (items.isEmpty()) return
+        runCatching {
+            val styles = GLMapMarkerStyleCollection()
+            val index = HashMap<String, Int>()
+            items.map { it.color to it.icon }.distinct().forEach { (c, ic) ->
+                val b = placeBitmap(ctx, c, ic, density)
+                index["$c|$ic"] = styles.addStyle(GLMapMarkerImage("p$c$ic", b, android.graphics.Point(b.width / 2, b.height / 2)))
+            }
+            val cb = clusterBitmap(density)
+            val clusterStyle = styles.addStyle(GLMapMarkerImage("cluster", cb, android.graphics.Point(cb.width / 2, cb.height / 2)))
+            val txtOffset = android.graphics.Point(0, -(14 * density).toInt())
+            styles.setDataCallback(object : GLMapMarkerStyleCollectionDataCallback() {
+                override fun getLocation(marker: Any) = (marker as OvPlace).let { mp(it.lat, it.lon) }
+                override fun fillUnionData(markersCount: Int, nativeMarker: Long) {
+                    GLMapMarkerStyleCollection.setMarkerStyle(nativeMarker, clusterStyle)
+                    GLMapMarkerStyleCollection.setMarkerText(nativeMarker, markersCount.toString(), GLMapTextAlignment.Center, android.graphics.Point(0, 0), clusterText)
+                }
+                override fun fillData(marker: Any, nativeMarker: Long) {
+                    val p = marker as OvPlace
+                    GLMapMarkerStyleCollection.setMarkerStyle(nativeMarker, index["${p.color}|${p.icon}"] ?: 0)
+                    if (p.name.isNotBlank()) GLMapMarkerStyleCollection.setMarkerText(nativeMarker, p.name, GLMapTextAlignment.Bottom, txtOffset, markerText)
+                }
+            })
+            markers = GLMapMarkerLayer(items.toTypedArray<Any>(), styles, if (cluster) (cb.width / density / 2.0) else 0.0, 40).also { r.add(it) }
         }
-        pPlaces.put(fc(items.map { feat(it.lat, it.lon, "\"name\":${q(it.name)},\"c\":\"c%06X\"".format(it.color and 0xFFFFFF)) }), css)
     }
     override fun setSimilar(hits: List<GeoHit>) {
         simHits = hits
@@ -479,6 +565,11 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     override fun userObjectAt(x: Float, y: Float): UserHit? {
         val rad = 22 * density
         fun near(lat: Double, lon: Double): Float? = disp(mp(lat, lon))?.let { p -> hypot(p.x - x, p.y - y).takeIf { it < rad } ?: (if (abs(p.x - x) < rad * 2 && y - p.y in 0f..rad * 1.4f) rad else null) }
+        markers?.let { ml ->
+            val tp0 = runCatching { r.convertDisplayToInternal(x.toDouble(), y.toDouble()) }.getOrNull()
+            val near0 = tp0?.let { runCatching { ml.objectsNearPoint(r, it, (22 * density).toDouble()) }.getOrNull() }.orEmpty()
+            near0.firstOrNull { runCatching { ml.markerIsGrouped(it) }.getOrDefault(false) }?.let { o -> (o as? OvPlace)?.let { return UserHit.ClusterHit(it.lat, it.lon) } }
+        }
         placeHits.mapNotNull { pl -> near(pl.lat, pl.lon)?.let { it to pl } }.minByOrNull { it.first }?.let { return UserHit.PlaceHit(it.second.id) }
         val tp = runCatching { r.convertDisplayToInternal(x.toDouble(), y.toDouble()) }.getOrNull() ?: return null
         val tol = runCatching { r.convertDisplayDeltaToInternal((18 * density).toDouble(), 0.0).let { hypot(it.x, it.y) } }.getOrNull() ?: return null
@@ -528,7 +619,8 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val kind = cat ?: MapNames.omt(props["class"], props["subclass"])
             val g = runCatching { MapGeoPoint(o.point()) }.getOrNull()
             val path = props["highway"] in PATHS
-            if (o.lineCount > 0 && !path) return@use FeatureHit(MapTarget(name ?: kind.ifBlank { "Улица" }, kind, lat, lon, props = props))
+            if (o.lineCount > 0 && !path && props["highway"] != null) return@use FeatureHit(MapTarget(name ?: "Улица без названия", Streets.kind(props["highway"]), lat, lon,
+                props = props + ("kind" to "street")), o.lines().ifEmpty { null })
             if (path) {
                 val ln = o.lines()
                 val nm = name ?: "Тропа без названия"
@@ -537,12 +629,14 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             }
             FeatureHit(MapTarget(name ?: kind.ifBlank { "Объект на карте" }, kind, g?.lat ?: lat, g?.lon ?: lon, props = props))
         }
-        // пеший/вело маршрут (отношение OSM) рядом — показываем его целиком
-        runCatching {
+        // пеший/вело маршрут (отношение OSM) рядом — только если такие маршруты показаны на карте (иначе нажатие ловило автобусные линии)
+        val o = MapStyle.opts(ctx)
+        val routesShown = (o.variant == MapStyle.Variant.FOOT && "hike" !in o.hidden) || (o.variant == MapStyle.Variant.BIKE && "bike" !in o.hidden)
+        if (routesShown) runCatching {
             r.state?.use { s ->
                 val tp = r.convertDisplayToInternal(x.toDouble(), y.toDouble())
                 val rels = GLSearch.RelationsNearPoint(s, tp, (24 * density).toDouble(), emptyArray()).orEmpty()
-                val rel = rels.firstOrNull { it.tag("route") in setOf("hiking", "foot", "bicycle", "mtb", "nordic_walking") } ?: rels.firstOrNull()
+                val rel = rels.firstOrNull { it.tag("route") in setOf("hiking", "foot", "bicycle", "mtb", "nordic_walking") }
                 rel?.let { rr ->
                     val props = HashMap<String, String>()
                     for (k in TAGS + listOf("network", "ref", "distance", "from", "to", "operator", "osmc:symbol", "roundtrip")) rr.tag(k)?.let { props[k] = it }
@@ -555,19 +649,20 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
                     return FeatureHit(MapTarget(nm, listOfNotNull(if (props["route"] == "bicycle" || props["route"] == "mtb") "Веломаршрут" else "Пеший маршрут",
                         props["ref"]?.takeIf { it != nm }, net?.let { "$it маршрут" }).joinToString(" · "), lat, lon, props = props + ("kind" to "route")), ln.ifEmpty { null })
                 }
+                rels.forEach { runCatching { it.dispose() } }
             }
+        }
+        // улица / дорога / тропинка под пальцем
+        Streets.nearestOffline(lat, lon, (metersPerPixel() * 22 * density).coerceIn(8.0, 400.0))?.let { st ->
+            val path = st.highway in PATHS
+            val nm = st.name ?: if (path) "Тропа без названия" else "Улица без названия"
+            return FeatureHit(MapTarget(nm, if (path) "Тропа · ${Streets.kind(st.highway).lowercase()}" else Streets.kind(st.highway), lat, lon,
+                props = st.tags + ("kind" to if (path) "route" else "street")), st.lines.ifEmpty { null })
         }
         return null
     }
 
     companion object {
-        /** Группы значков GLMap ← наши группы из «Объектов на карте». */
-        val GL_GROUPS = mapOf(
-            "Food" to listOf("food"), "Bar" to listOf("bars"), "Shop" to listOf("mall"), "AllShops" to listOf("shop"), "Beauty" to listOf("beauty"),
-            "BuildingName" to listOf("housenumbers"), "CityService" to listOf("police", "office"), "Culture" to listOf("museum", "arts"),
-            "Education" to listOf("edu"), "Entertaiment" to listOf("arts", "park"), "Financial" to listOf("bank"), "Hotel" to listOf("hotel"),
-            "Medical" to listOf("health"), "Postal" to listOf("post"), "PublicTransport" to listOf("transit"), "Railway" to listOf("rail", "metro"),
-            "Sport" to listOf("sport"))
         val PRIMARY = listOf("amenity", "shop", "tourism", "leisure", "historic", "office", "craft", "healthcare", "emergency", "natural", "railway",
             "public_transport", "aeroway", "aerialway", "man_made", "barrier", "sport", "highway", "place", "waterway", "landuse", "building")
         val TAGS = PRIMARY + listOf("name", "name:ru", "name:uk", "name:en", "opening_hours", "phone", "contact:phone", "website", "contact:website", "email",
@@ -575,6 +670,39 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             "contact:instagram", "contact:facebook", "contact:telegram", "route", "surface", "sac_scale", "trail_visibility", "smoothness", "level", "station", "subway")
         val PATHS = setOf("footway", "path", "cycleway", "bridleway", "steps", "track", "pedestrian")
     }
+}
+
+/** Значок метки: кружок цвета метки с белой обводкой и белой иконкой Tabler (без иконки — просто точка). */
+internal fun placeBitmap(ctx: Context, color: Int, icon: String, d: Float): Bitmap {
+    val big = icon.isNotBlank()
+    val s = ((if (big) 26 else 17) * d).toInt()
+    val b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(b)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    p.color = 0x33000000; c.drawCircle(s / 2f, s / 2f + 0.8f * d, s / 2f - 0.8f * d, p)
+    p.color = 0xFFFFFFFF.toInt(); c.drawCircle(s / 2f, s / 2f, s / 2f - 1f * d, p)
+    p.color = color or 0xFF000000.toInt(); c.drawCircle(s / 2f, s / 2f, s / 2f - 3f * d, p)
+    if (big) com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon]?.let { paths ->
+        val k = s * 0.56f / 24f
+        c.save(); c.translate(s * 0.22f, s * 0.22f); c.scale(k, k)
+        p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 2.2f; p.strokeCap = android.graphics.Paint.Cap.ROUND; p.strokeJoin = android.graphics.Paint.Join.ROUND
+        p.color = 0xFFFFFFFF.toInt()
+        paths.forEach { dd -> runCatching { c.drawPath(androidx.core.graphics.PathParser.createPathFromPathData(dd), p) } }
+        c.restore()
+    }
+    return b
+}
+
+/** Кружок группы меток (число рисует GLMap поверх). */
+internal fun clusterBitmap(d: Float): Bitmap {
+    val s = (32 * d).toInt()
+    val b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(b)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    p.color = 0x55E0607E; c.drawCircle(s / 2f, s / 2f, s / 2f, p)
+    p.color = 0xFFFFFFFF.toInt(); c.drawCircle(s / 2f, s / 2f, s / 2f - 4 * d, p)
+    p.color = 0xFFE0607E.toInt(); c.drawCircle(s / 2f, s / 2f, s / 2f - 6 * d, p)
+    return b
 }
 
 /** «Я»: синяя точка в белом кольце с лёгкой тенью. */

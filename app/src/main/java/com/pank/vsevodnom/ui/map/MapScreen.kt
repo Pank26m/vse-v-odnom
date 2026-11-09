@@ -73,6 +73,8 @@ object MapUi {
     var request by mutableStateOf<MapRequest?>(null)
     /** Открыть задачу ToDo («task:ID») — например, по надписи «Запланировано…». */
     var openTodo by mutableStateOf<String?>(null)
+    /** Включили/выключили группировку меток. */
+    var clusterTick by mutableIntStateOf(0)
     /** Сменили движок карты или ключ — экран карты пересоздаётся. */
     var engineTick by mutableIntStateOf(0)
 }
@@ -108,7 +110,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     val lastSaved by TrackService.lastSaved.collectAsState()
 
     // движок карты: GLMap (3D-рельеф) или запасной MapLibre — по настройке
-    val eng = rememberEngine()
+    val eng = rememberEngine() ?: run { MapKeyNeeded(); return }
     val gen = eng.gen
     // часто меняющиеся значения (каждый кадр жеста / каждую секунду) — в отдельном объекте: их читают только маленькие
     // блоки (линейка, «где я», скорость), и весь экран карты при жесте не пересчитывается
@@ -147,6 +149,24 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         val pts = lines.flatten()
         if (pts.size >= 2) eng.fit(pts, (50 * density).toInt(), (130 * density).toInt(), (50 * density).toInt(), (eng.view.height * 0.5).toInt())
     }
+    /** Открыть объект карты: улица — карточка в середине улицы и подсветка отрезка; район/город — контур границы. */
+    fun openFeature(f: FeatureHit) {
+        val t = f.target
+        if (t.props["kind"] == "street") {
+            val mid = f.lines?.maxByOrNull { it.size }?.let { it[it.size / 2] }
+            open(if (mid != null) t.copy(lat = mid.lat, lon = mid.lon) else t)
+            pin(null, null); f.lines?.let { eng.setHighlight(it) }
+            return
+        }
+        open(t)
+        f.lines?.let { pin(null, null); highlight(it); return }
+        val place = t.props["place"]
+        if (place != null && place in setOf("country", "state", "region", "province", "city", "town", "village", "suburb", "neighbourhood", "quarter", "borough", "district")
+            && Net.online && !MapPrefs.offlineOnly(ctx)) scope.launch {
+            val b = Streets.boundary(t.name, t.lat, t.lon, place)
+            if (b.isNotEmpty() && target == t) { pin(null, null); highlight(b) }
+        }
+    }
     fun closeAll() {
         target = null; selTrack = null; pin(null, null); eng.setHighlight(emptyList()); eng.setSimilar(emptyList()); similar = null
         eng.clearPadding()
@@ -154,8 +174,6 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
 
     // ---------- карта ----------
     LaunchedEffect(Unit) {
-        OnlineMaps.applyCacheLimit(ctx)
-        launch { OfflineMaps.loadCatalog(ctx); OfflineMaps.resume(ctx); OfflineMaps.autoWorld(ctx); OfflineMaps.ensureExtras(ctx) }
         eng.start(object : MapEngine.Listener {
             override fun onCamera(bearing: Float, zoom: Float, metersPerPixel: Double) {
                 live.bearing = bearing; live.zoom = zoom
@@ -184,6 +202,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                         val t = AppDb.get(ctx).map().track(u.id) ?: return@launch
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { target = null; pin(null, null); selTrack = t }
                     }; return }
+                    is UserHit.ClusterHit -> { unfollow(); eng.flyTo(u.lat, u.lon, eng.zoom + 2.5); return }
                     is UserHit.SimHit -> {
                         similar?.second?.indexOfFirst { it.lat == u.lat && it.lon == u.lon }?.takeIf { it >= 0 }?.let { simIdx = it }
                         open(MapTarget(u.name, u.kind, u.lat, u.lon)); return
@@ -191,15 +210,24 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     null -> {}
                 }
                 if (target != null || selTrack != null) { closeAll(); return }
-                val f = eng.featureAt(x, y, lat, lon) ?: return
-                open(f.target)
-                f.lines?.let { pin(null, null); highlight(it) }
+                val f = eng.featureAt(x, y, lat, lon)
+                if (f == null) {
+                    // в данных GLMap под пальцем ничего — спросим Nominatim, что за улица (при интернете)
+                    if (Net.online && !MapPrefs.offlineOnly(ctx)) scope.launch {
+                        val st = Streets.nearestOnline(lat, lon) ?: return@launch
+                        val path = st.highway in GlEngine.PATHS
+                        openFeature(FeatureHit(MapTarget(st.name ?: if (path) "Тропа без названия" else "Улица без названия", Streets.kind(st.highway), lat, lon,
+                            props = st.tags + ("kind" to if (path) "route" else "street") + (if (st.osmUrl.isNotBlank()) mapOf("osm_url" to st.osmUrl) else emptyMap())), st.lines.ifEmpty { null }))
+                    }
+                    return
+                }
+                openFeature(f)
             }
         }, prefs.getFloat("lat", 50.4501f).toDouble(), prefs.getFloat("lon", 30.5234f).toDouble(), prefs.getFloat("zoom", 11f).toDouble())
     }
     // стиль заново: настройки, «Объекты на карте», скачанные карты (у GLMap — и его карты)
     var firstStyle by remember { mutableStateOf(true) }
-    LaunchedEffect(styleTick, OfflineMaps.version, GlMap.serverTick) { if (firstStyle) firstStyle = false else eng.reloadStyle() }
+    LaunchedEffect(styleTick, GlMap.serverTick) { if (firstStyle) firstStyle = false else eng.reloadStyle() }
     LaunchedEffect(gen) {
         if (gen == 0) return@LaunchedEffect
         if (hasLoc(ctx)) { eng.enableLocation(); if (locMode != 0) eng.setFollow(locMode) }
@@ -267,9 +295,9 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
     // данные пользователя на карте
     val visF = remember(folders) { visibleFolders(folders) }
-    LaunchedEffect(gen, places, visF, showAll) {
+    LaunchedEffect(gen, places, visF, showAll, MapUi.clusterTick) {
         eng.setPlaces(if (!showAll) emptyList() else places.filter { it.visible && (it.folderId == null || it.folderId in visF) }.map { pl ->
-            OvPlace(pl.id, pl.lat, pl.lon, pl.name, colorOr(pl.color, PLACE_COLOR)) })
+            OvPlace(pl.id, pl.lat, pl.lon, pl.name, colorOr(pl.color, PLACE_COLOR), pl.icon.removePrefix("t:")) }, MapPrefs.bool(ctx, "cluster_places", false))
     }
     LaunchedEffect(gen, tracks, visF, showAll, RoutePlan.editTrack, RoutePlan.active) {
         // правленый трек прячем — на его месте новый маршрут планировщика
@@ -282,6 +310,8 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
         eng.setTracks(lines)
     }
     // трек без высот (построенный маршрут, импорт) — один раз берём высоты из рельефа и сохраняем
+    // поменяли цвет/название трека — окно и линия обновляются сразу, не после закрытия
+    LaunchedEffect(tracks) { selTrack?.let { s -> tracks.firstOrNull { it.id == s.id }?.let { fresh -> if (fresh != s) selTrack = fresh } } }
     LaunchedEffect(selTrack?.id) {
         val t = selTrack ?: return@LaunchedEffect
         val nt = Dem.ensure(ctx, t)
@@ -564,14 +594,19 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl, if (t.place == null) mapOf("edit" to "1") else emptyMap())) },
                     onSimilar = { tt ->
                         scope.launch {
-                            val vals = listOfNotNull(tt.props["subclass"], tt.props["class"].takeIf { tt.props["subclass"] == null })
-                            val hits = OfflineSearch.similar(ctx, vals, tt.lat, tt.lon)
-                            if (hits.isEmpty()) { Toast.makeText(ctx, if (OfflineSearch.available(ctx).isEmpty()) "Нужен офлайн-поиск страны (Загрузка карт → Поиск)" else "Похожих рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
+                            val key = GlFind.KEYS.firstOrNull { tt.props[it] != null }
+                            val hits = if (key != null) GlFind.similar(ctx, key, tt.props[key]!!, tt.lat, tt.lon) else emptyList()
+                            if (hits.isEmpty()) { Toast.makeText(ctx, if (!GlFind.offlineAvailable()) "Похожие ищутся по скачанной карте (Загрузка карт)" else "Похожих рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
                             eng.setSimilar(hits)
                             similar = tt.kind.ifBlank { "Похожие" } to hits; simIdx = 0
                             val h = hits[0]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon))
                         }
-                    })
+                    },
+                    onWhole = { tt -> scope.launch {
+                        Toast.makeText(ctx, "Ищу всю улицу…", Toast.LENGTH_SHORT).show()
+                        val ln = Streets.whole(tt.props["name"] ?: tt.name, tt.lat, tt.lon)
+                        if (ln.isEmpty()) Toast.makeText(ctx, "Не нашлось других отрезков улицы", Toast.LENGTH_SHORT).show() else highlight(ln)
+                    } })
             }
             selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }, color = trackColor, onColor = { trackColor = it },
                 onEditRoute = { tr -> closeAll(); RoutePlan.load(tr) }, onGo = { tr -> goTrack(tr) }) }
@@ -579,8 +614,20 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
 
     when (sheet) {
-        MapSheet.SEARCH -> SearchScreen(eng.center(), places, tracks, onDismiss = { sheet = MapSheet.NONE; searchFor = null }) { hit ->
+        MapSheet.SEARCH -> SearchScreen(eng.center(), places, tracks, onDismiss = { sheet = MapSheet.NONE; searchFor = null }, myLoc = myLoc, forRoute = searchFor != null) { hit ->
             sheet = MapSheet.NONE
+            if (hit.kind == "me") searchFor?.let { i ->
+                // «Моё местоположение»: начало маршрута — пусто (= я), остальные точки — текущие координаты
+                val me = myLoc
+                when {
+                    i == 0 -> RoutePlan.setFrom(null)
+                    me == null -> Toast.makeText(ctx, "Жду геолокацию…", Toast.LENGTH_SHORT).show()
+                    i == -1 -> RoutePlan.addStop(MapPrefs.Spot("Моё местоположение", me.lat, me.lon, ""))
+                    else -> { RoutePlan.points[i] = MapPrefs.Spot("Моё местоположение", me.lat, me.lon, ""); RoutePlan.rev++ }
+                }
+                searchFor = null
+                return@SearchScreen
+            }
             searchFor?.let { i ->
                 val sp = MapPrefs.Spot(hit.name, hit.lat, hit.lon, hit.address)
                 when (i) { -1 -> RoutePlan.addStop(sp); 0 -> RoutePlan.setFrom(sp); else -> { RoutePlan.points[i] = sp; RoutePlan.rev++ } }
@@ -612,6 +659,22 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
 }
 
+
+/** Без ключа GLMap карта не работает — просим ключ прямо здесь. */
+@Composable
+private fun MapKeyNeeded() {
+    val ctx = LocalContext.current
+    var key by remember { mutableStateOf(GlMap.key(ctx)) }
+    Column(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)) {
+        Icon(Icons.Rounded.Terrain, null, tint = Pal.SkyInk, modifier = Modifier.size(48.dp))
+        Text("Нужен ключ GLMap", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(GlMap.error?.takeIf { key.isNotBlank() } ?: "Карта работает на движке GLMap (как Guru Maps). Ключ — в кабинете globus.software; хранится только на телефоне.",
+            style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+        com.pank.vsevodnom.ui.common.AppTextField(key, { key = it.trim() }, "Ключ API GLMap")
+        com.pank.vsevodnom.ui.common.PillButton("Сохранить и открыть карту", { GlMap.setKey(ctx, key); MapUi.engineTick++ }, Modifier.fillMaxWidth())
+        TextButton({ web(ctx, "https://user.globus.software/apps/") }) { Text("Открыть кабинет GLMap") }
+    }
+}
 
 /** Значения, которые меняются каждый кадр или каждую секунду. */
 internal class MapLive {
@@ -771,50 +834,3 @@ private fun NavBottom(s: Nav.Session, onStop: () -> Unit) {
     }
 }
 
-/** Значок заведения: кружок цвета группы с белой иконкой Tabler — у всех одинаковый размер и стиль. */
-internal fun poiBitmap(ctx: Context, cls: String, d: Float): android.graphics.Bitmap {
-    MapStyle.SERVICE_ICON[cls]?.let { return serviceBitmap(ctx, it, d) }
-    val g = MapStyle.groupOf(cls)
-    val icon = MapStyle.CLASS_ICON[cls] ?: g.icon
-    val size = (22 * d).toInt()
-    val b = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-    val c = android.graphics.Canvas(b)
-    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-    p.color = android.graphics.Color.WHITE; c.drawCircle(size / 2f, size / 2f, size / 2f, p)
-    p.color = g.color; c.drawCircle(size / 2f, size / 2f, size / 2f - 1.5f * d, p)
-    val paths = com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second["map-pin"].orEmpty()
-    val s = size * 0.6f / 24f
-    c.save(); c.translate(size * 0.2f, size * 0.2f); c.scale(s, s)
-    p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 2.2f; p.strokeCap = android.graphics.Paint.Cap.ROUND; p.strokeJoin = android.graphics.Paint.Join.ROUND
-    p.color = android.graphics.Color.WHITE
-    paths.forEach { dd -> runCatching { c.drawPath(androidx.core.graphics.PathParser.createPathFromPathData(dd), p) } }
-    c.restore()
-    return b
-}
-
-
-/** Белая стрелка-шеврон для направления трека (смотрит вдоль линии). */
-internal fun arrowBitmap(d: Float): android.graphics.Bitmap {
-    val w = (12 * d).toInt(); val h = (12 * d).toInt()
-    val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-    val c = android.graphics.Canvas(b)
-    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE; style = android.graphics.Paint.Style.STROKE; strokeWidth = 2.2f * d; strokeCap = android.graphics.Paint.Cap.ROUND; strokeJoin = android.graphics.Paint.Join.ROUND }
-    val path = android.graphics.Path().apply { moveTo(w * 0.3f, h * 0.18f); lineTo(w * 0.72f, h * 0.5f); lineTo(w * 0.3f, h * 0.82f) }
-    c.drawPath(path, p)
-    return b
-}
-
-/** Сервисный значок (ворота, урна, площадка…): без кружка — тёмная иконка с белой обводкой, меньше заведений. */
-internal fun serviceBitmap(ctx: Context, icon: String, d: Float): android.graphics.Bitmap {
-    val size = (19 * d).toInt()
-    val b = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-    val c = android.graphics.Canvas(b)
-    val paths = com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second["map-pin"].orEmpty()
-    val s = size * 0.78f / 24f
-    c.translate(size * 0.11f, size * 0.11f); c.scale(s, s)
-    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeCap = android.graphics.Paint.Cap.ROUND; strokeJoin = android.graphics.Paint.Join.ROUND }
-    val parsed = paths.mapNotNull { dd -> runCatching { androidx.core.graphics.PathParser.createPathFromPathData(dd) }.getOrNull() }
-    p.color = android.graphics.Color.WHITE; p.strokeWidth = 5.2f; parsed.forEach { c.drawPath(it, p) }       // обводка, чтобы читалось на любом фоне
-    p.color = 0xFF4F5966.toInt(); p.strokeWidth = 2.1f; parsed.forEach { c.drawPath(it, p) }
-    return b
-}

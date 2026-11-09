@@ -30,7 +30,7 @@ fun MapPointPicker(onDismiss: () -> Unit, onPick: (Triple<String, Double, Double
     val scope = rememberCoroutineScope()
     val prefs = remember { ctx.getSharedPreferences("map", android.content.Context.MODE_PRIVATE) }
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val eng = rememberEngine()
+        val eng = rememberEngine() ?: run { Box(Modifier.fillMaxSize().background(Pal.Bg).dialogBars().padding(24.dp)) { Text("Нужен ключ GLMap: Настройки карты → Ключи и сервисы.") }; return@Dialog }
         var address by remember { mutableStateOf("Двигай карту — булавка в центре") }
         var busy by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {

@@ -29,7 +29,7 @@ object GlMap {
     /** Какой движок рисует карту: glmap (по умолчанию, если есть ключ) или maplibre (запасной). */
     fun engine(ctx: Context) = ctx.getSharedPreferences("map", Context.MODE_PRIVATE).getString("engine", "glmap") ?: "glmap"
     fun setEngine(ctx: Context, e: String) = ctx.getSharedPreferences("map", Context.MODE_PRIVATE).edit().putString("engine", e).apply()
-    fun use(ctx: Context) = engine(ctx) == "glmap" && key(ctx).isNotBlank() && init(ctx)
+    fun use(ctx: Context) = key(ctx).isNotBlank() && init(ctx)
 
     private val listener = object : GLMapManager.StateListener {
         override fun onStartDownloading(task: GLMapDownloadTask) { bump() }
@@ -150,6 +150,22 @@ object GlMap {
         for (d in listOf(GLMapInfo.DataSetMask.MAP, GLMapInfo.DataSetMask.ELEVATION, GLMapInfo.DataSetMask.NAVIGATION)) if (d and mask != 0 && m.getSizeOnServer(d) > 0) avail = avail or d
         avail and (m.dataSetsWithState(GLMapInfo.State.NOT_DOWNLOADED) or m.dataSetsWithState(GLMapInfo.State.NEED_RESUME) or m.dataSetsWithState(GLMapInfo.State.NEED_UPDATE))
     }.getOrDefault(0)
+
+    /** Скачан ли набор данных (MAP / NAVIGATION / ELEVATION) этой карты. */
+    fun has(m: GLMapInfo, mask: Int): Boolean = runCatching { (m.dataSetsWithState(GLMapInfo.State.DOWNLOADED) or m.dataSetsWithState(GLMapInfo.State.NEED_UPDATE)) and mask != 0 }.getOrDefault(false)
+    /** Состояние одного набора данных (маска MAP / NAVIGATION / ELEVATION). */
+    fun state(m: GLMapInfo, mask: Int): Int = runCatching {
+        listOf(GLMapInfo.State.IN_PROGRESS, GLMapInfo.State.NEED_RESUME, GLMapInfo.State.NEED_UPDATE, GLMapInfo.State.DOWNLOADED, GLMapInfo.State.REMOVED)
+            .firstOrNull { m.dataSetsWithState(it) and mask != 0 } ?: GLMapInfo.State.NOT_DOWNLOADED
+    }.getOrDefault(GLMapInfo.State.NOT_DOWNLOADED)
+    fun downloadSet(m: GLMapInfo, mask: Int) { runCatching { GLMapManager.DownloadDataSets(m, mask) }; version++ }
+    fun deleteSet(m: GLMapInfo, mask: Int) { runCatching { GLMapManager.DeleteDataSets(m, mask) }; version++ }
+    fun progressOf(m: GLMapInfo, mask: Int): Float? {
+        val t = runCatching { GLMapManager.getDownloadTasks(m.mapID, mask) }.getOrNull().orEmpty(); if (t.isEmpty()) return null
+        val total = t.sumOf { it.total.toLong() }; val done = t.sumOf { it.downloaded.toLong() }
+        return if (total > 0) done.toFloat() / total else 0f
+    }
+    fun cancelSet(m: GLMapInfo, mask: Int) { runCatching { GLMapManager.getDownloadTasks(m.mapID, mask) }.getOrNull()?.forEach { runCatching { it.cancel() } }; version++ }
 
     fun download(m: GLMapInfo) { val p = pending(m); if (p != 0) runCatching { GLMapManager.DownloadDataSets(m, p) }; version++ }
     fun delete(m: GLMapInfo) { runCatching { GLMapManager.DeleteDataSets(m, GLMapInfo.DataSetMask.ALL) }; version++ }
