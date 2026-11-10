@@ -28,7 +28,6 @@ import com.pank.vsevodnom.data.AppScope
 import kotlinx.coroutines.launch
 import com.pank.vsevodnom.data.GCache
 import com.pank.vsevodnom.data.GlMap
-import com.pank.vsevodnom.data.OldMaps
 import com.pank.vsevodnom.ui.common.*
 import com.pank.vsevodnom.ui.theme.Pal
 import globus.glmap.GLMapInfo
@@ -90,9 +89,6 @@ internal fun GlDownloadsPage(onBack: () -> Unit) {
     var continent by remember { mutableStateOf<String?>(null) }
     val all = remember(v) { if (GlMap.ready) runCatching { mapsOf(GLMapManager.GetMaps()) }.getOrDefault(emptyList()) else emptyList() }
     LaunchedEffect(Unit) { if (GlMap.ready && all.isEmpty()) GlMap.refreshList() }
-    var oldBytes by remember { mutableLongStateOf(-1L) }
-    LaunchedEffect(Unit) { oldBytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { OldMaps.bytes(ctx) } }
-    var askWipe by remember { mutableStateOf(false) }
     val title = open?.let { GlMap.name(it) } ?: continent ?: "Загрузка карт"
     FullScreen(title, { when { open != null -> open = null; continent != null -> continent = null; else -> onBack() } }) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,17 +124,10 @@ internal fun GlDownloadsPage(onBack: () -> Unit) {
                             if (n > 0) MenuRow(Icons.Rounded.Public, c, sub = "$n " + plural(n, "страна", "страны", "стран")) { continent = c }
                         }
                     }
-                    SectionLabel("Прежняя карта")
-                    MenuRow(Icons.Rounded.DeleteSweep, "Стереть данные прежней карты", Pal.RoseInk,
-                        sub = if (oldBytes < 0) "считаю…" else if (oldBytes == 0L) "ничего не осталось" else "страны, рельеф, поиск, маршруты, кэш — ${MapKit.human(oldBytes)}") { if (oldBytes > 0) askWipe = true }
                 }
             }
         }
     }
-    if (askWipe) AlertDialog(onDismissRequest = { askWipe = false }, title = { Text("Стереть данные прежней карты?") },
-        text = { Text("Карты MapLibre, рельеф, офлайн-поиск, данные маршрутов BRouter и кэш онлайн-тайлов (${MapKit.human(oldBytes)}). Новой карте они не нужны. Метки и треки не трогаются.") },
-        confirmButton = { TextButton({ askWipe = false; AppScope.io.launch { val b = OldMaps.wipe(ctx); kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { oldBytes = 0; Toast.makeText(ctx, "Освобождено ${MapKit.human(b)}", Toast.LENGTH_LONG).show() } } }) { Text("Стереть", color = Pal.RoseInk) } },
-        dismissButton = { TextButton({ askWipe = false }) { Text("Отмена") } })
 }
 
 private fun plural(n: Int, one: String, few: String, many: String): String {

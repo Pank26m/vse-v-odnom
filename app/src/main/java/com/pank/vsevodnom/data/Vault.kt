@@ -39,6 +39,10 @@ data class VaultEntry(
     val extra: List<VaultExtra> = emptyList(),
     val avatar: String = "",                 // id зашифрованной картинки-аватарки (иконка банка и т. п.)
     val files: List<VaultFile> = emptyList(),
+    /** "doc" — документ (сканы, файлы) во вкладке «Документы»; пусто — пароль. */
+    val kind: String = "",
+    /** Папка документа («Паспорт», «Авто»…). */
+    val folder: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject().put("id", id).put("title", title).put("login", login).put("password", password)
         .put("url", url).put("notes", notes).put("totp", totp).put("updatedAt", updatedAt)
@@ -46,6 +50,7 @@ data class VaultEntry(
         .put("extra", org.json.JSONArray(extra.map { JSONObject().put("label", it.label).put("value", it.value) }))
         .put("avatar", avatar)
         .put("files", org.json.JSONArray(files.map { JSONObject().put("id", it.id).put("name", it.name).put("mime", it.mime).put("size", it.size) }))
+        .put("kind", kind).put("folder", folder)
 
     companion object {
         fun fromJson(o: JSONObject) = VaultEntry(
@@ -55,6 +60,7 @@ data class VaultEntry(
             o.optJSONArray("extra")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).let { x -> VaultExtra(x.optString("label"), x.optString("value")) } } } ?: emptyList(),
             o.optString("avatar"),
             o.optJSONArray("files")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).let { x -> VaultFile(x.optString("id"), x.optString("name"), x.optString("mime"), x.optLong("size")) } } } ?: emptyList(),
+            o.optString("kind"), o.optString("folder"),
         )
     }
 }

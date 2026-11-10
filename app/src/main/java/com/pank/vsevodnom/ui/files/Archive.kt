@@ -60,10 +60,12 @@ object Archives {
     }
 
     /** Обход архива: для каждой записи вызывает cb(запись, поток с содержимым). */
-    fun walk(f: File, kind: String, cb: (ArcEntry, InputStream?) -> Unit) {
+    fun walk(f: File, kind: String, pass: String? = null, cb: (ArcEntry, InputStream?) -> Unit) {
+        // с паролем — только libarchive (зашифрованные zip/7z/rar4); RAR5 с паролем libarchive не расшифровывает
+        if (pass != null) { walkLibarchive(f, pass, cb); return }
         when (kind) {
             // libarchive; если он не смог открыть файл вообще — пробуем junrar (старые RAR)
-            "rar" -> if (runCatching { var seen = 0; runCatching { walkLibarchive(f) { e, i -> seen++; cb(e, i) } }.onFailure { if (seen > 0) throw IllegalStateException(it.message) else throw it } }.exceptionOrNull()?.let { it !is IllegalStateException } == true) com.github.junrar.Archive(f).use { a ->
+            "rar" -> if (runCatching { var seen = 0; runCatching { walkLibarchive(f, null) { e, i -> seen++; cb(e, i) } }.onFailure { if (seen > 0) throw IllegalStateException(it.message) else throw it } }.exceptionOrNull()?.let { it !is IllegalStateException } == true) com.github.junrar.Archive(f).use { a ->
                 for (h in a.fileHeaders) {
                     val e = ArcEntry(h.fileName.replace('\\', '/'), h.fullUnpackSize, h.isDirectory)
                     if (h.isDirectory) cb(e, null) else a.getInputStream(h).use { cb(e, it) }
@@ -80,10 +82,11 @@ object Archives {
     }
 
     /** libarchive: читает RAR5, RAR4, 7z и многое другое. */
-    private fun walkLibarchive(f: File, cb: (ArcEntry, InputStream?) -> Unit) {
+    private fun walkLibarchive(f: File, pass: String?, cb: (ArcEntry, InputStream?) -> Unit) {
         val a = LA.readNew()
         try {
             LA.readSupportFilterAll(a); LA.readSupportFormatAll(a)
+            if (!pass.isNullOrEmpty()) LA.readAddPassphrase(a, pass.toByteArray())
             LA.readOpenFileName(a, f.absolutePath.toByteArray(), 64 * 1024)
             val buf = java.nio.ByteBuffer.allocateDirect(64 * 1024)
             while (true) {

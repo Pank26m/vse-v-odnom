@@ -81,7 +81,7 @@ fun copySecret(ctx: Context, label: String, value: String, sensitive: Boolean = 
 object PendingVaultImport { var uri by mutableStateOf<android.net.Uri?>(null) }
 
 /** Пока открыт выбор файла для бэкапа, не блокируем хранилище (это другое окно, но наше действие). */
-private object LockGuard { var suppress = false }
+internal object LockGuard { var suppress = false }
 
 @Composable
 fun PasswordsScreen(onBack: () -> Unit) {
@@ -143,6 +143,11 @@ fun PasswordsScreen(onBack: () -> Unit) {
 @Composable
 private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>) -> Unit, onBack: () -> Unit, onLock: () -> Unit) {
     val ctx = LocalContext.current
+    // вкладки: пароли | документы (сканы, файлы — тем же шифрованием)
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    if (tab == 1) { DocsContent(entries, onChange, onBack, onLock) { tab = it }; return }
+    val docsN = entries.count { it.kind == "doc" }
+    val pwds = entries.filter { it.kind != "doc" }
     var tagFilter by remember { mutableStateOf<String?>(null) }
     var q by remember { mutableStateOf("") }
     var edit by remember { mutableStateOf<VaultEntry?>(null) }
@@ -173,9 +178,9 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
     val keepassPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> LockGuard.suppress = false; u?.let(::importKeepass) }
     LaunchedEffect(PendingVaultImport.uri) { PendingVaultImport.uri?.let { PendingVaultImport.uri = null; importKeepass(it) } }
 
-    val shown = entries.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) }
+    val shown = pwds.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) }
         .filter { tagFilter == null || (tagFilter == "" && it.tags.isEmpty()) || tagFilter in it.tags }.sortedBy { it.title.lowercase() }
-    val allTags = entries.flatMap { it.tags }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
+    val allTags = pwds.flatMap { it.tags }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
 
     ScreenScaffold("Пароли", onBack, actions = {
         RoundIconButton(Icons.Rounded.Add, "Добавить", { edit = VaultEntry(UUID.randomUUID().toString(), "") }, bg = Pal.Ink, tint = androidx.compose.ui.graphics.Color.White)
@@ -190,16 +195,17 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
         }
     }) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            VaultTabs(0, pwds.size, docsN) { tab = it }
             AppTextField(q, { q = it }, "Поиск")
             if (allTags.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Все · ${entries.size}", tagFilter == null, { tagFilter = null })
+                Chip("Все · ${pwds.size}", tagFilter == null, { tagFilter = null })
                 allTags.forEach { t -> Chip(t, tagFilter == t, { tagFilter = if (tagFilter == t) null else t }) }
-                if (entries.any { it.tags.isEmpty() }) Chip("Без тега", tagFilter == "", { tagFilter = if (tagFilter == "") null else "" })
+                if (pwds.any { it.tags.isEmpty() }) Chip("Без тега", tagFilter == "", { tagFilter = if (tagFilter == "") null else "" })
             }
         }
         Spacer(Modifier.height(10.dp))
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (entries.isEmpty()) item {
+            if (pwds.isEmpty()) item {
                 AppCard(Modifier.fillMaxWidth(), color = Pal.Lilac) {
                     Text("Хранилище пустое", style = MaterialTheme.typography.titleSmall, color = Pal.LilacInk)
                     Text("Записи шифруются ключом, который хранится в защищённом чипе телефона. Обязательно сохрани бэкап (меню ⋮) — без него при потере телефона пароли не восстановить.", style = MaterialTheme.typography.bodySmall)
@@ -529,7 +535,7 @@ private fun VaultAvatar(e: VaultEntry, size: androidx.compose.ui.unit.Dp) {
 }
 
 /** Открыть или отправить вложение: расшифровка во временную папку (чистится при следующем открытии хранилища). */
-private fun openVaultFile(ctx: Context, f: VaultFile, share: Boolean) {
+internal fun openVaultFile(ctx: Context, f: VaultFile, share: Boolean) {
     runCatching {
         val bytes = Vault.readFile(ctx, f.id) ?: throw IllegalStateException("Файл не найден")
         val dir = java.io.File(ctx.cacheDir, "vault_view").apply { deleteRecursively(); mkdirs() }

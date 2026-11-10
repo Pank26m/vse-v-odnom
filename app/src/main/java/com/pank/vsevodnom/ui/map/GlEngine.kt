@@ -116,9 +116,10 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
      */
     private fun serviceSvg(icon: String): String? {
         val paths = MapStyle.CUSTOM_ICONS[icon] ?: com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: return null
-        val sb = StringBuilder("""<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="-1.5 -1.5 27 27"><g fill="none" stroke-linecap="round" stroke-linejoin="round">""")
-        paths.forEach { d -> sb.append("""<path d="$d" stroke="#FFFFFF" stroke-width="5.2"/>""") }
-        paths.forEach { d -> sb.append("""<path d="$d" stroke="#000000" stroke-opacity="0.6" stroke-width="2.1"/>""") }
+        // 9 точек — вдвое меньше прежних 14 (были крупнее родных значков GLMap); линии толще, чтобы читалось
+        val sb = StringBuilder("""<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="-1.5 -1.5 27 27"><g fill="none" stroke-linecap="round" stroke-linejoin="round">""")
+        paths.forEach { d -> sb.append("""<path d="$d" stroke="#FFFFFF" stroke-width="6"/>""") }
+        paths.forEach { d -> sb.append("""<path d="$d" stroke="#000000" stroke-opacity="0.6" stroke-width="2.6"/>""") }
         return sb.append("</g></svg>").toString()
     }
 
@@ -161,7 +162,8 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         }
         fun parse() = runCatching {
             GLMapStyleParser { name -> resource(name) }.use { p ->
-                p.setOptions(styleOptions(o), true)
+                // false: опции, которых нет в списке, — выключены (с true все группы «Объектов на карте» были включены всегда)
+                p.setOptions(styleOptions(o), false)
                 p.parseFromResources()?.use { st -> r.setStyle(st); true } ?: false
             }
         }.getOrDefault(false)
@@ -568,8 +570,9 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val cb = clusterBitmap(density)
             val clusterStyle = styles.addStyle(GLMapMarkerImage("cluster", cb, android.graphics.Point(cb.width / 2, cb.height / 2)))
             // смещение подписи — в точках (dp), не в пикселях: раньше умножали на плотность и подпись уезжала на палец ниже значка
-            val txtBig = android.graphics.Point(0, -13)      // значок с иконкой 26 dp → радиус 13
-            val txtSmall = android.graphics.Point(0, -9)     // точка 17 dp
+            // подпись вплотную под значком (−13 было ещё на «значок» ниже — владелец проверил на телефоне)
+            val txtBig = android.graphics.Point(0, 10)
+            val txtSmall = android.graphics.Point(0, 6)
             styles.setDataCallback(object : GLMapMarkerStyleCollectionDataCallback() {
                 override fun getLocation(marker: Any) = (marker as OvPlace).let { mp(it.lat, it.lon) }
                 override fun fillUnionData(markersCount: Int, nativeMarker: Long) {
@@ -677,7 +680,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             props["name"]?.let { props["name_tag"] = it }   // исходный тег name (по-украински) — для «всей улицы» и поиска
             name?.let { props["name"] = it }
             if (key != null && v != null) { props["osm_key"] = key; props["osm_value"] = v }
-            val kind = (if (key != null && v != null && key != "building") MapNames.label(key, v) else null) ?: cat ?: MapNames.omt(props["class"], props["subclass"])
+            val kind = (if (key != null && v != null && key != "building") MapNames.label(key, v, props["shelter_type"]) else null) ?: cat ?: MapNames.omt(props["class"], props["subclass"])
             val g = runCatching { MapGeoPoint(o.point()) }.getOrNull()
             val path = props["highway"] in PATHS
             if (o.lineCount > 0 && !path && props["highway"] != null) return@use FeatureHit(MapTarget(name ?: "Улица без названия", Streets.kind(props["highway"]), lat, lon,
@@ -731,7 +734,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             "public_transport", "aeroway", "aerialway", "man_made", "barrier", "sport", "highway", "place", "waterway", "landuse", "building")
         val TAGS = PRIMARY + listOf("name", "name:ru", "name:uk", "name:en", "opening_hours", "phone", "contact:phone", "website", "contact:website", "email",
             "wikipedia", "wikidata", "cuisine", "operator", "brand", "ele", "description", "addr:street", "addr:housenumber", "addr:city",
-            "contact:instagram", "contact:facebook", "contact:telegram", "route", "surface", "sac_scale", "trail_visibility", "smoothness", "level", "station", "subway")
+            "contact:instagram", "contact:facebook", "contact:telegram", "shelter_type", "route", "surface", "sac_scale", "trail_visibility", "smoothness", "level", "station", "subway")
         val PATHS = setOf("footway", "path", "cycleway", "bridleway", "steps", "track", "pedestrian")
     }
 }

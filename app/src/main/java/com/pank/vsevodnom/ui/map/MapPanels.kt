@@ -135,7 +135,8 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
     var gErr by remember(t) { mutableStateOf<String?>(null) }
     var loading by remember(t) { mutableStateOf(false) }
     var admin by remember(t) { mutableStateOf<List<String>>(emptyList()) }
-    var expanded by remember(t) { mutableStateOf(true) }
+    // сначала короткое окно, подробности — по стрелке (кроме правки только что созданной метки)
+    var expanded by remember(t) { mutableStateOf(t.props["edit"] == "1") }
     var editing by remember(t) { mutableStateOf(t.props["edit"] == "1") }
     var askDelete by remember(t) { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
@@ -214,6 +215,11 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         .clickable(interactionSource = null, indication = null) {}) {
         // шапка
         Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(start = 18.dp, top = 14.dp, end = 4.dp), verticalAlignment = Alignment.Top) {
+            // своя метка: кружок с цветом и значком (как у треков) — нажать: цвет, значок
+            if (t.place != null) {
+                PlaceStyleButton(t.place) { onSaved(it) }
+                Spacer(Modifier.width(10.dp))
+            }
             Column(Modifier.weight(1f)) {
                 if (t.place != null) androidx.compose.foundation.text.BasicTextField(plName, { plName = it; saveOwn() },
                     textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = Pal.Ink), modifier = Modifier.fillMaxWidth(), maxLines = 2)
@@ -256,6 +262,10 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             RouteTile(2, "Сюда") { onRoute("to", spot) }
             ActionChip(Icons.Rounded.Navigation, "Waze", Color(0xFFDDF4FB), Color(0xFF1B7A99)) { waze(ctx, t.lat, t.lon) }
             ActionChip(Icons.Rounded.Share, "Поделиться", Pal.Lilac, Pal.LilacInk) { share(ctx, title, t.lat, t.lon) }
+            if (t.place != null) ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Card, Pal.Ink) {
+                val pl = t.place; AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(pl.copy(visible = false)) }
+                Toast.makeText(ctx, "Метка скрыта — вернуть в «Коллекциях» (глазок)", Toast.LENGTH_SHORT).show(); onClose()
+            }
             if (t.place != null) ActionChip(Icons.Rounded.DeleteOutline, "Удалить", Pal.Rose, Pal.RoseInk) { askDelete = true }
             ActionChip(Icons.Rounded.MoreHoriz, "Ещё", Pal.Butter, Pal.ButterInk) { more = true }
         }
@@ -466,6 +476,43 @@ internal object StayLinks {
 internal val PLACE_ICONS = listOf("", "map-pin", "home", "briefcase", "star", "heart", "coffee", "tools-kitchen-2", "shopping-cart", "car", "bike", "trekking",
     "tent", "mountain", "trees", "beach", "fish", "anchor", "building", "school", "first-aid-kit", "gas-station", "parking", "camera", "flag", "bed",
     "swimming", "plane", "train", "bus", "ticket", "music", "book", "gift", "dog", "pizza", "beer", "glass-cocktail")
+
+/** Кружок метки (цвет + значок) — меню: цвета, все значки (как в «Финансах»), без значка. Сохраняет сразу. */
+@Composable
+internal fun PlaceStyleButton(p: Place, onSaved: (Place) -> Unit) {
+    val ctx = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
+    var icons by remember { mutableStateOf(false) }
+    var cur by remember(p.id) { mutableStateOf(p) }
+    fun save(np: Place) { cur = np; AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(np) }; onSaved(np) }
+    val col = Color(colorOr(cur.color, PLACE_COLOR))
+    Box {
+        PlaceDot(col, cur.icon.removePrefix("t:"), 34.dp, Modifier.clickable { menu = true })
+        DropdownMenu(menu, { menu = false }) {
+            listOf(MAP_COLORS.take(6), MAP_COLORS.drop(6)).forEach { row ->
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { c -> Box(Modifier.size(28.dp).clip(CircleShape).background(if (c == 0) Color(colorOr(0, PLACE_COLOR)) else Color(c)).border(if (c == cur.color) 2.dp else 0.dp, Pal.Ink, CircleShape)
+                        .clickable { save(cur.copy(color = c)); menu = false }) }
+                }
+            }
+            HorizontalDivider()
+            DropdownMenuItem({ Text("Значок…") }, { menu = false; icons = true }, leadingIcon = { Icon(Icons.Rounded.Interests, null) })
+            DropdownMenuItem({ Text("Просто цветная точка") }, { save(cur.copy(icon = "")); menu = false }, leadingIcon = { Icon(Icons.Rounded.Circle, null, tint = col) })
+        }
+    }
+    if (icons) AlertDialog(onDismissRequest = { icons = false }, confirmButton = { TextButton({ icons = false }) { Text("Закрыть") } }, title = { Text("Значок метки") },
+        text = { com.pank.vsevodnom.ui.money.IconPicker("t:" + cur.icon.removePrefix("t:"), col) { save(cur.copy(icon = it.removePrefix("t:"))); icons = false } })
+}
+
+/** Значок метки как на карте: кружок цвета с белой обводкой и белой иконкой (без иконки — маленькая точка). */
+@Composable
+internal fun PlaceDot(col: Color, icon: String, size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    Box(modifier.size(size).clip(CircleShape).background(Color.White).padding(2.dp).clip(CircleShape).background(col), contentAlignment = Alignment.Center) {
+        if (icon.isBlank()) Box(Modifier.size(size * 0.28f).clip(CircleShape).background(Color.White))
+        else com.pank.vsevodnom.ui.money.TablerIcons.vector(ctx, icon)?.let { Icon(it, null, tint = Color.White, modifier = Modifier.size(size * 0.58f)) }
+    }
+}
 
 @Composable
 internal fun PlaceInlineEditor(p: Place, folders: List<MapFolder>, onDone: (Place?) -> Unit) {
@@ -756,6 +803,10 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
             ActionChip(Icons.Rounded.PlayArrow, "В путь", Color(0xFF3E6FA8), Color.White) { onGo(t) }
             ActionChip(Icons.Rounded.ZoomOutMap, "Весь трек", Pal.Sky, Pal.SkyInk, onFit)
             ActionChip(Icons.Rounded.AltRoute, if (routeWay(t) != null) "Изменить маршрут" else "Остановки", Pal.Butter, Pal.ButterInk) { onEditRoute(t) }
+            ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Bg, Pal.Ink) {
+                update { it.copy(visible = false) }
+                Toast.makeText(ctx, "Трек скрыт — вернуть в «Коллекциях» (глазок)", Toast.LENGTH_SHORT).show(); onClose()
+            }
             ActionChip(Icons.Rounded.MoreHoriz, "Ещё", Pal.Lilac, Pal.LilacInk) { more = true }
         }
         if (expanded) Column(Modifier.fillMaxWidth().heightIn(max = (screenH * 0.5f).dp).verticalScroll(rememberScrollState()).background(Pal.Bg).padding(12.dp)) { TrackStatsContent(t) }

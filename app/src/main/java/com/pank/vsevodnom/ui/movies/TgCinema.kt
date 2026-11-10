@@ -275,10 +275,14 @@ private fun TitlePage(t: TgFilms.Title, onBack: () -> Unit) {
     @Suppress("UNUSED_EXPRESSION") tick
     val order = t.seasons.flatMap { t.episodes(it) }
     val resume = order.firstOrNull { TgFilms.position(ctx, it) > 0 } ?: order.indexOfLast { TgFilms.watched(ctx, it) }.let { i -> order.getOrNull(i + 1) } ?: order.first()
-    playing?.let { e ->
-        val i = order.indexOf(e)
-        TgPlayerScreen(e, t.name + (e.parsed.episode?.let { " · ${e.parsed.season ?: 1} сезон, $it серия" } ?: ""), order.getOrNull(i + 1)?.takeIf { t.series },
-            onNext = { playing = it }) { playing = null; tick++ }
+    // плеер — отдельный экран (горизонтальный); по возвращении обновляем «продолжить с…»
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { tick++ }
+    LaunchedEffect(playing) {
+        playing?.let { e ->
+            val list = if (t.series) order else listOf(e)
+            launcher.launch(TgPlayerActivity.intent(ctx, e.chatId, list.map { it.msgId }, list.indexOf(e).coerceAtLeast(0), t.name))
+            playing = null
+        }
     }
     ScreenScaffold(t.name, onBack) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -324,4 +328,12 @@ private fun TitlePage(t: TgFilms.Title, onBack: () -> Unit) {
             }
         }
     }
+}
+
+/** Включить фильм/сериал из канала: начатая серия, иначе следующая после просмотренной, иначе первая. */
+fun tgPlayIntent(ctx: android.content.Context, t: TgFilms.Title): Intent {
+    val order = t.seasons.flatMap { t.episodes(it) }
+    val resume = order.firstOrNull { TgFilms.position(ctx, it) > 0 } ?: order.indexOfLast { TgFilms.watched(ctx, it) }.let { i -> order.getOrNull(i + 1) } ?: order.first()
+    val list = if (t.series) order else listOf(resume)
+    return TgPlayerActivity.intent(ctx, resume.chatId, list.map { it.msgId }, list.indexOf(resume).coerceAtLeast(0), t.name)
 }

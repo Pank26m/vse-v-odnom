@@ -105,6 +105,38 @@ internal fun CollectionsScreen(
         val byDate = MapPrefs.bool(ctx, "coll_by_date", false)
         val ps = if (q.isNotEmpty()) places.filter { it.name.lowercase().contains(q) } else places.filter { it.folderId == cur }.let { l -> if (byDate) l.sortedByDescending { it.createdAt } else l.sortedBy { it.name.lowercase() } }
         val ts = if (q.isNotEmpty()) tracks.filter { it.name.lowercase().contains(q) } else tracks.filter { it.folderId == cur }
+        // быстрый выбор для чистки: всё здесь, только метки/треки, по цвету, по значку
+        if (ps.isNotEmpty() || ts.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            var selMenu by remember { mutableStateOf(false) }
+            Box {
+                Chip("Выбрать ▾", false, { selMenu = true })
+                DropdownMenu(selMenu, { selMenu = false }) {
+                    fun pick(keys: List<String>) { selected = selected + keys; selMenu = false }
+                    DropdownMenuItem({ Text("Всё здесь (${ps.size + ts.size})") }, { pick(ps.map { "p${it.id}" } + ts.map { "t${it.id}" }) }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
+                    if (ps.isNotEmpty()) DropdownMenuItem({ Text("Все метки (${ps.size})") }, { pick(ps.map { "p${it.id}" }) }, leadingIcon = { Icon(Icons.Rounded.Place, null) })
+                    if (ts.isNotEmpty()) DropdownMenuItem({ Text("Все треки (${ts.size})") }, { pick(ts.map { "t${it.id}" }) }, leadingIcon = { Icon(Icons.Rounded.Timeline, null) })
+                    val colors = (ps.map { it.color } + ts.map { it.color }).distinct()
+                    if (colors.size > 1) {
+                        HorizontalDivider(); Text("  По цвету", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                        colors.forEach { c ->
+                            val n = ps.count { it.color == c } + ts.count { it.color == c }
+                            DropdownMenuItem({ Text("$n шт.") }, { pick(ps.filter { it.color == c }.map { "p${it.id}" } + ts.filter { it.color == c }.map { "t${it.id}" }) },
+                                leadingIcon = { Box(Modifier.size(20.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(colorOr(c, PLACE_COLOR)))) })
+                        }
+                    }
+                    val icons = ps.map { it.icon.removePrefix("t:") }.distinct()
+                    if (icons.size > 1) {
+                        HorizontalDivider(); Text("  По значку", style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
+                        icons.forEach { ic ->
+                            DropdownMenuItem({ Text("${ps.count { it.icon.removePrefix("t:") == ic }} шт." + if (ic.isBlank()) " · без значка" else "") }, { pick(ps.filter { it.icon.removePrefix("t:") == ic }.map { "p${it.id}" }) },
+                                leadingIcon = { PlaceDot(Color(colorOr(0, PLACE_COLOR)), ic, 22.dp) })
+                        }
+                    }
+                }
+            }
+            if (selected.isNotEmpty()) Chip("Снять выбор", false, { selected = emptySet() })
+        }
         LazyColumn(contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (subFolders.isEmpty() && ps.isEmpty() && ts.isEmpty()) item {
                 EmptyHint(if (cur == null) "Пока пусто. Нажми на место на карте → «Сохранить метку», запиши трек (REC) или импортируй GPX/KML из Guru Maps (значок файла сверху)." else "Папка пуста", Modifier.padding(top = 20.dp))

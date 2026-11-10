@@ -12,7 +12,7 @@ object MapNames {
         "amenity:post_office" to "Почта", "amenity:police" to "Полиция", "amenity:fire_station" to "Пожарная часть", "amenity:place_of_worship" to "Храм",
         "amenity:theatre" to "Театр", "amenity:cinema" to "Кинотеатр", "amenity:townhall" to "Администрация", "amenity:marketplace" to "Рынок",
         "amenity:bus_station" to "Автовокзал", "amenity:car_wash" to "Автомойка", "amenity:veterinary" to "Ветклиника", "amenity:toilets" to "Туалет",
-        "amenity:charging_station" to "Зарядка электромобилей", "amenity:shelter" to "Укрытие", "amenity:community_centre" to "Дом культуры",
+        "amenity:charging_station" to "Зарядка электромобилей", "amenity:shelter" to "Навес / беседка", "amenity:community_centre" to "Дом культуры",
         "shop:supermarket" to "Супермаркет", "shop:convenience" to "Магазин у дома", "shop:mall" to "Торговый центр", "shop:clothes" to "Одежда",
         "shop:bakery" to "Пекарня", "shop:butcher" to "Мясной", "shop:hardware" to "Хозтовары", "shop:doityourself" to "Стройматериалы", "shop:electronics" to "Электроника",
         "shop:mobile_phone" to "Телефоны", "shop:car_repair" to "Автосервис", "shop:car" to "Автосалон", "shop:hairdresser" to "Парикмахерская", "shop:beauty" to "Салон красоты",
@@ -62,6 +62,15 @@ object MapNames {
     )
     fun kind(k: String): String = M[k] ?: OMT[k.substringAfter(':')] ?: CLASS[k.substringBefore(':')] ?: ""
     /** Вид объекта по тегу OSM: сначала точное «ключ:значение», потом по значению (лавочка, урна…), потом общий класс. */
+    fun label(key: String, value: String, shelterType: String?): String = when {
+        key == "amenity" && value == "shelter" -> when (shelterType) {
+            "bomb_shelter", "basement", "bunker" -> "Укрытие (бомбоубежище)"
+            "public_transport" -> "Остановочный павильон"
+            "gazebo", "pavilion", "picnic_shelter", "weather_shelter", "rock_shelter", "lean_to", null, "" -> "Навес / беседка"
+            else -> "Навес"
+        }
+        else -> label(key, value)
+    }
     fun label(key: String, value: String): String = M["$key:$value"] ?: OMT[value] ?: value.replace('_', ' ').replaceFirstChar { it.uppercase() }
     fun omt(cls: String?, sub: String?): String = (sub?.let { OMT[it] } ?: cls?.let { OMT[it] } ?: sub?.replace('_', ' ') ?: cls?.replace('_', ' ') ?: "").replaceFirstChar { it.uppercase() }
 }

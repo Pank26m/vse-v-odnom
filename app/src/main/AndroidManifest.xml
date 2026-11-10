@@ -144,6 +144,13 @@
             </intent-filter>
         </activity>
 
+        <!-- плеер кино из Telegram: сразу горизонтально и без пересоздания при повороте -->
+        <activity
+            android:name=".ui.movies.TgPlayerActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode"
+            android:theme="@style/Theme.App" />
         <activity
             android:name=".alarm.AlarmActivity"
             android:exported="false"

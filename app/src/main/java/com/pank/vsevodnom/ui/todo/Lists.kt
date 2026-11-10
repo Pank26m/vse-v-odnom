@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.pank.vsevodnom.data.TgFilms
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -158,7 +159,8 @@ fun MoviesPage(onBack: () -> Unit) {
                             if (m.poster.isNotBlank()) AppImage(m.poster, Modifier.fillMaxWidth().aspectRatio(2f / 3f), maxPx = 500, radius = 10.dp)
                             else Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Pal.Lilac), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, tint = Pal.LilacInk) }
                             Box(Modifier.align(Alignment.TopEnd).padding(4.dp)) { StatusBadge(m.status) }
-                            if (m.link.contains("t.me", true) || m.link.startsWith("tg:")) Box(Modifier.align(Alignment.TopStart).padding(4.dp)) { TelegramBadge(22.dp) }
+                            if (remember(m.title) { TgFilms.match(ctx, m.title) } != null) Box(Modifier.align(Alignment.TopStart).padding(4.dp).size(24.dp).clip(CircleShape).background(Color(0xE62AABEE)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PlayArrow, "Есть в канале", tint = Color.White, modifier = Modifier.size(16.dp)) }
+                            else if (m.link.contains("t.me", true) || m.link.startsWith("tg:")) Box(Modifier.align(Alignment.TopStart).padding(4.dp)) { TelegramBadge(22.dp) }
                             else if (m.link.isNotBlank()) Box(Modifier.align(Alignment.TopStart).padding(4.dp).size(22.dp).clip(CircleShape).background(Color(0xCC2AABEE)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Link, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
                             if (m.favorite) Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).size(24.dp).clip(CircleShape).background(Color(0xCCFFFFFF)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Favorite, "Избранное", tint = Color(0xFFE5486A), modifier = Modifier.size(16.dp)) }
                         }
@@ -339,7 +341,19 @@ private fun MovieEditor(m0: MediaItem, onDone: () -> Unit) {
                         }
                     }
                 }
-                TelegramLink(m.link, editing = linkEdit || m.link.isBlank(), onEdit = { linkEdit = true }, onChange = { m = m.copy(link = it) },
+                // есть в канале «Кино» — смотреть прямо здесь, плеером Telegram
+                val tgTitle = remember(m.title, info?.original) { TgFilms.match(ctx, m.title, info?.original) }
+                tgTitle?.let { tt ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF2AABEE), Color(0xFF6A55A8))))
+                        .clickable { runCatching { ctx.startActivity(com.pank.vsevodnom.ui.movies.tgPlayIntent(ctx, tt)) } }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.PlayCircle, null, tint = Color.White, modifier = Modifier.size(34.dp))
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text("Смотреть онлайн", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                            Text("из канала «${TgFilms.chat(ctx)?.title ?: "Кино"}»" + if (tt.series) " · ${tt.seasons.size} сез., ${tt.items.size} сер." else "", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+                        }
+                    }
+                }
+                if (tgTitle == null || m.link.isNotBlank()) TelegramLink(m.link, editing = linkEdit || m.link.isBlank(), onEdit = { linkEdit = true }, onChange = { m = m.copy(link = it) },
                     onConfirm = { linkEdit = false; if (m0.id != 0L && m.link.isNotBlank()) AppScope.io.launch { AppDb.get(ctx).todo().upsertMedia(m.copy(link = m.link.trim())) } },
                     onRemove = { m = m.copy(link = ""); linkEdit = true }, onOpen = { open(m.link) })
                 info?.let { i ->

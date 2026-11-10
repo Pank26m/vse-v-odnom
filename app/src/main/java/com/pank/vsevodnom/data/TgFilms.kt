@@ -117,12 +117,31 @@ object TgFilms {
         else -> null
     }
 
+    // ---------- связь со списком «Фильмы» ----------
+    @Volatile private var cache: Pair<Long, List<Title>>? = null
+    /** Сериалы и фильмы канала «Кино» (из сохранённого списка, без запросов к Telegram). */
+    fun titles(ctx: Context): List<Title> {
+        val c = chat(ctx) ?: return emptyList()
+        cache?.takeIf { it.first == c.id }?.let { return it.second }
+        return group(load(ctx, c.id)).also { cache = c.id to it }
+    }
+    fun invalidate() { cache = null }
+
+    /** Этот фильм/сериал из списка «Фильмы» — есть ли он в канале: по названию (рус/ориг.), без регистра и знаков. */
+    fun match(ctx: Context, vararg names: String?): Title? {
+        val keys = names.filterNotNull().map { key(clean(it)) }.filter { it.length >= 3 }
+        if (keys.isEmpty()) return null
+        val all = titles(ctx)
+        return all.firstOrNull { it.key in keys } ?: all.firstOrNull { t -> keys.any { k -> t.key.startsWith(k) || (t.key.length >= 5 && k.startsWith(t.key)) } }
+    }
+
     // ---------- хранение списка ----------
     private fun indexFile(ctx: Context, chatId: Long) = File(ctx.filesDir, "tg/index_$chatId.json")
     fun load(ctx: Context, chatId: Long): List<Entry> = runCatching {
         val a = JSONArray(indexFile(ctx, chatId).readText()); (0 until a.length()).map { Entry.of(a.getJSONObject(it)) }
     }.getOrDefault(emptyList())
     fun save(ctx: Context, chatId: Long, l: List<Entry>) = runCatching {
+        cache = null
         indexFile(ctx, chatId).apply { parentFile?.mkdirs() }.writeText(JSONArray().apply { l.forEach { put(it.toJson()) } }.toString())
     }
 
