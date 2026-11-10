@@ -308,6 +308,7 @@ private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: We
     var eventOpen by remember { mutableStateOf<Agenda?>(null) }
     var review by remember { mutableStateOf(false) }
     var tomorrow by remember { mutableStateOf(false) }
+    var agTick by remember { mutableIntStateOf(0) }
     var holTick by remember { mutableIntStateOf(0) }
     val holTickOuter = holTick
 
@@ -354,10 +355,26 @@ private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: We
         bdays.filter { bdTick >= 0 && !com.pank.vsevodnom.ui.todo.BdayDone.isDone(ctx, it.id) }.forEach { b ->
             key("b${b.id}") { com.pank.vsevodnom.ui.todo.BirthdayRow(b, today, onOpen = { com.pank.vsevodnom.ui.todo.TodoNav.target = "bday:${b.id}"; open("todo") }) { bdTick++ } }
         }
-        agendaLeft.forEach { a ->
+        // пары и события календаря — с кружком «сделано»: отмеченное прячется (пары — общая отметка с «Задачами»)
+        @Suppress("UNUSED_EXPRESSION") agTick
+        agendaLeft.filter { !AgendaDone.isDone(ctx, it) }.forEach { a ->
             val r = a.row()
-            SummaryRow(if (a is Agenda.Pair) Icons.Rounded.School else Icons.Rounded.Event, r.title, listOf(r.time.replace('\n', '–'), r.sub).filter { it.isNotBlank() }.joinToString(" · "), Pal.Lilac, Color(r.color)) {
-                eventOpen = a
+            val work = a is Agenda.Sys && a.isWork
+            key("ag" + AgendaDone.key(a)) {
+                com.pank.vsevodnom.ui.todo.Leaving(AgendaDone.key(a), onLeft = { AgendaDone.mark(ctx, a); agTick++ }) { done, leave ->
+                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { eventOpen = a }.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(if (work) Pal.Peach else Pal.Lilac), contentAlignment = Alignment.Center) {
+                            Icon(when { a is Agenda.Pair -> Icons.Rounded.School; work -> Icons.Rounded.Work; else -> Icons.Rounded.Event }, null, tint = if (work) Pal.PeachInk else Color(r.color), modifier = Modifier.size(22.dp))
+                        }
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(r.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                            Text(listOf(r.time.replace('\n', '–'), if (work) "рабочее задание" else "", r.sub).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                        }
+                        com.pank.vsevodnom.ui.todo.CheckDivider()
+                        com.pank.vsevodnom.ui.todo.CheckCircle(done, com.pank.vsevodnom.ui.todo.CHECK_GREY, com.pank.vsevodnom.ui.todo.CHECK_SIZE) { leave() }
+                    }
+                }
             }
         }
         todayTasks.forEach { t ->
@@ -453,6 +470,28 @@ private fun MoodCheckIn() {
             Spacer(Modifier.height(8.dp))
             com.pank.vsevodnom.ui.life.MoodPicker({ lvl -> if (level == null) { level = lvl; leave() } }, selected = level)
         }
+    }
+}
+
+/**
+ * «Сделано» у пар и событий календаря в сводке: пара — в том же наборе, что и в «Задачах» (prefs tasks/lesson_done),
+ * событие (своё или из Google Календаря) — по id и дню (prefs home/agenda_done, хранится 2 недели).
+ */
+object AgendaDone {
+    fun key(a: Agenda): String = when (a) {
+        is Agenda.Pair -> "p:${a.l.id}"
+        is Agenda.Own -> "o:${a.e.id}:${a.date.toEpochDay()}"
+        is Agenda.Sys -> "s:${a.id}:${a.date.toEpochDay()}"
+    }
+    private fun tp(ctx: Context) = ctx.getSharedPreferences("tasks", Context.MODE_PRIVATE)
+    private fun hp(ctx: Context) = ctx.getSharedPreferences("home", Context.MODE_PRIVATE)
+    fun isDone(ctx: Context, a: Agenda): Boolean =
+        if (a is Agenda.Pair) "${a.l.id}" in tp(ctx).getStringSet("lesson_done", emptySet())!! else key(a) in hp(ctx).getStringSet("agenda_done", emptySet())!!
+    fun mark(ctx: Context, a: Agenda) {
+        if (a is Agenda.Pair) { tp(ctx).edit().putStringSet("lesson_done", tp(ctx).getStringSet("lesson_done", emptySet())!! + "${a.l.id}").apply(); return }
+        val today = LocalDate.now().toEpochDay()
+        val keep = hp(ctx).getStringSet("agenda_done", emptySet())!!.filter { (it.substringAfterLast(':').toLongOrNull() ?: 0) > today - 14 }.toSet()
+        hp(ctx).edit().putStringSet("agenda_done", keep + key(a)).apply()
     }
 }
 

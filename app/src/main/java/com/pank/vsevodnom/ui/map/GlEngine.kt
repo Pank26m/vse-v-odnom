@@ -75,39 +75,37 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             MapStyle.Variant.BIKE -> { m["Style"] = "Outdoor"; m["SubStyle"] = "Bike" }
         }
         for ((k, g) in MapStyle.GROUPS) if (k !in o.hidden) m[g.option] = "1"
-        for ((k, g) in MapStyle.ROUTE_GROUPS) if (k in o.hidden) m[g.option] = "1"
-        if (patched) for ((k, g) in MapStyle.LABEL_GROUPS) if (k in o.hidden) m[g.option] = "1"
         return m
     }
 
     /** Ресурсы стиля: наши сервисные значки, свои опции в relations.mapcss, остальное — стандартный стиль GLMap. */
     private fun resource(name: String): ByteArray? {
         MapStyle.SERVICE_SVG[name]?.let { serviceSvg(it)?.let { svg -> return svg.toByteArray() } }
-        if (name == "hide_user.mapcss") return MapStyle.HIDE_CSS.toByteArray()
+        if (name == "hide_user.mapcss") return MapStyle.hideCss(curHidden).toByteArray()
         val raw = asset("DefaultStyle.bundle/$name") ?: asset(name) ?: return null
         if (name == "relations.mapcss") return patchRelations(String(raw)).toByteArray()
         if (name == "Style.mapcss" && patched) return (String(raw) + "\n@import \"hide_user.mapcss\";\n").toByteArray()
         return raw
     }
 
-    /** Пешие и вело маршруты OSM — под своими опциями «скрыть» (HideHiking / HideBike). */
+    /**
+     * Пешие и вело маршруты, линии метро: если группа скрыта — её блок просто вырезаем из relations.mapcss.
+     * (Условия «@if СвояОпция» движок GLMap не понимает — в 0.29 из-за этого метро и подписи пропадали всегда.)
+     */
     private fun patchRelations(src: String): String {
         var s = src
-        // линии метро (цветные, из отношений) — под опцией HideMetro
-        if (patched) {
+        val hid = curHidden
+        if (patched && "metro" in hid) {
             val sel = s.indexOf("relation[route=subway]")
             val start = if (sel >= 0) s.lastIndexOf("@if SubStyle != Car", sel) else -1
             val end = if (sel >= 0) s.indexOf("@endif", sel) else -1
-            if (start >= 0 && end > sel) {
-                val head = start + "@if SubStyle != Car".length
-                s = s.substring(0, head) + "\n@if !HideMetro" + s.substring(head, end) + "@endif\n" + s.substring(end)
-            }
+            if (start >= 0 && end > sel) s = s.substring(0, start + "@if SubStyle != Car".length) + "\n" + s.substring(end)
         }
-        for ((cond, opt) in listOf("@if SubStyle == Hike" to "HideHiking", "@if SubStyle == Bike" to "HideBike")) {
+        for ((cond, key) in listOf("@if SubStyle == Hike" to "hike", "@if SubStyle == Bike" to "bike")) {
+            if (key !in hid) continue
             val i = s.indexOf(cond); if (i < 0) continue
             val e = s.indexOf("@endif", i); if (e < 0) continue
-            s = s.substring(0, e) + "@endif\n" + s.substring(e)
-            s = s.substring(0, i + cond.length) + "\n@if !$opt" + s.substring(i + cond.length)
+            s = s.substring(0, i + cond.length) + "\n" + s.substring(e)
         }
         return s
     }
@@ -126,6 +124,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
 
     /** Подключены ли наши правила скрытия (hide_user.mapcss, метро в relations). */
     private var patched = true
+    private var curHidden: Set<String> = emptySet()
     private var relief: ReliefTileSource? = null
     private var extraOverlays: List<GLMapTileSource> = emptyList()
     private var reliefWanted = true
@@ -166,7 +165,8 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
                 p.parseFromResources()?.use { st -> r.setStyle(st); true } ?: false
             }
         }.getOrDefault(false)
-        // свои правила скрытия подписей/метро; если стиль с ними не разобрался — без них (карта важнее)
+        // свои правила скрытия подписей/метро — только для выключенных групп; если стиль с ними не разобрался — без них (карта важнее)
+        curHidden = o.hidden
         patched = true
         var ok = parse()
         if (!ok) { patched = false; ok = parse() }
@@ -567,7 +567,9 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             }
             val cb = clusterBitmap(density)
             val clusterStyle = styles.addStyle(GLMapMarkerImage("cluster", cb, android.graphics.Point(cb.width / 2, cb.height / 2)))
-            val txtOffset = android.graphics.Point(0, -(14 * density).toInt())
+            // смещение подписи — в точках (dp), не в пикселях: раньше умножали на плотность и подпись уезжала на палец ниже значка
+            val txtBig = android.graphics.Point(0, -13)      // значок с иконкой 26 dp → радиус 13
+            val txtSmall = android.graphics.Point(0, -9)     // точка 17 dp
             styles.setDataCallback(object : GLMapMarkerStyleCollectionDataCallback() {
                 override fun getLocation(marker: Any) = (marker as OvPlace).let { mp(it.lat, it.lon) }
                 override fun fillUnionData(markersCount: Int, nativeMarker: Long) {
@@ -577,7 +579,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
                 override fun fillData(marker: Any, nativeMarker: Long) {
                     val p = marker as OvPlace
                     GLMapMarkerStyleCollection.setMarkerStyle(nativeMarker, index["${p.color}|${p.icon}"] ?: 0)
-                    if (labelsOn && p.name.isNotBlank()) GLMapMarkerStyleCollection.setMarkerText(nativeMarker, p.name, GLMapTextAlignment.Bottom, txtOffset, markerText)
+                    if (labelsOn && p.name.isNotBlank()) GLMapMarkerStyleCollection.setMarkerText(nativeMarker, p.name, GLMapTextAlignment.Bottom, if (p.icon.isNotBlank()) txtBig else txtSmall, markerText)
                 }
             })
             // без группировки (владелец попросил): каждая метка на своём месте

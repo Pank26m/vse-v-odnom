@@ -126,9 +126,9 @@ fun WeatherScreen(onBack: () -> Unit) {
         else locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }
 
-    val selDay = data?.days?.getOrNull(dayIdx)
-    val scene = data?.let { wmo(if (dayIdx > 0 && selDay != null) selDay.code else it.code).second } ?: Scene.CLOUDY
-    val isDay = if (dayIdx > 0) true else data?.isDay ?: true
+    val selDay = data?.dayAt(dayIdx)
+    val scene = data?.let { wmo(if (dayIdx != 0 && selDay != null) selDay.code else it.code).second } ?: Scene.CLOUDY
+    val isDay = if (dayIdx != 0) true else data?.isDay ?: true
 
     LazyColumn(Modifier.fillMaxSize().background(Pal.Bg), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
@@ -156,7 +156,7 @@ fun WeatherScreen(onBack: () -> Unit) {
                         )
                     }
                     if (data != null) {
-                        val day = data.days.getOrNull(dayIdx)
+                        val day = data.dayAt(dayIdx)
                         if (dayIdx == 0 || day == null) {
                             Text(fmtT(data.temp), style = MaterialTheme.typography.displayLarge.copy(fontSize = 96.sp, letterSpacing = (-5).sp))
                             Text("Ощущается как ${fmtT(data.feels)}", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = Color(0xFF2E4F78))
@@ -202,7 +202,7 @@ fun WeatherScreen(onBack: () -> Unit) {
             if (error != null && data != null && com.pank.vsevodnom.data.Net.online) Text("$error — показаны сохранённые данные", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp, 8.dp))
         }
         if (data != null) {
-            val date = data.days.getOrNull(dayIdx)?.date ?: LocalDate.now()
+            val date = data.dayAt(dayIdx)?.date ?: LocalDate.now()
             item { DaySwitcher(data, dayIdx) { dayIdx = it } }
             tipsFor(data, date).takeIf { it.isNotEmpty() }?.let { t -> item { TipsCard(t) } }
             item { HourlyCard(data, date) }
@@ -278,7 +278,7 @@ private fun MiniIcon(scene: Scene, isDay: Boolean) = WeatherGlyph(scene, isDay, 
 
 @Composable
 private fun StatsGrid(d: WeatherData, dayIdx: Int) {
-    val day = d.days.getOrNull(dayIdx) ?: return
+    val day = d.dayAt(dayIdx) ?: return
     val hrs = d.allHours.filter { it.time.toLocalDate() == day.date }
     val now = dayIdx == 0
     val wind = if (now) d.windMs else day.windMax ?: hrs.mapNotNull { it.wind }.maxOrNull() ?: 0.0
@@ -315,12 +315,13 @@ private fun Stat(label: String, value: String, note: String, modifier: Modifier,
 @Composable
 private fun DaySwitcher(d: WeatherData, idx: Int, onIdx: (Int) -> Unit) {
     val max = minOf(6, d.days.size - 1)
-    val day = d.days.getOrNull(idx) ?: return
+    val day = d.dayAt(idx) ?: return
+    val min = if (d.yesterday != null) -1 else 0
     val nudge by rememberInfiniteTransition(label = "arr").animateFloat(0f, 5f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "n")
     Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp, 16.dp, 0.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton({ if (idx > 0) onIdx(idx - 1) }, enabled = idx > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Предыдущий день", Modifier.offset(x = if (idx > 0) (-nudge).dp else 0.dp)) }
+        IconButton({ if (idx > min) onIdx(idx - 1) }, enabled = idx > min) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Предыдущий день", Modifier.offset(x = if (idx > min) (-nudge).dp else 0.dp)) }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(when (idx) { 0 -> "Сегодня"; 1 -> "Завтра"; else -> day.date.dayOfWeek.getDisplayName(TextStyle.FULL, RU).replaceFirstChar { it.uppercase() } },
+            Text(when (idx) { -1 -> "Вчера"; 0 -> "Сегодня"; 1 -> "Завтра"; else -> day.date.dayOfWeek.getDisplayName(TextStyle.FULL, RU).replaceFirstChar { it.uppercase() } },
                 style = MaterialTheme.typography.titleMedium)
             Text("${day.date.dayOfMonth} ${day.date.month.getDisplayName(TextStyle.FULL, RU).let { m -> listOf("января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря")[day.date.monthValue - 1] }}",
                 style = MaterialTheme.typography.bodySmall)
@@ -336,16 +337,6 @@ private fun DailyCard(d: WeatherData, selected: Int, onDay: (Int) -> Unit) {
     val span = (hi - lo).coerceAtLeast(1.0)
     AppCard(modifier = Modifier.fillMaxWidth().padding(16.dp, 12.dp, 16.dp, 12.dp), padding = 16.dp) {
         SectionLabel("На 7 дней")
-        d.yesterday?.let { y ->
-            Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Вчера", style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, modifier = Modifier.width(86.dp))
-                MiniIcon(wmo(y.code).second, true)
-                Text(if ((y.precipSum ?: 0.0) >= 0.5) "%.0f мм".format(y.precipSum) else "", style = MaterialTheme.typography.labelMedium, color = Pal.Muted, modifier = Modifier.width(34.dp))
-                Text(fmtT(y.tMin), style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, modifier = Modifier.width(38.dp))
-                Spacer(Modifier.weight(1f))
-                Text(fmtT(y.tMax), style = MaterialTheme.typography.bodyLarge, color = Pal.Muted, modifier = Modifier.width(38.dp))
-            }
-        }
         Spacer(Modifier.height(4.dp))
         d.days.forEachIndexed { i, day ->
             val name = when (day.date) {
@@ -498,7 +489,7 @@ fun HumidityDrop(h: Int, modifier: Modifier) {
 /** Дуга солнца: восход, закат и где солнце сейчас. */
 @Composable
 private fun SunCard(d: WeatherData, dayIdx: Int) {
-    val day = d.days.getOrNull(dayIdx) ?: return
+    val day = d.dayAt(dayIdx) ?: return
     val rise = runCatching { java.time.LocalTime.parse(day.sunrise) }.getOrNull() ?: return
     val set = runCatching { java.time.LocalTime.parse(day.sunset) }.getOrNull() ?: return
     val now = if (dayIdx == 0) d.hours.firstOrNull()?.time?.toLocalTime() ?: java.time.LocalTime.now() else java.time.LocalTime.of(0, 0)
@@ -614,3 +605,6 @@ fun VisibilityIcon(m: Double, modifier: Modifier) {
         drawCircle(Pal.SkyInk.copy(alpha = 0.3f + 0.6f * k), w * 0.14f, center)
     }
 }
+
+/** День по номеру: −1 — вчера (листается стрелкой «‹» от «Сегодня»), 0 — сегодня, дальше — прогноз. */
+internal fun WeatherData.dayAt(i: Int) = if (i == -1) yesterday else days.getOrNull(i)

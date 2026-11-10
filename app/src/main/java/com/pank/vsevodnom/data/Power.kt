@@ -162,6 +162,7 @@ data class Holiday(val date: LocalDate, val name: String, val kind: String)
 object Holidays {
     const val STATE = "державне свято"; const val MEMO = "пам'ятна дата"; const val CHURCH = "церковне свято"
     const val INTL = "міжнародний день"; const val FOLK = "народне свято"; const val PROF = "професійне свято"
+    const val BUILD = "будівельне свято"
 
     private fun orthodoxEaster(y: Int): LocalDate {
         val a = y % 4; val b = y % 7; val c = y % 19
@@ -230,6 +231,17 @@ object Holidays {
             Holiday(d(12, 24), "Святвечір", CHURCH),
             Holiday(d(12, 25), "Різдво Христове", STATE),
             Holiday(d(12, 31), "Переддень Нового року", FOLK),
+            // будівельні та суміжні (КНУБА)
+            Holiday(nth(y, 8, 2, sun), "День будівельника України", BUILD),
+            Holiday(d(7, 1), "День архітектури України", BUILD),
+            Holiday(nth(y, 10, 1, java.time.DayOfWeek.MONDAY), "Всесвітній день архітектури", BUILD),
+            Holiday(nth(y, 3, 2, sun), "День працівників геодезії та картографії", BUILD),
+            Holiday(nth(y, 3, 3, sun), "День працівників житлово-комунального господарства", BUILD),
+            Holiday(nth(y, 11, 3, sun), "День працівників дорожнього господарства", BUILD),
+            Holiday(nth(y, 4, 2, sun), "День працівників землевпорядкування", BUILD),
+            Holiday(nth(y, 9, 3, sun), "День винахідника і раціоналізатора", BUILD),
+            Holiday(d(12, 14), "День вшанування учасників ліквідації наслідків аварії на ЧАЕС", MEMO),
+            Holiday(d(3, 4), "Всесвітній день інженера", BUILD),
         ).sortedBy { it.date }
     }
 

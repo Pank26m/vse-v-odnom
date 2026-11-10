@@ -161,8 +161,10 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             val nm = t.props["name_tag"] ?: t.props["name"]
             if (nm != null && !t.name.contains(" без названия")) scope.launch {
                 val all = Streets.whole(nm, t.lat, t.lon, t.name)
-                if (all.size > (f.lines?.size ?: 0) && target == tt) {
-                    eng.setHighlight(all)
+                // сравниваем по длине, а не по числу кусков: GLMap режет отрезок по границам тайлов на несколько частей
+                fun len(l: List<List<GeoPt>>) = l.sumOf { p -> p.zipWithNext { a, b -> Osm.distance(a, b) }.sum() }
+                if (all.isNotEmpty() && len(all) > len(f.lines.orEmpty()) * 1.05 && target?.name == tt.name && target?.props?.get("kind") == "street") {
+                    eng.setHighlight(all + f.lines.orEmpty())
                     // середина всей улицы — для маршрута и сведений
                     val pts = all.flatten(); val c = pts[pts.size / 2]
                     target = tt.copy(lat = c.lat, lon = c.lon, props = tt.props + ("whole" to "1"))

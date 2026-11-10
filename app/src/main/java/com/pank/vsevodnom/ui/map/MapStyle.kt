@@ -56,27 +56,16 @@ object MapStyle {
         "l_countries" to Group("Названия стран и областей", "world", 0xFF5C6BC0.toInt(), "HideCountries"),
         "metro" to Group("Метро: линии, станции, входы", "train", 0xFFE53935.toInt(), "HideMetro"),
     )
-    /** Правила скрытия: применяются последними и перекрывают стандартный стиль. */
-    const val HIDE_CSS = """
-@if HideDistricts
-node, area { [place=suburb], [place=quarter], [place=neighbourhood], [place=city_block], [place=locality], [place=borough] { text: none; } }
-@endif
-@if HideStreets
-line { [highway] { text: none; } }
-area { [highway=pedestrian], [highway=footway], [place=square] { text: none; } }
-@endif
-@if HideWaterNames
-node, area { [natural=water], [water], [waterway], [place=sea], [place=ocean], [place=bay], [natural=bay], [natural=strait] { text: none; } }
-line { [waterway] { text: none; } }
-@endif
-@if HideCountries
-node, area { [place=country], [place=state], [place=region], [place=province] { text: none; } }
-@endif
-@if HideMetro
-node, area { [station=subway], [railway=subway_entrance] { icon-image: none; text: none; } }
-line { [railway=subway] { width: none; dashes-width: none; } }
-@endif
-"""
+    /** Правила скрытия по группам: в стиль попадают только правила выключенных групп (последними — перекрывают стандартный). */
+    private val HIDE_RULES = mapOf(
+        "l_districts" to "node, area { [place=suburb], [place=quarter], [place=neighbourhood], [place=city_block], [place=locality], [place=borough] { text: none; } }",
+        "l_streets" to "line { [highway] { text: none; } }\narea { [highway=pedestrian], [highway=footway], [place=square] { text: none; } }",
+        "l_water" to "node, area { [natural=water], [water], [waterway], [place=sea], [place=ocean], [place=bay], [natural=bay], [natural=strait] { text: none; } }\nline { [waterway] { text: none; } }",
+        "l_countries" to "node, area { [place=country], [place=state], [place=region], [place=province] { text: none; } }",
+        "metro" to "node, area { [station=subway], [railway=subway_entrance] { icon-image: none; text: none; } }\nline { [railway=subway] { width: none; dashes-width: none; } }",
+    )
+    fun hideCss(hidden: Set<String>): String = HIDE_RULES.filterKeys { it in hidden }.values.joinToString("\n", postfix = "\n")
+
     /** По умолчанию маршруты из OSM скрыты (владельцу почти всегда не нужны). */
     val DEFAULT_HIDDEN = setOf("hike", "bike")
 

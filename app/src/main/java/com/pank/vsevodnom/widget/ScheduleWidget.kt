@@ -39,6 +39,14 @@ fun dayTitle(d: LocalDate): String {
 /** Строки для виджета/списков: время, заголовок, подпись, цвет полоски. */
 data class AgendaRow(val time: String, val title: String, val sub: String, val color: Int)
 
+/** «09:00\n11:00» — начало и конец (конец не показываем, если совпадает или событие без длительности). */
+private fun span(a: Long, b: Long): String {
+    val z = ZoneId.systemDefault()
+    val s = Instant.ofEpochMilli(a).atZone(z).toLocalTime().format(HM)
+    if (b <= a) return s
+    return s + "\n" + Instant.ofEpochMilli(b).atZone(z).toLocalTime().format(HM)
+}
+
 fun Agenda.row(): AgendaRow = when (this) {
     is Agenda.Pair -> AgendaRow(
         "${l.start}\n${l.end}",
@@ -48,11 +56,11 @@ fun Agenda.row(): AgendaRow = when (this) {
         Tints.all[tint % Tints.all.size].ink.toArgb()
     )
     is Agenda.Own -> AgendaRow(
-        if (e.allDay) "весь день" else Instant.ofEpochMilli(e.startMillis).atZone(ZoneId.systemDefault()).toLocalTime().format(HM),
+        if (e.allDay) "весь день" else span(e.startMillis, e.endMillis),
         e.title, e.note, Tints.all[e.tint % Tints.all.size].ink.toArgb()
     )
     is Agenda.Sys -> AgendaRow(
-        if (allDay) "весь день" else Instant.ofEpochMilli(begin).atZone(ZoneId.systemDefault()).toLocalTime().format(HM),
+        if (allDay) "весь день" else span(begin, end),
         title, listOf(location.ifBlank { null }, calendar.ifBlank { null }).filterNotNull().joinToString(" · "),
         color or 0xFF000000.toInt()
     )

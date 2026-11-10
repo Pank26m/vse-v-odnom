@@ -42,7 +42,11 @@ sealed class Agenda {
     data class Sys(
         val id: Long, val title: String, val begin: Long, val end: Long, val allDay: Boolean,
         val color: Int, val calendar: String, val location: String, override val date: LocalDate,
+        /** Кто создал / чей календарь — для «рабочих заданий» (почта orenda@ppbud.info). */
+        val organizer: String = "",
     ) : Agenda() {
+        /** Рабочее задание: событие из рабочей почты (ppbud.info). */
+        val isWork get() = organizer.contains("ppbud.info", true) || calendar.contains("ppbud.info", true)
         override val sortKey: LocalDateTime
             get() = if (allDay) date.atStartOfDay() else
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(begin), ZoneId.systemDefault()).let { if (it.toLocalDate() < date) date.atStartOfDay() else it }
@@ -70,7 +74,7 @@ object CalendarRepo {
             CalendarContract.Instances.BEGIN, CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY, CalendarContract.Instances.DISPLAY_COLOR,
             CalendarContract.Instances.CALENDAR_DISPLAY_NAME, CalendarContract.Instances.EVENT_LOCATION,
-            CalendarContract.Instances.OWNER_ACCOUNT,
+            CalendarContract.Instances.OWNER_ACCOUNT, CalendarContract.Instances.ORGANIZER,
         )
         val out = ArrayList<Agenda.Sys>()
         runCatching {
@@ -88,7 +92,8 @@ object CalendarRepo {
                     while (!d.isAfter(minOf(d1, toInclusive))) {
                         out += Agenda.Sys(
                             c.getLong(0), c.getString(1) ?: "(без названия)", begin, endMs, allDay,
-                            c.getInt(5), c.getString(6) ?: "", c.getString(7) ?: "", d
+                            c.getInt(5), c.getString(6) ?: "", c.getString(7) ?: "", d,
+                            listOfNotNull(c.getString(9), c.getString(8)).joinToString(" ")
                         )
                         d = d.plusDays(1)
                     }
