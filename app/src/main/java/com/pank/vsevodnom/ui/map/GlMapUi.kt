@@ -248,6 +248,17 @@ internal fun KeysPage(onChanged: () -> Unit, onBack: () -> Unit) {
                     Toast.makeText(ctx, if (GlMap.ready) "Сохранено. Новый ключ заработает после перезапуска приложения" else "Сохранено", Toast.LENGTH_SHORT).show()
                 }, Modifier.fillMaxWidth())
             }
+            ServiceCard("Telegram · кино", Icons.Rounded.PlayCircle, "https://my.telegram.org/apps") {
+                var tgId by remember { mutableStateOf(com.pank.vsevodnom.data.Tg.apiId(ctx)?.toString().orEmpty()) }
+                var tgHash by remember { mutableStateOf(com.pank.vsevodnom.data.Tg.apiHash(ctx)) }
+                AppTextField(tgId, { tgId = it.filter(Char::isDigit) }, "api_id")
+                AppTextField(tgHash, { tgHash = it.trim() }, "api_hash")
+                Text("Для «Кино · Telegram» (ToDo → Фильмы): смотреть фильмы из своего канала онлайн.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                PillButton("Сохранить ключи Telegram", {
+                    com.pank.vsevodnom.data.Tg.setKeys(ctx, tgId, tgHash); com.pank.vsevodnom.data.Tg.restart(ctx)
+                    Toast.makeText(ctx, "Сохранено", Toast.LENGTH_SHORT).show()
+                }, Modifier.fillMaxWidth())
+            }
             ServiceCard("Google Places", Icons.Rounded.Cloud, "https://console.cloud.google.com/apis/credentials") {
                 AppTextField(google, { google = it }, "Ключ API (AIza…)")
                 AppTextField(gLimit, { gLimit = it.filter(Char::isDigit) }, "Запросов в день (рекомендую 150)")

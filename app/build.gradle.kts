@@ -80,6 +80,10 @@ dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.github.junrar:junrar:7.5.5")
     // GLMap (движок Guru Maps): карта с 3D-рельефом, офлайн-данные, поиск объекта под пальцем. Ключ — в «Ключах и сервисах».
+    // кино из Telegram: TDLib (вход, канал, потоковая загрузка) + плеер Media3
+    implementation("com.github.tdlibx:td:1.8.56")
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
     implementation("globus:glmap:2.3.0")
     implementation("globus:glsearch:2.3.0")
     implementation("globus:glroute:2.3.0")

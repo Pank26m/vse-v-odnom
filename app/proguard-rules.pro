@@ -18,3 +18,6 @@
 # libarchive (RAR5/7z): нативный код вызывает Java-классы по имени
 -keep class me.zhanghai.android.libarchive.** { *; }
 
+
+# TDLib: JNI создаёт объекты TdApi по имени
+-keep class org.drinkless.tdlib.** { *; }

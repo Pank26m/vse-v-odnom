@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -121,6 +122,8 @@ fun MoviesPage(onBack: () -> Unit) {
         4 -> l.sortedByDescending { it.year.take(4).toIntOrNull() ?: 0 }
         else -> l.sortedWith(compareBy({ it.status == 2 }, { -it.addedAt }))
     } }
+    var cinema by remember { mutableStateOf(false) }
+    if (cinema) { androidx.activity.compose.BackHandler { cinema = false }; com.pank.vsevodnom.ui.movies.TgCinemaScreen { cinema = false }; return }
     Box(Modifier.fillMaxSize()) {
         ScreenScaffold("Фильмы и сериалы", onBack, actions = {
             Box {
@@ -136,6 +139,18 @@ fun MoviesPage(onBack: () -> Unit) {
                 listOf("Все", "Фильмы", "Сериалы", "Хочу", "Посмотрел", "♥ Избранное").forEachIndexed { i, s -> Chip(s, filter == i, { filter = i }) }
             }
             LazyVerticalGrid(GridCells.Fixed(3), contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 96.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // кино из своего канала Telegram — смотреть онлайн
+                item(span = { GridItemSpan(3) }) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF2AABEE), Color(0xFF6A55A8)))).clickable { cinema = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.PlayCircle, null, tint = Color.White, modifier = Modifier.size(36.dp))
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text("Кино · Telegram", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                            Text("фильмы и сериалы из твоего канала — смотреть онлайн", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = Color.White)
+                    }
+                }
                 if (shown.isEmpty()) item(span = { GridItemSpan(3) }) { EmptyHint("Пусто. Нажми «+» и начни писать название — остальное подтянется само.") }
                 items(shown, key = { it.id }) { m ->
                     Column(Modifier.clip(RoundedCornerShape(10.dp)).clickable { edit = m }) {

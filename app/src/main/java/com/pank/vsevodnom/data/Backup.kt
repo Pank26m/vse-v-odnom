@@ -42,7 +42,7 @@ object Backup {
     /** Карты и кэши GLMap (скачиваются заново, сотни мегабайт) — в копию не кладём. */
     private val MAP_EXT = setOf("vm", "vmtar", "navtar", "eletar", "ele", "nav", "mbtiles", "rd5")
     private fun isMapData(f: File): Boolean = f.extension.lowercase() in MAP_EXT || f.name in setOf("tileCache.db", "elevationCache.db", "borders.cache") ||
-        f.path.contains("/files/raster/") || f.path.contains("/files/relief/") || f.path.contains("/files/brouter/") || f.path.contains("/files/vault_files/") || f.name.startsWith(".glmap-")
+        f.path.contains("/files/raster/") || f.path.contains("/files/relief/") || f.path.contains("/files/brouter/") || f.path.contains("/files/vault_files/") || f.path.contains("/files/tg/") || f.name.startsWith(".glmap-")
 
     /** Восстановление: заменяет текущие данные и перезапускает приложение. */
     suspend fun restore(ctx: Context, src: Uri) = withContext(Dispatchers.IO) {
