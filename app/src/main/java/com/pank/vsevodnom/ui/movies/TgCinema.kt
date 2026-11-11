@@ -337,3 +337,16 @@ fun tgPlayIntent(ctx: android.content.Context, t: TgFilms.Title): Intent {
     val list = if (t.series) order else listOf(resume)
     return TgPlayerActivity.intent(ctx, resume.chatId, list.map { it.msgId }, list.indexOf(resume).coerceAtLeast(0), t.name)
 }
+
+/** Перечитать канал «Кино» (кнопка «Обновить» в карточке фильма): true — список канала обновлён. */
+suspend fun refreshTgChannel(ctx: android.content.Context): Boolean {
+    val chat = TgFilms.chat(ctx) ?: return false
+    Tg.start(ctx)
+    var waited = 0
+    while (Tg.auth != Tg.Auth.READY && waited < 15_000) { if (Tg.auth == Tg.Auth.NO_KEYS) return false; kotlinx.coroutines.delay(300); waited += 300 }
+    if (Tg.auth != Tg.Auth.READY) return false
+    val l = runCatching { Tg.videos(chat.id).mapNotNull { TgFilms.entryOf(it) } }.getOrNull() ?: return false
+    withContext(Dispatchers.IO) { TgFilms.save(ctx, chat.id, l) }
+    TgFilms.invalidate()
+    return true
+}

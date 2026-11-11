@@ -50,6 +50,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBackIos
 import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.filled.ClearAll
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ToggleOff
 import androidx.compose.material.icons.filled.ToggleOn
@@ -172,6 +173,13 @@ fun ClipboardInputLayout(
                 text = stringRes(R.string.clipboard__header_title),
                 color = headerStyle.foreground.solidColor(context),
                 fontSize = headerStyle.fontSize.spSize(),
+            )
+            // «Набранное за сутки» — резервная копия того, что печатал (если текст пропал из поля)
+            FlorisIconButtonWithInnerPadding(
+                onClick = { com.goodwy.keyboard.vse.VseIme.action(context, "drafts") },
+                icon = Icons.Default.History,
+                iconColor = headerStyle.foreground.solidColor(context),
+                enabled = !deviceLocked,
             )
             FlorisIconButtonWithInnerPadding(
                 onClick = { prefs.clipboard.historyEnabled.set(!historyEnabled) },

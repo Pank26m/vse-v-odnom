@@ -35,7 +35,7 @@ import java.io.File
  */
 object VseIme {
     /** Версия кода клавиатуры — видна в шапке панели и при первом показе после обновления. */
-    const val CODE = "0.40"
+    const val CODE = "0.41"
 
     /** Короткое сообщение в верхней панели на 3 секунды. */
     fun flash(t: String) { status.value = t; scope.launch { kotlinx.coroutines.delay(3000); if (status.value == t) status.value = null } }
@@ -44,7 +44,7 @@ object VseIme {
 
     fun title(id: String) = when (id) {
         "passwords" -> "Пароли"; "passwords_" -> "Пароли"; "docs" -> "Документы"; "templates" -> "Шаблоны"; "contact" -> "Контакт"
-        "translate" -> "Перевести"; "punct" -> "Проверить"; "location" -> "Где я"; else -> id
+        "translate" -> "Перевести"; "drafts" -> "Набранное за сутки"; "punct" -> "Проверить"; "location" -> "Где я"; else -> id
     }
 
     fun icon(id: String): ImageVector = when (id) {
@@ -156,6 +156,8 @@ object VseIme {
             v == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD)) || (cls == InputType.TYPE_CLASS_NUMBER && v == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
         flushPending(ctx)
         rebuildChips(ctx)
+        val incognito = (info.base.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+        VseDrafts.enter(targetPackage, info.base.fieldId, info.base.hintText?.toString(), allowed = !isPassword && !incognito && targetPackage != ctx.packageName.substringBefore(':'))
     }
 
     fun rebuildChips(ctx: Context) {
@@ -206,7 +208,7 @@ object VseIme {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY))
                 }
             }
-            "templates", "contact", "translate" -> { panel.value = id; km.activeState.imeUiMode = ImeUiMode.VSE }
+            "templates", "contact", "translate", "drafts" -> { panel.value = id; km.activeState.imeUiMode = ImeUiMode.VSE }
             "punct" -> VseText.punctuate(ctx)
             "location" -> VseWatch.location(ctx)
         }

@@ -81,9 +81,11 @@ object HealthRepo {
             if (has(RestingHeartRateRecord::class)) add(RestingHeartRateRecord.BPM_AVG)
         }
         val agg = if (metrics.isNotEmpty()) c.aggregate(AggregateRequest(metrics, TimeRangeFilter.between(start, now))) else null
+        val src = com.pank.vsevodnom.data.StepSource.get(ctx)?.let { setOf(androidx.health.connect.client.records.metadata.DataOrigin(it)) } ?: emptySet()
+        val todaySteps = if (src.isNotEmpty() && has(StepsRecord::class)) runCatching { c.aggregate(AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), TimeRangeFilter.between(start, now), dataOriginFilter = src))[StepsRecord.COUNT_TOTAL] }.getOrNull() else null
         val week = if (has(StepsRecord::class)) (6 downTo 0).map { d ->
             val day = today.minusDays(d.toLong())
-            val r = c.aggregate(AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), TimeRangeFilter.between(day.atStartOfDay(z).toInstant(), day.plusDays(1).atStartOfDay(z).toInstant())))
+            val r = c.aggregate(AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), TimeRangeFilter.between(day.atStartOfDay(z).toInstant(), day.plusDays(1).atStartOfDay(z).toInstant()), dataOriginFilter = src))
             day to (r[StepsRecord.COUNT_TOTAL] ?: 0L)
         } else emptyList()
         val sleep = if (has(SleepSessionRecord::class)) c.readRecords(ReadRecordsRequest(SleepSessionRecord::class,
@@ -95,7 +97,7 @@ object HealthRepo {
             .records.firstOrNull()?.height?.inMeters else null
         val workouts = if (has(ExerciseSessionRecord::class)) c.readRecords(ReadRecordsRequest(ExerciseSessionRecord::class, TimeRangeFilter.after(now.minus(Duration.ofDays(30))), ascendingOrder = false, pageSize = 10)).records else emptyList()
         return HealthSummary(
-            agg?.get(StepsRecord.COUNT_TOTAL) ?: 0, agg?.get(DistanceRecord.DISTANCE_TOTAL)?.inKilometers ?: 0.0,
+            todaySteps ?: agg?.get(StepsRecord.COUNT_TOTAL) ?: 0, agg?.get(DistanceRecord.DISTANCE_TOTAL)?.inKilometers ?: 0.0,
             agg?.get(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)?.inKilocalories ?: 0.0,
             agg?.get(HeartRateRecord.BPM_AVG), agg?.get(RestingHeartRateRecord.BPM_AVG), sleep, week, weight, height, workouts
         )

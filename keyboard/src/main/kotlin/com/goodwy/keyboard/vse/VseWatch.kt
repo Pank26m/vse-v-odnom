@@ -32,6 +32,7 @@ object VseWatch {
         VseIme.scope.launch {
             ed.activeContentFlow.collectLatest { content ->
                 val before = content.textBeforeSelection
+                VseDrafts.onText(ctx, content.text)
                 var changed = VsePhone.update(ctx, before)
                 val c = calcOf(before)
                 if (c != calc) { calc = c; changed = true }

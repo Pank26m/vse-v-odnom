@@ -42,6 +42,8 @@ object HealthData {
     @Volatile private var cache: Triple<Long, Int, List<DayHealth>>? = null
     @Volatile private var wCache: Pair<Long, List<WorkoutRec>>? = null
 
+    fun invalidate() { cache = null }
+
     fun available(ctx: Context) = HealthConnectClient.getSdkStatus(ctx) == HealthConnectClient.SDK_AVAILABLE
 
     suspend fun days(ctx: Context, n: Int = 35, force: Boolean = false): List<DayHealth> = withContext(Dispatchers.IO) {
@@ -79,6 +81,13 @@ object HealthData {
                     intakeKcal = r[NutritionRecord.ENERGY_TOTAL]?.inKilocalories, weightKg = r[WeightRecord.WEIGHT_AVG]?.inKilograms,
                 )
             }
+            // шаги из выбранного приложения (Health Connect по умолчанию берёт по своему приоритету источников)
+            StepSource.get(ctx)?.let { src -> if (has(StepsRecord::class)) runCatching {
+                c.aggregateGroupByPeriod(AggregateGroupByPeriodRequest(setOf(StepsRecord.COUNT_TOTAL), range, Period.ofDays(1),
+                    dataOriginFilter = setOf(androidx.health.connect.client.records.metadata.DataOrigin(src)))).forEach { grp ->
+                    val d = grp.startTime.toLocalDate(); map[d]?.let { map[d] = it.copy(steps = grp.result[StepsRecord.COUNT_TOTAL]) }
+                }
+            } }
             // сон — по дню пробуждения (ночь с понедельника на вторник = вторник)
             if (has(SleepSessionRecord::class)) c.readRecords(ReadRecordsRequest(SleepSessionRecord::class,
                 TimeRangeFilter.between(from.minusDays(1).atTime(12, 0).atZone(z).toInstant(), Instant.now()), pageSize = 500)).records
@@ -222,4 +231,43 @@ object BodyCheck {
         p("f_rleg", "Жир — правая нога", 4.71, 1.5, 2.25, "кг", "Сегменты: жир"),
         p("f_lleg", "Жир — левая нога", 4.72, 1.5, 2.25, "кг", "Сегменты: жир"),
     ), note = "Бланк от 17.10.2025 13:50")
+}
+
+/**
+ * Чьи шаги считать. Health Connect сам сводит данные нескольких приложений (браслет, Google Fit, телефон) по своему
+ * списку приоритетов — поэтому число может не совпадать с тем, что показывает одно из приложений.
+ * null = как решил Health Connect; иначе — пакет приложения (prefs health/steps_src).
+ */
+object StepSource {
+    private fun p(ctx: Context) = ctx.getSharedPreferences("health", Context.MODE_PRIVATE)
+    fun get(ctx: Context): String? = p(ctx).getString("steps_src", "")!!.ifBlank { null }
+    fun set(ctx: Context, pkg: String?) { p(ctx).edit().putString("steps_src", pkg ?: "").apply() }
+
+    data class Src(val pkg: String, val name: String, val steps: Long)
+
+    /** Шаги за день по каждому приложению-источнику + итог Health Connect (pkg = ""). */
+    suspend fun breakdown(ctx: Context, day: LocalDate = LocalDate.now()): List<Src> = withContext(Dispatchers.IO) {
+        runCatching {
+            val c = HealthConnectClient.getOrCreate(ctx)
+            val z = ZoneId.systemDefault()
+            val range = TimeRangeFilter.between(day.atStartOfDay(z).toInstant(), day.plusDays(1).atStartOfDay(z).toInstant())
+            val recs = ArrayList<StepsRecord>()
+            var token: String? = null
+            do {
+                val r = c.readRecords(ReadRecordsRequest(StepsRecord::class, range, pageSize = 1000, pageToken = token))
+                recs += r.records; token = r.pageToken
+            } while (token != null && recs.size < 20000)
+            val pkgs = recs.map { it.metadata.dataOrigin.packageName }.distinct()
+            val total = c.aggregate(AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), range))[StepsRecord.COUNT_TOTAL] ?: 0L
+            listOf(Src("", "Health Connect (сводит всех)", total)) + pkgs.map { pkg ->
+                val n = c.aggregate(AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), range,
+                    dataOriginFilter = setOf(androidx.health.connect.client.records.metadata.DataOrigin(pkg))))[StepsRecord.COUNT_TOTAL] ?: 0L
+                Src(pkg, appName(ctx, pkg), n)
+            }.sortedByDescending { it.steps }
+        }.getOrDefault(emptyList())
+    }
+
+    fun appName(ctx: Context, pkg: String): String = runCatching {
+        val pm = ctx.packageManager; pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault(pkg)
 }

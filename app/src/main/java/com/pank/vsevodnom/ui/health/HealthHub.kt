@@ -87,7 +87,7 @@ private fun metrics(ctx: android.content.Context, st: HealthState): List<Metric>
     val plan = Nutrition.plan(ctx)
     return listOf(
         Metric("steps", "Шаги", Icons.AutoMirrored.Rounded.DirectionsWalk, Tints.Mint, "шагов", goal, null,
-            "Цель $goal — считается по росту, весу и возрасту (Профиль → Здоровье). Шаги — самый весомый показатель оценки.", { it.steps?.toDouble() }, sum = true),
+            "Цель ${goal.toLong()} — считается по росту, весу и возрасту (Профиль → Здоровье). Шаги — самый весомый показатель оценки.", { it.steps?.toDouble() }, sum = true),
         Metric("kcal", "Калории", Icons.Rounded.LocalFireDepartment, Tints.Peach, "ккал", null, null,
             "Сколько сожжено за день (покой + движение). Для похудения расход должен быть больше, чем съедено. Базальный обмен по анализу — ${BodyCheck.latest(ctx)?.v("bmr")?.toInt() ?: "—"} ккал.",
             { it.totalKcal ?: it.activeKcal }, sum = true),
@@ -370,7 +370,38 @@ private fun MetricDetail(m: Metric, st: HealthState, onDismiss: () -> Unit) {
                 BarsChart(pts, m.lo, m.hi, m.tint.ink, m.fmt, Modifier.fillMaxWidth().height(200.dp))
             }
             AppCard(Modifier.fillMaxWidth()) { Text(m.about, style = MaterialTheme.typography.bodyMedium) }
+            if (m.key == "steps") StepSourcesCard()
         }
+    }
+}
+
+/** Откуда шаги: у каждого приложения своё число; выбор — чьё считать главным. */
+@Composable
+private fun StepSourcesCard() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var list by remember { mutableStateOf<List<com.pank.vsevodnom.data.StepSource.Src>?>(null) }
+    var cur by remember { mutableStateOf(com.pank.vsevodnom.data.StepSource.get(ctx) ?: "") }
+    LaunchedEffect(Unit) { list = com.pank.vsevodnom.data.StepSource.breakdown(ctx) }
+    AppCard(Modifier.fillMaxWidth()) {
+        Text("Сегодня по источникам", style = MaterialTheme.typography.titleSmall)
+        Text("Каждое приложение считает шаги своим датчиком (телефон, браслет), а Health Connect сводит их по своему порядку важности — " +
+            "поэтому числа расходятся. Выбери, чьим шагам верить: от этого зависят главная, оценка и графики.",
+            style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+        Spacer(Modifier.height(6.dp))
+        val l = list
+        if (l == null) Text("Загрузка…", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+        else if (l.isEmpty()) Text("Нет данных о шагах за сегодня", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+        else l.forEach { s ->
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                cur = s.pkg; com.pank.vsevodnom.data.StepSource.set(ctx, s.pkg.ifBlank { null })
+                com.pank.vsevodnom.data.HealthData.invalidate()
+            }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(cur == s.pkg, null)
+                Text(s.name, Modifier.weight(1f).padding(start = 6.dp), style = MaterialTheme.typography.bodyMedium)
+                Text("%,d".format(s.steps).replace(',', ' '), style = MaterialTheme.typography.titleSmall)
+            }
+        }
+        Text("Изменение видно после обновления экрана (потяни главную вниз).", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
     }
 }
 

@@ -26,8 +26,6 @@ import com.pank.vsevodnom.ui.utils.UtilsScreen
 import com.pank.vsevodnom.ui.files.FilesScreen
 import com.pank.vsevodnom.ui.games.GamesScreen
 import com.pank.vsevodnom.ui.vault.PasswordsScreen
-import com.pank.vsevodnom.ui.sms.SmsScreen
-import com.pank.vsevodnom.ui.contacts.ContactsScreen
 import com.pank.vsevodnom.ui.health.HealthScreen
 import com.pank.vsevodnom.ui.downloads.DownloadsScreen
 import com.pank.vsevodnom.ui.downloads.SharedLink
@@ -166,7 +164,7 @@ class MainActivity : FragmentActivity() {
                     composable("passwords") { PasswordsScreen(back) }
                     composable("sms") { com.pank.vsevodnom.ui.contacts.PhoneScreen(back, 1) }
                     composable("phone?tab={tab}", arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 })) { com.pank.vsevodnom.ui.contacts.PhoneScreen(back, it.arguments?.getInt("tab") ?: 0) }
-                    composable("contacts") { com.pank.vsevodnom.ui.contacts.PhoneScreen(back, 0) }
+                    composable("contacts") { com.pank.vsevodnom.ui.contacts.PhoneScreen(back, 2) }
                     composable("health") { HealthScreen(back, onOpenMap = { nav.navigate("map") }) }
                     composable("downloads") { DownloadsScreen(back) }
                     composable("map") { com.pank.vsevodnom.ui.map.MapScreen(back) }

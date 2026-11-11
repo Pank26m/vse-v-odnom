@@ -68,7 +68,7 @@ val TILES = listOf(
     Tile("Часы", Icons.Rounded.Schedule, Tints.Lilac, "clock/0"),
     Tile("Здоровье", Icons.Rounded.Favorite, Tints.Rose, "health"),
     Tile("Пароли", Icons.Rounded.Lock, Tints.Lilac, "passwords"),
-    Tile("Телефон", Icons.Rounded.Phone, Tints.Sky, "phone?tab=0"),
+    Tile("Телефон", Icons.Rounded.Phone, Tints.Mint, "phone?tab=0"),
     Tile("Калькулятор", Icons.Rounded.Calculate, Tints.Butter, "calc"),
     Tile("Копилки", Icons.Rounded.Savings, Tints.Mint, "piggy"),
     Tile("Курсы", Icons.AutoMirrored.Rounded.TrendingUp, Tints.Mint, "markets"),
@@ -365,6 +365,7 @@ private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: We
     Column(Modifier.fillMaxWidth().offset(y = (-16).dp).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Pal.Bg).padding(16.dp, 18.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Сводка", style = MaterialTheme.typography.titleLarge)
         MoodCheckIn()
+        DayRateCheckIn()
         // вес — закреп на уровне настроения: по понедельникам, пока не взвесился; стрелка — сразу окно ввода
         if (today.dayOfWeek == DayOfWeek.MONDAY && weights.none { it.epochDay == today.toEpochDay() })
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pal.Sky).clickable { weightAsk = true }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -522,6 +523,29 @@ private fun MoodCheckIn() {
             Text(when (slot.second) { 0 -> "Как начинается день?"; 1 -> "Как проходит день?"; else -> "Как прошёл день?" }, style = MaterialTheme.typography.titleMedium, color = Pal.ButterInk)
             Spacer(Modifier.height(8.dp))
             com.pank.vsevodnom.ui.life.MoodPicker({ lvl -> if (level == null) { level = lvl; leave() } }, selected = level)
+        }
+    }
+}
+
+/** Оценка дня — в сводке с 22:00 до 4 утра, пока день не оценён (звёзды → «Мои успехи»). */
+@Composable
+private fun DayRateCheckIn() {
+    val ctx = LocalContext.current
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(60_000); tick++ } }
+    val day = remember(tick) {
+        val now = java.time.LocalDateTime.now()
+        when { now.hour >= 22 -> now.toLocalDate().toEpochDay(); now.hour < 4 -> now.toLocalDate().minusDays(1).toEpochDay(); else -> null }
+    } ?: return
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var stars by remember(day) { mutableIntStateOf(DayRating.get(ctx, day)) }
+    var gone by remember(day) { mutableStateOf(stars > 0) }
+    if (gone) return
+    com.pank.vsevodnom.ui.todo.Leaving("rate:$day", onLeft = { gone = true }) { _, leave ->
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFFE7F2EA)).padding(14.dp)) {
+            Text("Оцени сегодняшний день", style = MaterialTheme.typography.titleMedium, color = Color(0xFF1E6B47))
+            Spacer(Modifier.height(6.dp))
+            StarRating(stars) { v -> if (v > 0 && stars == 0) { stars = v; DayRating.set(ctx, day, v); scope.launch { delay(700); leave() } } }
         }
     }
 }

@@ -24,7 +24,7 @@ object HealthScore {
         val steps = w7.mapNotNull { it.steps }.filter { it > 0 }
         if (steps.isNotEmpty()) {
             val avg = steps.average()
-            out += Part("steps", "Шаги", c(avg / stepGoal * 10), 3.0, "${avg.toLong()} в день", "цель $stepGoal")
+            out += Part("steps", "Шаги", c(avg / stepGoal * 10), 3.0, "в среднем за неделю ${"%,d".format(avg.toLong()).replace(',', ' ')} в день", "цель ${stepGoal.toLong()}")
         }
         // тренировки и активность: 150 минут в неделю — норма ВОЗ; > 600 — перегруз
         val ex = w7.mapNotNull { it.exerciseMin }

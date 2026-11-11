@@ -262,7 +262,10 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             RouteTile(1, "Остановка") { onRoute("stop", spot) }
             RouteTile(2, "Сюда") { onRoute("to", spot) }
             ActionChip(Icons.Rounded.Navigation, "Waze", Color(0xFFDDF4FB), Color(0xFF1B7A99)) { waze(ctx, t.lat, t.lon) }
-            ActionChip(Icons.Rounded.Share, "Поделиться", Pal.Lilac, Pal.LilacInk) { share(ctx, title, t.lat, t.lon) }
+            // у улицы вместо «Поделиться» — «Вся улица» (поделиться — в «Ещё»)
+            val streetWhole = isStreet && onWhole != null && !t.name.startsWith("Улица без") && t.name.isNotBlank()
+            if (streetWhole) ActionChip(Icons.Rounded.Timeline, "Вся улица", Pal.Sky, Pal.SkyInk) { onWhole?.invoke(t) }
+            else ActionChip(Icons.Rounded.Share, "Поделиться", Pal.Lilac, Pal.LilacInk) { share(ctx, title, t.lat, t.lon) }
             if (t.place != null) ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Sky, Pal.SkyInk) {
                 val pl = t.place; AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(pl.copy(visible = false)) }
                 Toast.makeText(ctx, "Метка скрыта — вернуть в «Коллекциях» (глазок)", Toast.LENGTH_SHORT).show(); onClose()
@@ -420,6 +423,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             MenuRow(Icons.Rounded.TravelExplore, "Похожие рядом", sub = "такие же места или по названию — на карте и списком") { more = false; onSimilar(t) }
         MenuRow(Icons.Rounded.Star, "В избранное маршрутов") { MapPrefs.setFavs(ctx, MapPrefs.favs(ctx) + MapPrefs.Spot(title.take(24), t.lat, t.lon, title)); more = false; Toast.makeText(ctx, "Добавлено в избранное маршрутов", Toast.LENGTH_SHORT).show() }
         MenuRow(Icons.Rounded.ContentCopy, "Копировать координаты") { copy(ctx, MapPrefs.coords(ctx, t.lat, t.lon)); more = false }
+        if (t.props["kind"] == "street") MenuRow(Icons.Rounded.Share, "Поделиться") { share(ctx, title, t.lat, t.lon); more = false }
         if (t.place != null) {
             MenuRow(Icons.Rounded.Folder, "Папка и цвет", sub = folderPath(t.place.folderId, folders)) { editing = true; expanded = true; more = false }
             MenuRow(Icons.Rounded.Inventory2, "В архив", sub = "не удаляется — убирается с карты и из списка; вернуть — Коллекции → ⋮ → Архив") {
@@ -1061,7 +1065,6 @@ private fun StreetBlock(t: MapTarget, wiki: PlaceInfo.Wiki?, info: PlaceInfo.Inf
             Text(w.extract, style = MaterialTheme.typography.bodyMedium, maxLines = if (full) Int.MAX_VALUE else 6, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp).clickable { full = !full })
         }
-        if (named && onWhole != null) Row(Modifier.padding(top = 6.dp)) { ActionChip(Icons.Rounded.Timeline, "Показать всю улицу", Pal.Sky, Pal.SkyInk) { onWhole(t) } }
     }
 }
 

@@ -10,6 +10,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -87,9 +92,10 @@ class TgDataSource(private val fileId: Int, private val total: Long) : BaseDataS
                     if (n > 0) { pos += n; bytesTransferred(n); return n }
                 }
             }
-            // загрузка встала (сеть, перемотка) — попросим снова с текущего места
+            // загрузка встала или Telegram качает другое место файла (после перемотки плеер читал конец файла) —
+            // каждые ~1,2 с без прогресса просим снова именно с текущего места
             val f = Tg.file(fileId)
-            if (f != null && !f.local.isDownloadingActive && !f.local.isDownloadingCompleted) Tg.download(fileId, pos)
+            if (f != null && !f.local.isDownloadingCompleted && (!f.local.isDownloadingActive || waited % 1200 == 0L && waited > 0)) Tg.download(fileId, pos)
             if (Thread.currentThread().isInterrupted) throw InterruptedIOException()
             Tg.waitUpdate(400); waited += 400
             if (waited > 90_000) throw IOException("Telegram не отдаёт видео — проверь интернет")
@@ -109,6 +115,25 @@ class TgDataSource(private val fileId: Int, private val total: Long) : BaseDataS
  * главного экрана — поворот пересоздавал экран, и плеер исчезал). Получает канал, список серий по порядку и номер.
  */
 class TgPlayerActivity : androidx.activity.ComponentActivity() {
+    /** Режим «картинка в картинке» — плеер прячет всё, кроме видео. */
+    var pip by mutableStateOf(false)
+    /** Видео идёт — при сворачивании сразу уходим в «картинку в картинке». */
+    var playing = false
+
+    fun enterPip() {
+        runCatching {
+            val b = android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9))
+            if (android.os.Build.VERSION.SDK_INT >= 31) b.setSeamlessResizeEnabled(true)
+            enterPictureInPictureMode(b.build())
+        }
+    }
+    // отдельная задача (для «картинки в картинке»): новый фильм при уже открытом плеере — перезапуск экрана
+    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); setIntent(intent); recreate() }
+    override fun onUserLeaveHint() { super.onUserLeaveHint(); if (playing) enterPip() }
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig); pip = isInPictureInPictureMode
+    }
+
     companion object {
         fun intent(ctx: android.content.Context, chatId: Long, order: List<Long>, index: Int, title: String) =
             android.content.Intent(ctx, TgPlayerActivity::class.java).putExtra("chat", chatId).putExtra("order", order.toLongArray()).putExtra("index", index).putExtra("title", title)
@@ -136,7 +161,8 @@ class TgPlayerActivity : androidx.activity.ComponentActivity() {
                     var idx by rememberSaveable { mutableIntStateOf(start.coerceIn(0, entries.lastIndex)) }
                     val e = entries[idx]
                     TgPlayerContent(e, title + (e.parsed.episode?.let { " · ${e.parsed.season ?: 1} сезон, $it серия" } ?: ""),
-                        hasNext = idx < entries.lastIndex, onNext = { idx++ }, onDismiss = { finish() })
+                        hasNext = idx < entries.lastIndex, onNext = { idx++ }, onDismiss = { finish() },
+                        entries = entries, onPick = { idx = it }, pip = pip, onPip = { enterPip() }, onPlaying = { playing = it })
                 }
             }
         }
@@ -146,7 +172,11 @@ class TgPlayerActivity : androidx.activity.ComponentActivity() {
 /** Плеер: видео из Telegram, продолжение с места, «следующая серия». После закрытия скачанное удаляется. */
 @OptIn(UnstableApi::class)
 @Composable
-fun TgPlayerContent(entry: TgFilms.Entry, title: String, hasNext: Boolean, onNext: () -> Unit, onDismiss: () -> Unit) {
+fun TgPlayerContent(entry: TgFilms.Entry, title: String, hasNext: Boolean, onNext: () -> Unit, onDismiss: () -> Unit,
+                    entries: List<TgFilms.Entry> = listOf(entry), onPick: (Int) -> Unit = {}, pip: Boolean = false, onPip: () -> Unit = {}, onPlaying: (Boolean) -> Unit = {}) {
+    // название, «следующая», серии — только вместе с кнопками плеера (нажатие на экран), иначе — только фильм
+    var controls by remember { mutableStateOf(true) }
+    var episodes by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     var fileInfo by remember(entry) { mutableStateOf<Pair<Int, Long>?>(null) }
     var err by remember(entry) { mutableStateOf<String?>(null) }
@@ -165,7 +195,7 @@ fun TgPlayerContent(entry: TgFilms.Entry, title: String, hasNext: Boolean, onNex
         val fi = fileInfo
         if (fi != null) {
             val player = remember(fi) {
-                val load = DefaultLoadControl.Builder().setBufferDurationsMs(20_000, 120_000, 2_500, 5_000).build()
+                val load = DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 120_000, 1_000, 3_000).build()
                 ExoPlayer.Builder(ctx).setLoadControl(load).build().apply {
                     val src = ProgressiveMediaSource.Factory { TgDataSource(fi.first, fi.second) }
                         .createMediaSource(MediaItem.fromUri("tg://${entry.chatId}/${entry.msgId}"))
@@ -177,6 +207,7 @@ fun TgPlayerContent(entry: TgFilms.Entry, title: String, hasNext: Boolean, onNex
             DisposableEffect(player) {
                 val l = object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) { err = "Ошибка воспроизведения: " + (error.cause?.message ?: error.errorCodeName) }
+                    override fun onIsPlayingChanged(isPlaying: Boolean) { onPlaying(isPlaying) }
                     override fun onPlaybackStateChanged(state: Int) {
                         buffering = state == Player.STATE_BUFFERING
                         if (state == Player.STATE_ENDED) { TgFilms.setPosition(ctx, entry, player.duration, player.duration); if (hasNext) onNext() }
@@ -191,19 +222,61 @@ fun TgPlayerContent(entry: TgFilms.Entry, title: String, hasNext: Boolean, onNex
             }
             // позиция — каждые 10 секунд (если приложение закроют)
             LaunchedEffect(player) { while (true) { delay(10_000); if (player.isPlaying) TgFilms.setPosition(ctx, entry, player.currentPosition, player.duration) } }
-            AndroidView({ c -> PlayerView(c).apply { this.player = player; keepScreenOn = true; setShowNextButton(false); setShowPreviousButton(false) } },
-                Modifier.fillMaxSize())
+            AndroidView({ c -> PlayerView(c).apply {
+                this.player = player; keepScreenOn = true; setShowNextButton(false); setShowPreviousButton(false)
+                controllerShowTimeoutMs = 3500
+                setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v -> controls = v == android.view.View.VISIBLE })
+            } }, Modifier.fillMaxSize(), update = { v -> v.useController = !pip; if (pip) v.hideController() })
             @Suppress("UNUSED_EXPRESSION") Tg.fileTick
             val f = Tg.file(fi.first)
-            if (buffering && err == null)
+            if (buffering && err == null && !pip)
                 Text("Загрузка из Telegram…" + (f?.local?.downloadedSize?.takeIf { it > 0 }?.let { " ${it / 1_048_576} МБ" } ?: ""),
                     color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
         } else if (err == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
         err?.let { Text(it, color = Color.White, modifier = Modifier.align(Alignment.Center).padding(32.dp)) }
-        Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Закрыть", tint = Color.White) }
-            Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1)
-            if (hasNext) TextButton(onNext) { Icon(Icons.Rounded.SkipNext, null, tint = Color.White); Text(" Следующая", color = Color.White) }
+        if (!pip) androidx.compose.animation.AnimatedVisibility(controls || fileInfo == null || err != null, Modifier.align(Alignment.TopStart),
+            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+            Row(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0x99000000), Color.Transparent))).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Закрыть", tint = Color.White) }
+                Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                if (entries.size > 1) TextButton({ episodes = true }) { Icon(Icons.AutoMirrored.Rounded.List, null, tint = Color.White); Text(" Серии", color = Color.White) }
+                if (hasNext) TextButton(onNext) { Icon(Icons.Rounded.SkipNext, null, tint = Color.White); Text(" Следующая", color = Color.White) }
+                IconButton(onPip) { Icon(Icons.Rounded.PictureInPictureAlt, "Картинка в картинке", tint = Color.White) }
+            }
+        }
+        if (episodes && !pip) EpisodePicker(entries, entries.indexOf(entry), onPick = { episodes = false; onPick(it) }, onDismiss = { episodes = false })
+    }
+}
+
+/** Выбор серии: сезоны стрелками ‹ ›, серии — списком. */
+@Composable
+private fun EpisodePicker(entries: List<TgFilms.Entry>, cur: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val seasons = remember(entries) { entries.map { it.parsed.season ?: 1 }.distinct().sorted() }
+    var si by remember { mutableIntStateOf(seasons.indexOf(entries.getOrNull(cur)?.parsed?.season ?: 1).coerceAtLeast(0)) }
+    Box(Modifier.fillMaxSize().background(Color(0xB3000000)).androidx_clickable(onDismiss), contentAlignment = Alignment.CenterEnd) {
+        Column(Modifier.fillMaxHeight().width(340.dp).background(Color(0xF21C1C1E)).androidx_clickable {}.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton({ if (si > 0) si-- }, enabled = si > 0) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Предыдущий сезон", tint = if (si > 0) Color.White else Color.Gray) }
+                Text("${seasons.getOrNull(si) ?: 1} сезон", color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                IconButton({ if (si < seasons.lastIndex) si++ }, enabled = si < seasons.lastIndex) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Следующий сезон", tint = if (si < seasons.lastIndex) Color.White else Color.Gray) }
+            }
+            val list = entries.withIndex().filter { (it.value.parsed.season ?: 1) == seasons.getOrNull(si) }
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
+                items(list.size) { k ->
+                    val (i, e) = list[k]
+                    val pos = TgFilms.position(ctx, e)
+                    Row(Modifier.fillMaxWidth().androidx_clickable { onPick(i) }.background(if (i == cur) Color(0x332AABEE) else Color.Transparent).padding(12.dp, 10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("${e.parsed.episode ?: (k + 1)} серия", color = Color.White, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Text(when { pos == -1L -> "✓"; pos > 0 -> "начата"; else -> "" }, color = Color(0xFF9AA0A6), style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
         }
     }
 }
+
+private fun Modifier.androidx_clickable(onClick: () -> Unit) = this.then(Modifier.clickable(
+    interactionSource = androidx.compose.foundation.interaction.MutableInteractionSource(), indication = null, onClick = onClick))

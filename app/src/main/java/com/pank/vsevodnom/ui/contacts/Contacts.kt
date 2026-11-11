@@ -56,9 +56,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-data class Contact(val id: Long, val lookup: String, val name: String, val starred: Boolean, val phones: List<Pair<String, String>>, val groups: Set<Long>)
+data class Contact(val id: Long, val lookup: String, val name: String, val starred: Boolean, val phones: List<Pair<String, String>>, val groups: Set<Long>, val photo: String? = null, val ringtone: String? = null)
 data class Group(val id: Long, val title: String)
-data class CallEntry(val number: String, val name: String?, val type: Int, val date: Long, val duration: Long)
+data class CallEntry(val number: String, val name: String?, val type: Int, val date: Long, val duration: Long, val id: Long = 0)
 
 object ContactsRepo {
     fun has(ctx: Context, p: String) = ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED
@@ -82,11 +82,12 @@ object ContactsRepo {
         }
         val out = ArrayList<Contact>()
         cr.query(ContactsContract.Contacts.CONTENT_URI,
-            arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.LOOKUP_KEY, ContactsContract.Contacts.DISPLAY_NAME_PRIMARY, ContactsContract.Contacts.STARRED),
+            arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.LOOKUP_KEY, ContactsContract.Contacts.DISPLAY_NAME_PRIMARY, ContactsContract.Contacts.STARRED,
+                ContactsContract.Contacts.PHOTO_URI, ContactsContract.Contacts.CUSTOM_RINGTONE),
             null, null, "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} COLLATE LOCALIZED ASC")?.use { c ->
             while (c.moveToNext()) {
                 val id = c.getLong(0)
-                out += Contact(id, c.getString(1) ?: "", c.getString(2) ?: "(без имени)", c.getInt(3) == 1, phones[id].orEmpty(), groups[id].orEmpty())
+                out += Contact(id, c.getString(1) ?: "", c.getString(2) ?: "(без имени)", c.getInt(3) == 1, phones[id].orEmpty(), groups[id].orEmpty(), c.getString(4), c.getString(5))
             }
         }
         return out
@@ -128,9 +129,9 @@ object ContactsRepo {
         if (!has(ctx, Manifest.permission.READ_CALL_LOG)) return emptyList()
         val out = ArrayList<CallEntry>()
         runCatching {
-            ctx.contentResolver.query(CallLog.Calls.CONTENT_URI, arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.CACHED_NAME, CallLog.Calls.TYPE, CallLog.Calls.DATE, CallLog.Calls.DURATION),
+            ctx.contentResolver.query(CallLog.Calls.CONTENT_URI, arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.CACHED_NAME, CallLog.Calls.TYPE, CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls._ID),
                 null, null, "${CallLog.Calls.DATE} DESC LIMIT $limit")?.use { c ->
-                while (c.moveToNext()) out += CallEntry(c.getString(0) ?: "", c.getString(1), c.getInt(2), c.getLong(3), c.getLong(4))
+                while (c.moveToNext()) out += CallEntry(c.getString(0) ?: "", c.getString(1), c.getInt(2), c.getLong(3), c.getLong(4), c.getLong(5))
             }
         }
         return out
@@ -148,6 +149,16 @@ object ContactsRepo {
     fun setBlocked(ctx: Context, number: String, b: Boolean) {
         val s = blocked(ctx).toMutableSet(); if (b) s += norm(number) else s -= norm(number)
         prefs(ctx).edit().putStringSet("blocked", s).apply()
+        // системный чёрный список (работает, когда приложение — звонилка по умолчанию): блокирует и звонки, и СМС
+        runCatching {
+            if (android.provider.BlockedNumberContract.canCurrentUserBlockNumbers(ctx)) {
+                val cr = ctx.contentResolver
+                if (b) cr.insert(android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI, ContentValues().apply {
+                    put(android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, number)
+                }) else cr.delete(android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI,
+                    "${android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER}=?", arrayOf(number))
+            }
+        }
     }
     fun blockHidden(ctx: Context) = prefs(ctx).getBoolean("block_hidden", false)
     fun setBlockHidden(ctx: Context, b: Boolean) = prefs(ctx).edit().putBoolean("block_hidden", b).apply()
@@ -197,241 +208,3 @@ class BlockNumberReceiver : BroadcastReceiver() {
 }
 
 // ================= Экран =================
-
-@Composable
-fun ContactsScreen(onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var version by remember { mutableIntStateOf(0) }
-    var contacts by remember { mutableStateOf<List<Contact>?>(null) }
-    var groups by remember { mutableStateOf<List<Group>>(emptyList()) }
-    var calls by remember { mutableStateOf<List<CallEntry>>(emptyList()) }
-    var tab by remember { mutableIntStateOf(0) }
-    var q by remember { mutableStateOf("") }
-    var group by remember { mutableStateOf<Long?>(null) }
-    var open by remember { mutableStateOf<Contact?>(null) }
-    var settings by remember { mutableStateOf(false) }
-    var dial by remember { mutableStateOf(false) }
-
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { version++ }
-    LaunchedEffect(Unit) {
-        perm.launch(arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE))
-    }
-    LaunchedEffect(version) {
-        withContext(Dispatchers.IO) { Triple(runCatching { ContactsRepo.load(ctx) }.getOrDefault(emptyList()), runCatching { ContactsRepo.groups(ctx) }.getOrDefault(emptyList()), ContactsRepo.calls(ctx)) }
-            .let { (c, g, l) -> contacts = c; groups = g; calls = l }
-    }
-    val editLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { version++ }
-    val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { version++ }
-
-    if (dial) { BackHandler { dial = false }; Box(Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding()) { com.pank.vsevodnom.call.DialPad { dial = false } }; return }
-    open?.let { c ->
-        BackHandler { open = null }
-        ContactDetail(contacts?.firstOrNull { it.id == c.id } ?: c, groups, onBack = { open = null }, onChanged = { version++ },
-            onEdit = { editLauncher.launch(Intent(Intent.ACTION_EDIT, ContactsContract.Contacts.getLookupUri(c.id, c.lookup)).putExtra("finishActivityOnSaveCompleted", true)) })
-        return
-    }
-
-    Box(Modifier.fillMaxSize()) {
-    ScreenScaffold("Контакты", onBack, actions = {
-        RoundIconButton(Icons.Rounded.PersonAdd, "Новый контакт", { editLauncher.launch(Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI).putExtra("finishActivityOnSaveCompleted", true)) })
-        RoundIconButton(Icons.Rounded.Shield, "Определитель", { settings = true })
-    }) {
-        if (!ContactsRepo.has(ctx, Manifest.permission.READ_CONTACTS)) {
-            Column(Modifier.padding(16.dp)) {
-                AppCard(Modifier.fillMaxWidth(), color = Pal.Peach) { Text("Нужен доступ к контактам и журналу звонков.", style = MaterialTheme.typography.bodyMedium) }
-                Spacer(Modifier.height(10.dp))
-                PillButton("Дать доступ", { perm.launch(arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE)) }, Modifier.fillMaxWidth())
-            }
-            return@ScreenScaffold
-        }
-        Segmented(listOf("Контакты", "Недавние"), tab, { tab = it }, Modifier.padding(horizontal = 16.dp), track = Pal.Sky)
-        Spacer(Modifier.height(10.dp))
-        if (tab == 1) { RecentCalls(calls, contacts.orEmpty()) { version++ }; return@ScreenScaffold }
-        val all = contacts.orEmpty()
-        val fav = all.filter { it.starred && it.phones.isNotEmpty() }
-        val list = all.filter { (q.isBlank() || it.name.contains(q, true) || it.phones.any { p -> p.second.filter(Char::isDigit).contains(q.filter(Char::isDigit).ifBlank { "\u0000" }) }) && (group == null || group in it.groups) }
-        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 100.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { AppTextField(q, { q = it }, "Поиск: имя или номер") }
-            // избранные — плитками: нажатие на плитку — детали, кнопка снизу — сразу звонок
-            if (fav.isNotEmpty() && q.isBlank() && group == null) item {
-                Column {
-                    SectionLabel("Избранные")
-                    Spacer(Modifier.height(6.dp))
-                    fav.chunked(3).forEach { row ->
-                        Row(Modifier.padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            row.forEach { c ->
-                                Column(Modifier.weight(1f).clip(RoundedCornerShape(18.dp)).background(Pal.Card).clickable { open = c }.padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Avatar(c.name, 54)
-                                    Text(c.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(6.dp, 6.dp, 6.dp, 8.dp))
-                                    Row(Modifier.fillMaxWidth().height(40.dp).background(Pal.Mint).clickable { ContactsRepo.call(ctx, c.phones.first().second) },
-                                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Rounded.Call, "Позвонить", tint = Pal.MintInk, modifier = Modifier.size(20.dp))
-                                    }
-                                }
-                            }
-                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                        }
-                    }
-                }
-            }
-            if (groups.isNotEmpty()) item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    item { Chip("Все", group == null, { group = null }) }
-                    items(groups, key = { it.id }) { g -> Chip(g.title, group == g.id, { group = if (group == g.id) null else g.id }) }
-                }
-            }
-            if (contacts == null) item { Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-            items(list, key = { it.id }) { c ->
-                AppCard(Modifier.fillMaxWidth(), padding = 10.dp, onClick = { open = c }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(c.name, 40)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(c.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                            c.phones.firstOrNull()?.let { Text(it.second, style = MaterialTheme.typography.bodySmall) }
-                        }
-                        if (c.starred) Icon(Icons.Rounded.Star, null, tint = Pal.ButterInk, modifier = Modifier.size(18.dp))
-                        c.phones.firstOrNull()?.let { p -> IconButton({ ContactsRepo.call(ctx, p.second) }) { Icon(Icons.Rounded.Call, "Позвонить", tint = Pal.MintInk) } }
-                    }
-                }
-            }
-        }
-    }
-
-    if (ContactsRepo.has(ctx, Manifest.permission.READ_CONTACTS)) Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(62.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFF34C77B)).clickable { dial = true }, contentAlignment = Alignment.Center) {
-        Icon(Icons.Rounded.Dialpad, "Набрать номер", tint = Color.White)
-    }
-    }
-
-    if (settings) {
-        val rm = ctx.getSystemService(RoleManager::class.java)
-        val held = rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
-        var hidden by remember { mutableStateOf(ContactsRepo.blockHidden(ctx)) }
-        var blocked by remember { mutableStateOf(ContactsRepo.blocked(ctx).toList()) }
-        AlertDialog(onDismissRequest = { settings = false }, title = { Text("Определитель номера") },
-            text = {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        Text(if (held) "Включён: при звонке с незнакомого номера придёт уведомление с подсказкой, номера из чёрного списка сбрасываются." else
-                            "Выключен. Включи — Android спросит, разрешить ли приложению проверять звонки. Основная звонилка остаётся прежней.", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    if (!held) item { PillButton("Включить", { roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)) }, Modifier.fillMaxWidth()) }
-                    item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Сбрасывать скрытые номера", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            Switch(hidden, { hidden = it; ContactsRepo.setBlockHidden(ctx, it) })
-                        }
-                    }
-                    item { Text("Чёрный список (${blocked.size})", style = MaterialTheme.typography.labelLarge) }
-                    items(blocked) { n ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("…$n", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            TextButton({ ContactsRepo.setBlocked(ctx, n, false); blocked = ContactsRepo.blocked(ctx).toList() }) { Text("Убрать") }
-                        }
-                    }
-                    item { Text("«Как я подписан у других» (как в Getcontact) сделать нельзя: эти данные есть только в их закрытой базе.", style = MaterialTheme.typography.labelSmall) }
-                }
-            },
-            confirmButton = { TextButton({ settings = false }) { Text("Готово") } })
-    }
-}
-
-@Composable
-private fun Avatar(name: String, size: Int) {
-    val t = Tints.all[(name.hashCode() and 0x7fffffff) % 6]
-    Box(Modifier.size(size.dp).clip(CircleShape).background(t.bg), contentAlignment = Alignment.Center) {
-        Text(name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase(), color = t.ink,
-            style = if (size > 48) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleSmall)
-    }
-}
-
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-private fun ContactDetail(c: Contact, groups: List<Group>, onBack: () -> Unit, onChanged: () -> Unit, onEdit: () -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var newGroup by remember { mutableStateOf(false) }
-    ScreenScaffold(c.name, onBack, actions = {
-        RoundIconButton(if (c.starred) Icons.Rounded.Star else Icons.Rounded.StarBorder, "Избранное", {
-            scope.launch(Dispatchers.IO) { runCatching { ContactsRepo.setStarred(ctx, c, !c.starred) }; withContext(Dispatchers.Main) { onChanged() } }
-        }, tint = if (c.starred) Pal.ButterInk else Pal.Ink)
-        RoundIconButton(Icons.Rounded.Edit, "Изменить", onEdit)
-    }) {
-        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Avatar(c.name, 96) } }
-            items(c.phones) { (label, num) ->
-                AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(num, style = MaterialTheme.typography.titleMedium); Text(label, style = MaterialTheme.typography.bodySmall) }
-                        IconButton({ ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(num)))) }) { Icon(Icons.Rounded.Sms, "СМС", tint = Pal.SkyInk) }
-                        IconButton({ ContactsRepo.call(ctx, num) }) { Icon(Icons.Rounded.Call, "Позвонить", tint = Pal.MintInk) }
-                    }
-                }
-            }
-            item { SectionLabel("Группы") }
-            item {
-                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    groups.forEach { g ->
-                        Chip(g.title, g.id in c.groups, {
-                            scope.launch(Dispatchers.IO) { runCatching { ContactsRepo.setInGroup(ctx, c, g.id, g.id !in c.groups) }; withContext(Dispatchers.Main) { onChanged() } }
-                        })
-                    }
-                    Chip("+ группа", false, { newGroup = true })
-                }
-            }
-        }
-    }
-    if (newGroup) {
-        var t by remember { mutableStateOf("") }
-        AlertDialog(onDismissRequest = { newGroup = false }, title = { Text("Новая группа") }, text = { AppTextField(t, { t = it }, "Название") },
-            confirmButton = { TextButton({ if (t.isNotBlank()) scope.launch(Dispatchers.IO) { runCatching { ContactsRepo.createGroup(ctx, t.trim()) }; withContext(Dispatchers.Main) { onChanged() } }; newGroup = false }) { Text("Создать") } },
-            dismissButton = { TextButton({ newGroup = false }) { Text("Отмена") } })
-    }
-}
-
-@Composable
-private fun RecentCalls(calls: List<CallEntry>, contacts: List<Contact>, onChanged: () -> Unit) {
-    val ctx = LocalContext.current
-    val blocked = ContactsRepo.blocked(ctx)
-    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (calls.isEmpty()) item { EmptyHint("Журнал звонков пуст или нет доступа") }
-        items(calls) { c ->
-            val (icon, tint) = when (c.type) {
-                CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> Icons.AutoMirrored.Rounded.CallMissed to Pal.RoseInk
-                CallLog.Calls.OUTGOING_TYPE -> Icons.AutoMirrored.Rounded.CallMade to Pal.SkyInk
-                CallLog.Calls.BLOCKED_TYPE -> Icons.Rounded.Block to Pal.Muted
-                else -> Icons.AutoMirrored.Rounded.CallReceived to Pal.MintInk
-            }
-            var menu by remember { mutableStateOf(false) }
-            AppCard(Modifier.fillMaxWidth(), padding = 10.dp, onClick = { ContactsRepo.call(ctx, c.number) }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, tint = tint)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(c.name ?: c.number.ifBlank { "Скрытый номер" }, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                        val t = Instant.ofEpochMilli(c.date).atZone(ZoneId.systemDefault())
-                        Text(
-                            (if (t.toLocalDate() == LocalDate.now()) t.format(DateTimeFormatter.ofPattern("HH:mm")) else t.format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))) +
-                                (if (c.duration > 0) " · ${c.duration / 60}:%02d".format(c.duration % 60) else "") +
-                                (if (ContactsRepo.norm(c.number) in blocked) " · в чёрном списке" else ""),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    Box {
-                        IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Ещё", tint = Pal.Muted) }
-                        DropdownMenu(menu, { menu = false }) {
-                            DropdownMenuItem({ Text("Написать СМС") }, { menu = false; ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(c.number)))) })
-                            if (c.name == null && c.number.isNotBlank()) DropdownMenuItem({ Text("Сохранить контакт") }, {
-                                menu = false
-                                ctx.startActivity(Intent(ContactsContract.Intents.Insert.ACTION).setType(ContactsContract.RawContacts.CONTENT_TYPE).putExtra(ContactsContract.Intents.Insert.PHONE, c.number))
-                            })
-                            val isB = ContactsRepo.norm(c.number) in blocked
-                            if (c.number.isNotBlank()) DropdownMenuItem({ Text(if (isB) "Разблокировать" else "В чёрный список") }, { menu = false; ContactsRepo.setBlocked(ctx, c.number, !isB); onChanged() })
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

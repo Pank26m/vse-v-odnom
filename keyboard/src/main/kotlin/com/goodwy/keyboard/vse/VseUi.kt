@@ -108,6 +108,24 @@ fun VsePanel() {
                     }
                 }
             }
+            "drafts" -> {
+                // резервная копия набранного (VseDrafts): нажми — вставить, ⧉ — копировать
+                var list by remember { mutableStateOf(VseDrafts.load(ctx)) }
+                val fmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+                LazyColumn(Modifier.fillMaxSize()) {
+                    item { Text("Что ты набирал за последние сутки (кроме паролей). Нажми — вставить в поле. Через сутки стирается само.", color = ifg.copy(alpha = 0.6f), fontSize = 12.sp, modifier = Modifier.padding(10.dp, 4.dp)) }
+                    if (list.isEmpty()) item { Text("Пока пусто", color = ifg, modifier = Modifier.padding(12.dp)) }
+                    items(list) { d ->
+                        Row1(d.text, VseDrafts.appName(ctx, d.pkg) + " · " + fmt.format(java.util.Date(d.at)), onDelete = { VseDrafts.remove(ctx, d); list = VseDrafts.load(ctx) }) {
+                            VseText.toClipboard(ctx, "Набранное", d.text)
+                            VseIme.commit(ctx, d.text); km.activeState.imeUiMode = ImeUiMode.TEXT
+                        }
+                    }
+                    if (list.isNotEmpty()) item {
+                        Text("Стереть всё", color = ifg.copy(alpha = 0.7f), fontSize = 13.sp, modifier = Modifier.clickable { VseDrafts.clear(ctx); list = emptyList() }.padding(14.dp))
+                    }
+                }
+            }
             "contact" -> {
                 // поиск — по слову перед курсором: написал «Мама» → «Контакт» → нашлась Мама, слово заменится карточкой
                 val ic = FlorisImeService.currentInputConnection()
