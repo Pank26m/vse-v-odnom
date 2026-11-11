@@ -130,8 +130,9 @@ object GooglePlaces {
         return runCatching { parse(JSONObject(String(raw))) }.getOrNull()?.also { d -> synchronized(mem) { mem[id] = d }; source[id] = "disk" }
     }
 
-    suspend fun details(ctx: Context, id: String): Details = withContext(Dispatchers.IO) {
-        stored(ctx, id) ?: run {
+    /** force=true — заново из Google (кнопка «обновить данные»), кэш перезаписывается. */
+    suspend fun details(ctx: Context, id: String, force: Boolean = false): Details = withContext(Dispatchers.IO) {
+        (if (force) null else stored(ctx, id)) ?: run {
             val o = req(ctx, "https://places.googleapis.com/v1/places/$id?languageCode=ru", DETAIL_FIELDS, null)
             GCache.put(ctx, "d:$id", o.toString().toByteArray())
             source[id] = "net"

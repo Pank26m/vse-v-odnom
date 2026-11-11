@@ -72,26 +72,6 @@ object MapStyle {
     fun hidden(ctx: Context): Set<String> = ctx.getSharedPreferences("map", Context.MODE_PRIVATE).getStringSet("gl_hidden", DEFAULT_HIDDEN)?.toSet() ?: DEFAULT_HIDDEN
     fun setHidden(ctx: Context, h: Set<String>) = ctx.getSharedPreferences("map", Context.MODE_PRIVATE).edit().putStringSet("gl_hidden", h).apply()
 
-    /**
-     * Сервисные значки GLMap → наши (серая иконка с белой обводкой, без кружка — как было в прежней карте).
-     * Ключ — имя картинки в стиле GLMap; значение — иконка Tabler или своя «c:…» из [CUSTOM_ICONS].
-     */
-    val SERVICE_SVG = mapOf(
-        "poi_bench.svg" to "c:bench", "poi_WC.svg" to "toilet-paper", "poi_drinking_water.svg" to "droplet", "poi_fountain.svg" to "fountain",
-        "poi_info.svg" to "info-circle", "poi_info_board.svg" to "info-circle", "poi_info_map.svg" to "info-circle", "poi_guidepost.svg" to "sign-right",
-        "poi_picnic_table.svg" to "grill", "poi_BBQ.svg" to "grill", "poi_firepit.svg" to "flame", "poi_shelter.svg" to "c:gazebo",
-        "poi_gate.svg" to "c:gate", "poi_lift_gate.svg" to "barrier-block", "poi_barrier.svg" to "barrier-block", "poi_barrier_entrance.svg" to "c:gate",
-        "poi_barrier_toll_booth.svg" to "cash", "poi_playground.svg" to "c:swing", "poi_bike_parking.svg" to "bike",
-    )
-
-    /** Свои значки в стиле Tabler (24×24, линии): лавочка, детская площадка (качели), калитка. */
-    val CUSTOM_ICONS = mapOf(
-        "c:bench" to listOf("M4 6h16", "M4 9.5h16", "M3 13h18", "M6 6v12", "M18 6v12", "M6 13l-1.5 5", "M18 13l1.5 5"),
-        "c:swing" to listOf("M3 20l4 -16h10l4 16", "M10 4v9", "M14 4v9", "M8.5 13h7"),
-        "c:gazebo" to listOf("M3 10l9 -6l9 6", "M5 10h14", "M7 10v9", "M17 10v9", "M4 19h16"),
-        "c:gate" to listOf("M4 4v16", "M20 4v16", "M7 8h10", "M7 16h10", "M7 7v10", "M12 7v10", "M17 7v10", "M7 16l10 -8"),
-    )
-
     fun opts(ctx: Context): Opts {
         val p = ctx.getSharedPreferences("map", Context.MODE_PRIVATE)
         val online = p.getString("online_id", null)?.let { id -> OnlineMaps.all(ctx).firstOrNull { it.id == id } }

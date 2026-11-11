@@ -172,12 +172,13 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         val pl = t.place.copy(name = plName.trim().ifBlank { t.place.name }, note = plNote.trim())
         AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(pl) }
     }
-    fun loadGoogle() {
+    fun loadGoogle(force: Boolean = false) {
         if (!online || !hasKey || noName) return
         scope.launch {
             loading = true; gAsk = false
             val before = ApiKeys.used(ctx, "google")
-            runCatching { t.props["google_id"]?.let { GooglePlaces.details(ctx, it) } ?: GooglePlaces.near(ctx, t.name, t.lat, t.lon) }
+            val known = if (force) g?.id else null
+            runCatching { (known ?: t.props["google_id"])?.let { GooglePlaces.details(ctx, it, force) } ?: GooglePlaces.near(ctx, t.name, t.lat, t.lon) }
                 .onSuccess { g = it }.onFailure { gErr = it.message }
             gSpent += (ApiKeys.used(ctx, "google") - before).coerceAtLeast(0)
             gSrc = g?.id?.let { GooglePlaces.source[it] } ?: if (gSpent > 0) "net" else null
@@ -262,7 +263,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             RouteTile(2, "Сюда") { onRoute("to", spot) }
             ActionChip(Icons.Rounded.Navigation, "Waze", Color(0xFFDDF4FB), Color(0xFF1B7A99)) { waze(ctx, t.lat, t.lon) }
             ActionChip(Icons.Rounded.Share, "Поделиться", Pal.Lilac, Pal.LilacInk) { share(ctx, title, t.lat, t.lon) }
-            if (t.place != null) ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Card, Pal.Ink) {
+            if (t.place != null) ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Sky, Pal.SkyInk) {
                 val pl = t.place; AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(pl.copy(visible = false)) }
                 Toast.makeText(ctx, "Метка скрыта — вернуть в «Коллекциях» (глазок)", Toast.LENGTH_SHORT).show(); onClose()
             }
@@ -381,8 +382,11 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(if (gSpent > 0) Icons.Rounded.CloudDownload else Icons.Rounded.Lock, null, tint = Pal.Muted, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(6.dp))
-                    Text("Сведения Google — $src · осталось $left из ${ApiKeys.limit(ctx, "google")} на сегодня", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                    Text("Сведения Google — $src · осталось $left из ${ApiKeys.limit(ctx, "google")} на сегодня", style = MaterialTheme.typography.labelSmall, color = Pal.Muted, modifier = Modifier.weight(1f))
                 }
+                // из памяти/кэша — можно обновить (≈2 запроса)
+                if (gSrc != "net" && online && hasKey) Text("обновить данные", style = MaterialTheme.typography.labelSmall, color = Pal.SkyInk,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { photos.clear(); loadGoogle(force = true) }.padding(vertical = 2.dp))
             }
             // поиск этого места в других сервисах — серыми кнопками; ищем по названию и городу (улица — «название, город»), безымянное — по координатам
             val sq = listOfNotNull(title.takeIf { !noName && !title.startsWith("Улица без") && !title.startsWith("Тропа без") }, city).joinToString(", ")
@@ -803,7 +807,7 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
             ActionChip(Icons.Rounded.PlayArrow, "В путь", Color(0xFF3E6FA8), Color.White) { onGo(t) }
             ActionChip(Icons.Rounded.ZoomOutMap, "Весь трек", Pal.Sky, Pal.SkyInk, onFit)
             ActionChip(Icons.Rounded.AltRoute, if (routeWay(t) != null) "Изменить маршрут" else "Остановки", Pal.Butter, Pal.ButterInk) { onEditRoute(t) }
-            ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Bg, Pal.Ink) {
+            ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Sky, Pal.SkyInk) {
                 update { it.copy(visible = false) }
                 Toast.makeText(ctx, "Трек скрыт — вернуть в «Коллекциях» (глазок)", Toast.LENGTH_SHORT).show(); onClose()
             }

@@ -75,12 +75,15 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             MapStyle.Variant.BIKE -> { m["Style"] = "Outdoor"; m["SubStyle"] = "Bike" }
         }
         for ((k, g) in MapStyle.GROUPS) if (k !in o.hidden) m[g.option] = "1"
+        // служебные опции стиля GLMap: при значении по умолчанию false их надо задать явно.
+        // HideExtraData=1 — иначе включается extra.mapcss (служебные «невидимые» стили: зелёные страны и леса,
+        // чёрные линии по дорогам, красные подписи ЛЭП) — так сломалась карта в 0.31.
+        m["HideExtraData"] = "1"; m["DownloadedMaps"] = "1"; m["SelectedRelations"] = "1"
         return m
     }
 
     /** Ресурсы стиля: наши сервисные значки, свои опции в relations.mapcss, остальное — стандартный стиль GLMap. */
     private fun resource(name: String): ByteArray? {
-        MapStyle.SERVICE_SVG[name]?.let { serviceSvg(it)?.let { svg -> return svg.toByteArray() } }
         if (name == "hide_user.mapcss") return MapStyle.hideCss(curHidden).toByteArray()
         val raw = asset("DefaultStyle.bundle/$name") ?: asset(name) ?: return null
         if (name == "relations.mapcss") return patchRelations(String(raw)).toByteArray()
@@ -110,18 +113,6 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         return s
     }
 
-    /**
-     * Сервисный значок — как в прежней карте: серая иконка с белой обводкой, мелкая. Подкраска стиля (icon-tint)
-     * — наложение, серый под ней чуть окрашивается; чтобы цвет был ровно наш, рисуем серый полупрозрачным чёрным.
-     */
-    private fun serviceSvg(icon: String): String? {
-        val paths = MapStyle.CUSTOM_ICONS[icon] ?: com.pank.vsevodnom.ui.money.TablerIcons.load(ctx).second[icon] ?: return null
-        // 9 точек — вдвое меньше прежних 14 (были крупнее родных значков GLMap); линии толще, чтобы читалось
-        val sb = StringBuilder("""<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="-1.5 -1.5 27 27"><g fill="none" stroke-linecap="round" stroke-linejoin="round">""")
-        paths.forEach { d -> sb.append("""<path d="$d" stroke="#FFFFFF" stroke-width="6"/>""") }
-        paths.forEach { d -> sb.append("""<path d="$d" stroke="#000000" stroke-opacity="0.6" stroke-width="2.6"/>""") }
-        return sb.append("</g></svg>").toString()
-    }
 
     /** Подключены ли наши правила скрытия (hide_user.mapcss, метро в relations). */
     private var patched = true
@@ -403,7 +394,11 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         if (h.isNaN()) { meCone?.isHidden = true; return }
         meCone?.let { it.isHidden = meDot?.isHidden != false; it.angle = -h }
         // по компасу: карта поворачивается за телефоном
-        if (follow == 2 && course == null && !down) runCatching { r.mapAngle = heading }
+        // в 3D (наклон) прямую установку угла перебивала незаконченная анимация наклона — поворот «тормозил»;
+        // там поворачиваем короткой анимацией, она заменяет предыдущую
+        if (follow == 2 && course == null && !down) runCatching {
+            if (r.mapPitch > 3f) anim(0.08) { r.mapAngle = heading } else r.mapAngle = heading
+        }
     }
 
     override fun location(): Location? = last
@@ -570,9 +565,10 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val cb = clusterBitmap(density)
             val clusterStyle = styles.addStyle(GLMapMarkerImage("cluster", cb, android.graphics.Point(cb.width / 2, cb.height / 2)))
             // смещение подписи — в точках (dp), не в пикселях: раньше умножали на плотность и подпись уезжала на палец ниже значка
-            // подпись вплотную под значком (−13 было ещё на «значок» ниже — владелец проверил на телефоне)
-            val txtBig = android.graphics.Point(0, 10)
-            val txtSmall = android.graphics.Point(0, 6)
+            // подпись под значком: центр текста ниже центра значка примерно на высоту текста.
+            // Замеры владельца: +10 — текст прямо на значке, −13 — на «значок» ниже нужного (единицы — точки, вверх +)
+            val txtBig = android.graphics.Point(0, -6)
+            val txtSmall = android.graphics.Point(0, -3)
             styles.setDataCallback(object : GLMapMarkerStyleCollectionDataCallback() {
                 override fun getLocation(marker: Any) = (marker as OvPlace).let { mp(it.lat, it.lon) }
                 override fun fillUnionData(markersCount: Int, nativeMarker: Long) {
