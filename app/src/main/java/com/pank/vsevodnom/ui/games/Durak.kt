@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
@@ -51,113 +53,159 @@ data class Card(val rank: Int, val suit: Int) {
     companion object { val SUITS = listOf("♠︎", "♥︎", "♦︎", "♣︎") }
 }
 
-/** Правила подкидного дурака на двоих. Игрок 0 — человек, 1 — бот. */
-class Durak {
+/**
+ * Дурак на 2–3 игрока. Игрок 0 — человек, остальные — боты.
+ * Подкидной: подкидывают все, кроме отбивающегося. Переводной: пока ни одна карта не побита, отбивающийся может
+ * положить карту того же достоинства — и отбиваться будет следующий (если у него хватает карт).
+ * Кто ходит первым — случайно.
+ */
+class Durak(val players: Int = 2, val transfer: Boolean = false, rnd: kotlin.random.Random = kotlin.random.Random) {
     val deck = ArrayList<Card>()
-    val hands = arrayOf(mutableStateListOf<Card>(), mutableStateListOf<Card>())
+    val hands = Array(players) { mutableStateListOf<Card>() }
     val attack = mutableStateListOf<Card>()
     val defense = mutableStateListOf<Card?>()
     var trump: Card
     var attacker by mutableIntStateOf(0)
-    var taking by mutableStateOf(false)   // защитник сказал «беру», атакующий может подкинуть
+    var defender by mutableIntStateOf(1)
+    var taking by mutableStateOf(false)   // отбивающийся сказал «беру», остальные могут подкинуть
+    /** Кто из подкидывающих сказал «пас» с последней выложенной карты. */
+    val passed = mutableStateListOf<Int>()
     var roundLimit = 6
     var message by mutableStateOf("")
     var over by mutableStateOf<String?>(null)
     var discarded by mutableIntStateOf(0)
+    /** Кто вышел из игры (без карт при пустой колоде), по порядку. */
+    val out = mutableStateListOf<Int>()
 
     init {
         for (s in 0..3) for (r in 6..14) deck += Card(r, s)
-        deck.shuffle()
+        deck.shuffle(rnd)
         trump = deck.first() // нижняя карта колоды (берётся последней)
-        repeat(6) { hands[0] += deck.removeAt(deck.lastIndex); hands[1] += deck.removeAt(deck.lastIndex) }
-        // первым ходит тот, у кого младший козырь
-        val low = (0..1).map { p -> hands[p].filter { it.suit == trump.suit }.minOfOrNull { it.rank } ?: 99 }
-        attacker = if (low[1] < low[0]) 1 else 0
+        repeat(6) { for (p in 0 until players) hands[p] += deck.removeAt(deck.lastIndex) }
+        attacker = rnd.nextInt(players)
+        defender = next(attacker)
         startRound()
         sort()
     }
 
-    val defender get() = 1 - attacker
+    fun inGame(p: Int) = p !in out
+    fun next(p: Int): Int { var n = p; repeat(players) { n = (n + 1) % players; if (inGame(n) && n != p) return n }; return p }
+    /** Кто сейчас может подкидывать: все в игре, кроме отбивающегося. */
+    fun throwers() = (0 until players).filter { inGame(it) && it != defender }
+
     fun beats(d: Card, a: Card) = (d.suit == a.suit && d.rank > a.rank) || (d.suit == trump.suit && a.suit != trump.suit)
     fun ranksOnTable() = (attack + defense.filterNotNull()).map { it.rank }.toSet()
     fun unbeaten() = attack.indices.filter { defense[it] == null }
-    fun canAttackWith(c: Card) = attack.size < roundLimit && (attack.isEmpty() || c.rank in ranksOnTable()) &&
-        (taking || unbeaten().size < hands[defender].size || attack.isEmpty())
+    fun canThrow(p: Int, c: Card) = p != defender && inGame(p) && attack.size < roundLimit &&
+        (if (attack.isEmpty()) p == attacker else c.rank in ranksOnTable()) && (taking || unbeaten().size < hands[defender].size)
+    fun canThrowAny(p: Int) = hands[p].any { canThrow(p, it) }
+    /** Перевод: ни одна карта ещё не побита, все на столе одного достоинства, у следующего хватает карт. */
+    fun canTransfer(c: Card): Boolean {
+        if (!transfer || taking || attack.isEmpty() || defense.any { it != null }) return false
+        if (attack.any { it.rank != c.rank }) return false
+        val nx = next(defender)
+        return nx != defender && hands[nx].size >= attack.size + 1
+    }
 
     fun sort() = hands.forEach { h -> val s = h.sortedWith(compareBy({ it.suit == trump.suit }, { it.rank }, { it.suit })); h.clear(); h.addAll(s) }
 
     private fun startRound() {
-        attack.clear(); defense.clear(); taking = false
+        attack.clear(); defense.clear(); taking = false; passed.clear()
         roundLimit = minOf(6, hands[defender].size)
     }
 
     fun playAttack(p: Int, c: Card): Boolean {
-        if (p != attacker || over != null || !canAttackWith(c)) return false
-        hands[p].remove(c); attack += c; defense += null
+        if (over != null || !canThrow(p, c)) return false
+        hands[p].remove(c); attack += c; defense += null; passed.clear()
+        return true
+    }
+
+    fun playTransfer(c: Card): Boolean {
+        if (over != null || !canTransfer(c)) return false
+        hands[defender].remove(c); attack += c; defense += null
+        attacker = defender; defender = next(defender); passed.clear()
+        roundLimit = minOf(6, hands[defender].size + 0).coerceAtLeast(attack.size)
+        message = "Перевод!"
         return true
     }
 
     fun playDefense(c: Card, idx: Int): Boolean {
         if (over != null || taking || defense.getOrNull(idx) != null || !beats(c, attack[idx])) return false
-        hands[defender].remove(c); defense[idx] = c
+        hands[defender].remove(c); defense[idx] = c; passed.clear()
         return true
     }
 
-    /** Атакующий закончил: «бито» или отдать карты взявшему. */
+    fun pass(p: Int) { if (p !in passed) passed += p }
+
+    /** Кон можно закрывать: все подкидывающие сказали «пас» (или им нечего), и всё побито — либо «беру». */
+    fun roundCanEnd(): Boolean {
+        if (attack.isEmpty() || over != null) return false
+        if (!taking && unbeaten().isNotEmpty()) return false
+        return throwers().all { it in passed || !canThrowAny(it) }
+    }
+
     fun finishRound() {
-        if (taking) {
+        val takers = taking
+        if (takers) {
             hands[defender].addAll(attack); hands[defender].addAll(defense.filterNotNull())
-            message = if (defender == 0) "Ты взял" else "Бот взял"
-            draw(); startRound()  // атакующий остаётся тем же
+            message = if (defender == 0) "Ты взял" else "${name(defender)} взял"
         } else {
             discarded += attack.size + defense.count { it != null }
             message = "Бито"
-            draw(); attacker = defender; startRound()
         }
-        sort(); checkOver()
+        // добор: сначала заходивший, потом остальные подкидывавшие, отбивавшийся — последним
+        val order = listOf(attacker) + throwers().filter { it != attacker } + defender
+        for (p in order) while (hands[p].size < 6 && deck.isNotEmpty()) hands[p] += deck.removeAt(deck.lastIndex)
+        if (deck.isEmpty()) (0 until players).filter { inGame(it) && hands[it].isEmpty() }.forEach { out += it }
+        val left = (0 until players).filter { inGame(it) }
+        if (left.size <= 1) {
+            over = when {
+                left.isEmpty() -> "Ничья"
+                left[0] == 0 -> "Ты остался дураком"
+                else -> "Победа! ${name(left[0])} — дурак"
+            }
+        } else {
+            // кто заходит: после «бито» — отбивавшийся, после «взял» — следующий за ним
+            val first = if (takers) next(defender) else (if (inGame(defender)) defender else next(defender))
+            attacker = first; defender = next(attacker)
+        }
+        startRound(); sort()
     }
 
-    private fun draw() {
-        for (p in listOf(attacker, defender)) while (hands[p].size < 6 && deck.isNotEmpty()) hands[p] += deck.removeAt(deck.lastIndex)
-    }
-
-    private fun checkOver() {
-        if (deck.isNotEmpty()) return
-        val e0 = hands[0].isEmpty(); val e1 = hands[1].isEmpty()
-        over = when { e0 && e1 -> "Ничья"; e0 -> "Победа! Бот остался дураком"; e1 -> "Ты остался дураком"; else -> null }
-    }
+    fun name(p: Int) = if (p == 0) "Ты" else if (players == 2) "Бот" else "Бот $p"
 
     // ---------------- Бот ----------------
 
     private fun cost(c: Card) = c.rank + if (c.suit == trump.suit) 20 else 0
 
-    /** Один шаг бота. Возвращает true, если что-то сделал. */
-    fun botStep(): Boolean {
-        if (over != null) return false
-        val me = 1
-        if (attacker == me) {
-            val h = hands[me]
-            if (attack.isEmpty()) {
-                // заходим с младшей некозырной; пара одинаковых — ещё лучше
-                val c = h.minByOrNull { cost(it) - (h.count { o -> o.rank == it.rank } - 1) * 3 } ?: return false
-                playAttack(me, c); return true
-            }
-            if (!taking && unbeaten().isNotEmpty()) return false // ждём защиту
-            val late = deck.size <= 4
-            val add = h.filter { canAttackWith(it) && (late || (it.suit != trump.suit && it.rank <= 11)) }.minByOrNull { cost(it) }
-            if (add != null) { playAttack(me, add); return true }
-            finishRound(); return true
-        } else {
+    /** Один шаг бота p. true — что-то сделал. */
+    fun botStep(p: Int): Boolean {
+        if (over != null || !inGame(p)) return false
+        val h = hands[p]
+        if (p == defender) {
             if (taking || unbeaten().isEmpty()) return false
+            // перевод дешёвой некозырной картой, если можно
+            if (transfer) h.filter { canTransfer(it) && it.suit != trump.suit }.minByOrNull { cost(it) }?.let { playTransfer(it); return true }
             val idx = unbeaten().first()
             val a = attack[idx]
-            val opts = hands[me].filter { beats(it, a) }.sortedBy { cost(it) }
-            val c = opts.firstOrNull()
+            val c = h.filter { beats(it, a) }.minByOrNull { cost(it) }
             // дорогой козырь в начале игры против мелкой карты — лучше взять
             val tooExpensive = c != null && c.suit == trump.suit && c.rank >= 12 && deck.size > 8 && a.rank <= 9 && attack.size == 1
-            if (c == null || tooExpensive) { taking = true; message = "Бот берёт"; return true }
+            if (c == null || tooExpensive) { taking = true; message = "${name(p)} берёт"; return true }
             playDefense(c, idx); return true
         }
+        if (p in passed) return false
+        if (attack.isEmpty()) {
+            if (p != attacker) return false
+            val c = h.minByOrNull { cost(it) - (h.count { o -> o.rank == it.rank } - 1) * 3 } ?: return false
+            playAttack(p, c); return true
+        }
+        // подкидываем, когда всё побито или отбивающийся берёт
+        if (!taking && unbeaten().isNotEmpty()) return false
+        val late = deck.size <= 4
+        val add = h.filter { canThrow(p, it) && (late || taking || (it.suit != trump.suit && it.rank <= 11)) }.minByOrNull { cost(it) }
+        if (add != null) { playAttack(p, add); return true }
+        pass(p); return true
     }
 }
 
@@ -210,8 +258,34 @@ private val PIPS: Map<Int, List<Pair<Float, Float>>> = run {
 }
 
 /** Классическая карта: индексы в двух углах, значки по раскладке, у картинок — портрет в рамке. */
+/** Скин карт: классическая колода (картинки) или своя рисованная. */
+object CardSkin { var classic by mutableStateOf(true) }
+
+/** Классическая карта из assets/cards (SVG-cards, LGPL) — кэш картинок. */
+private object CardImages {
+    private val cache = HashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
+    fun get(ctx: android.content.Context, c: Card): androidx.compose.ui.graphics.ImageBitmap? = cache.getOrPut("${c.suit}_${c.rank}") {
+        runCatching { ctx.assets.open("cards/${c.suit}_${c.rank}.webp").use { android.graphics.BitmapFactory.decodeStream(it).asImageBitmap() } }.getOrNull() ?: return null
+    }
+}
+
 @Composable
 private fun CardFace(c: Card, w: Dp, h: Dp, modifier: Modifier = Modifier) {
+    if (CardSkin.classic) {
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        val img = remember(c) { CardImages.get(ctx, c) }
+        if (img != null) {
+            Box(modifier.size(w, h).shadow(3.dp, RoundedCornerShape(w * 0.07f)).clip(RoundedCornerShape(w * 0.07f)).background(Color.White)) {
+                androidx.compose.foundation.Image(img, "${c.rankName}${c.suitName}", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+            }
+            return
+        }
+    }
+    CardFaceOwn(c, w, h, modifier)
+}
+
+@Composable
+private fun CardFaceOwn(c: Card, w: Dp, h: Dp, modifier: Modifier = Modifier) {
     val col = if (c.red) RED else BLACK
     Box(modifier.size(w, h).shadow(3.dp, RoundedCornerShape(w * 0.09f)).clip(RoundedCornerShape(w * 0.09f)).background(Color.White)
         .border(0.8.dp, Color(0xFFD9D6CF), RoundedCornerShape(w * 0.09f))) {
@@ -231,12 +305,15 @@ private fun CardFace(c: Card, w: Dp, h: Dp, modifier: Modifier = Modifier) {
             suitPip(c.suit, Offset(W * 0.885f, H * 0.765f), W * 0.13f, col, flip = true)
         }
         if (c.rank in 11..13) FaceArt(c, Modifier.padding(horizontal = w * 0.21f, vertical = h * 0.11f).fillMaxSize())
-        Text(c.rankName, Modifier.align(Alignment.TopStart).padding(start = w * 0.04f, top = h * 0.015f).width(w * 0.15f), color = col,
-            fontWeight = FontWeight.Bold, fontSize = (w.value * 0.2f).sp, lineHeight = (w.value * 0.22f).sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            letterSpacing = (-1).sp)
-        Text(c.rankName, Modifier.align(Alignment.BottomEnd).padding(end = w * 0.04f, bottom = h * 0.015f).width(w * 0.15f).rotate(180f), color = col,
-            fontWeight = FontWeight.Bold, fontSize = (w.value * 0.2f).sp, lineHeight = (w.value * 0.22f).sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            letterSpacing = (-1).sp)
+        // «10» — две цифры: уже шрифт и шире поле (раньше обрезалось до «1»)
+        val two = c.rankName.length > 1
+        val fsz = (w.value * (if (two) 0.16f else 0.2f)).sp
+        Text(c.rankName, Modifier.align(Alignment.TopStart).padding(start = w * 0.02f, top = h * 0.015f).width(w * (if (two) 0.22f else 0.15f)), color = col,
+            fontWeight = FontWeight.Bold, fontSize = fsz, lineHeight = (w.value * 0.22f).sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            letterSpacing = (-1).sp, maxLines = 1, softWrap = false)
+        Text(c.rankName, Modifier.align(Alignment.BottomEnd).padding(end = w * 0.02f, bottom = h * 0.015f).width(w * (if (two) 0.22f else 0.15f)).rotate(180f), color = col,
+            fontWeight = FontWeight.Bold, fontSize = fsz, lineHeight = (w.value * 0.22f).sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            letterSpacing = (-1).sp, maxLines = 1, softWrap = false)
     }
 }
 
@@ -312,85 +389,101 @@ private fun FlyIn(key: Any, fromTop: Boolean, content: @Composable () -> Unit) {
 
 @Composable
 fun DurakScreen(onBack: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val dp = remember { ctx.getSharedPreferences("durak", android.content.Context.MODE_PRIVATE) }
+    var bots by remember { mutableIntStateOf(dp.getInt("bots", 1)) }
+    var transfer by remember { mutableStateOf(dp.getBoolean("transfer", false)) }
+    LaunchedEffect(Unit) { CardSkin.classic = dp.getBoolean("classic", true) }
+    var opts by remember { mutableStateOf(false) }
     var gen by remember { mutableIntStateOf(0) }
-    val g = remember(gen) { Durak() }
+    val g = remember(gen) { Durak(players = bots + 1, transfer = transfer) }
     var tick by remember { mutableIntStateOf(0) }
 
-    // где на экране стол и слоты атакующих карт — для перетаскивания
     var tableRect by remember { mutableStateOf(Rect.Zero) }
     val slotRects = remember(gen) { mutableStateMapOf<Int, Rect>() }
     var dragging by remember { mutableStateOf<Card?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
 
-    LaunchedEffect(gen, tick, g.attacker, g.taking, g.attack.size, g.defense.toList()) {
-        delay(800)
-        if (g.botStep()) tick++
+    // ход игры: закрыть кон, если можно; иначе — шаг очередного бота. Человек без подходящих карт «пасует» сам.
+    LaunchedEffect(gen, tick, g.attacker, g.defender, g.taking, g.attack.size, g.defense.toList(), g.passed.size) {
+        delay(750)
+        if (g.over != null) return@LaunchedEffect
+        if (0 != g.defender && g.inGame(0) && 0 !in g.passed && g.attack.isNotEmpty() && (g.taking || g.unbeaten().isEmpty()) && !g.canThrowAny(0)) g.pass(0)
+        if (g.roundCanEnd()) { g.finishRound(); tick++; return@LaunchedEffect }
+        // сначала отбивающийся бот, потом подкидывающие по кругу
+        val order = listOf(g.defender) + g.throwers()
+        for (p in order) if (p != 0 && g.botStep(p)) { tick++; return@LaunchedEffect }
     }
 
     val me = 0
-    val humanAttacking = g.attacker == me
+    val iDefend = g.defender == me && g.inGame(me)
+    val iThrow = g.defender != me && g.inGame(me)
     val unbeaten = g.unbeaten()
 
-    /** Карту кладут только перетаскиванием: на стол — атака, на карту соперника — отбой. */
+    /** Кладут перетаскиванием: на стол — ход/подкинуть (или перевод, если отбиваешься), на карту — отбой. */
     fun tryPlay(c: Card, dropAt: Offset): Boolean {
         if (g.over != null) return false
-        if (humanAttacking) {
+        if (iThrow) {
             if (!tableRect.contains(dropAt)) return false
-            return g.playAttack(0, c).also { if (it) tick++ else g.message = "Этой картой сейчас нельзя" }
+            return g.playAttack(0, c).also { if (it) tick++ else { g.message = "Этой картой сейчас нельзя"; tick++ } }
         }
-        if (g.taking) return false
+        if (!iDefend || g.taking) return false
         val target = slotRects.entries.firstOrNull { it.value.inflate(24f).contains(dropAt) && it.key in unbeaten }?.key
-            ?: if (tableRect.contains(dropAt) && unbeaten.size == 1) unbeaten.first() else null
-        if (target == null) return false
-        if (!g.beats(c, g.attack[target])) { g.message = "Эта карта не бьёт"; tick++; return false }
-        return g.playDefense(c, target).also { if (it) tick++ }
+        if (target == null && tableRect.contains(dropAt) && g.canTransfer(c)) return g.playTransfer(c).also { tick++ }
+        val t = target ?: if (tableRect.contains(dropAt) && unbeaten.size == 1) unbeaten.first() else null
+        if (t == null) return false
+        if (!g.beats(c, g.attack[t])) { g.message = "Эта карта не бьёт"; tick++; return false }
+        return g.playDefense(c, t).also { if (it) tick++ }
     }
 
-    ScreenScaffold("Дурак", onBack) {
+    ScreenScaffold("Дурак", onBack, actions = { RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Tune, "Настройки", { opts = true }) }) {
         Column(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // соперник и колода
+            // соперники и колода
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.width(56.dp)) {
-                    Text("Бот", style = MaterialTheme.typography.titleSmall)
-                    Text("${g.hands[1].size} карт", style = MaterialTheme.typography.labelSmall)
+                (1 until g.players).forEach { p ->
+                    val role = when { !g.inGame(p) -> "вышел"; p == g.defender -> "отбивается"; p == g.attacker -> "ходит"; p in g.passed -> "пас"; else -> "" }
+                    Column(Modifier.weight(1f)) {
+                        Text("${g.name(p)} · ${g.hands[p].size}" + if (role.isNotEmpty()) " · $role" else "", style = MaterialTheme.typography.labelMedium,
+                            color = if (p == g.defender) Pal.RoseInk else Pal.Ink, maxLines = 1)
+                        Box(Modifier.height(58.dp)) {
+                            val n = g.hands[p].size.coerceAtMost(10)
+                            repeat(n) { i -> CardBack(40.dp, 56.dp, Modifier.offset(x = (i * (if (g.players > 2) 9 else 14)).dp)) }
+                        }
+                    }
                 }
-                Box(Modifier.weight(1f).height(76.dp)) {
-                    val n = g.hands[1].size.coerceAtMost(14)
-                    repeat(n) { i -> CardBack(50.dp, 72.dp, Modifier.offset(x = (i * 16).dp)) }
-                }
-                Box(Modifier.width(96.dp).height(76.dp)) {
+                Box(Modifier.width(92.dp).height(76.dp)) {
                     if (g.deck.isNotEmpty()) CardFace(g.trump, 50.dp, 72.dp, Modifier.align(Alignment.CenterEnd).offset(x = (-4).dp).rotate(90f))
                     if (g.deck.size > 1) CardBack(50.dp, 72.dp, Modifier.align(Alignment.CenterStart))
                     if (g.deck.isEmpty()) Text("козырь ${g.trump.suitName}", Modifier.align(Alignment.Center), color = if (g.trump.red) RED else BLACK, style = MaterialTheme.typography.labelLarge)
                     else Text("${g.deck.size}", Modifier.align(Alignment.BottomStart).clip(RoundedCornerShape(6.dp)).background(Pal.Ink).padding(5.dp, 1.dp), color = Color.White, style = MaterialTheme.typography.labelMedium)
                 }
             }
-            // стол — сукно
+            // стол — сукно; карты большие, по центру
             Box(
                 Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp))
                     .background(androidx.compose.ui.graphics.Brush.radialGradient(FELT))
-                    .onGloballyPositioned { tableRect = it.boundsInRoot() }.padding(12.dp)
+                    .onGloballyPositioned { tableRect = it.boundsInRoot() }.padding(10.dp)
             ) {
-                Column {
-                    Text(
-                        g.over ?: when {
-                            g.taking && humanAttacking -> "Бот берёт — подкинь или «Отдать»"
-                            g.taking -> "Ты берёшь"
-                            humanAttacking && g.attack.isEmpty() -> "Твой ход — перетащи карту на стол"
-                            humanAttacking -> if (unbeaten.isEmpty()) "Отбился. Подкинь или «Бито»" else "Бот отбивается…"
-                            unbeaten.isNotEmpty() -> "Отбивайся: перетащи карту на карту бота"
-                            else -> "Бот думает…"
-                        },
-                        style = MaterialTheme.typography.titleSmall, color = Color.White
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        g.attack.forEachIndexed { i, a ->
-                            Box(Modifier.size(70.dp + 16.dp, 100.dp + 20.dp).onGloballyPositioned { slotRects[i] = it.boundsInRoot() }) {
-                                FlyIn(a, fromTop = !humanAttacking) { CardFace(a, 70.dp, 100.dp) }
-                                g.defense[i]?.let { d -> Box(Modifier.offset(16.dp, 20.dp).rotate(8f)) { FlyIn(d, fromTop = humanAttacking) { CardFace(d, 70.dp, 100.dp) } } }
-                            }
+                Text(
+                    g.over ?: when {
+                        !g.inGame(me) -> "Ты вышел — не дурак. Боты доигрывают"
+                        iDefend && g.taking -> "Ты берёшь"
+                        iDefend && unbeaten.isNotEmpty() -> "Отбивайся: перетащи карту на карту" + if (g.transfer && g.defense.all { it == null }) " (или на стол — перевод)" else ""
+                        iDefend -> "Отбился — ждём подкидывающих"
+                        g.attack.isEmpty() && g.attacker == me -> "Твой ход — перетащи карту на стол"
+                        g.attack.isEmpty() -> "${g.name(g.attacker)} ходит на ${g.name(g.defender)}…"
+                        g.taking -> "${g.name(g.defender)} берёт — подкинь или «Пас»"
+                        unbeaten.isEmpty() && me !in g.passed -> "Отбился. Подкинь или «Бито»"
+                        else -> "${g.name(g.defender)} отбивается…"
+                    },
+                    Modifier.align(Alignment.TopStart), style = MaterialTheme.typography.titleSmall, color = Color.White
+                )
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                FlowRow(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    g.attack.forEachIndexed { i, a ->
+                        Box(Modifier.size(84.dp + 18.dp, 120.dp + 22.dp).onGloballyPositioned { slotRects[i] = it.boundsInRoot() }) {
+                            FlyIn(a, fromTop = !iThrow) { CardFace(a, 84.dp, 120.dp) }
+                            g.defense[i]?.let { d -> Box(Modifier.offset(18.dp, 22.dp).rotate(8f)) { FlyIn(d, fromTop = !iDefend) { CardFace(d, 84.dp, 120.dp) } } }
                         }
                     }
                 }
@@ -399,14 +492,14 @@ fun DurakScreen(onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (g.over != null) PillButton("Ещё партию", { gen++ }, Modifier.weight(1f))
                 else {
-                    if (humanAttacking && g.attack.isNotEmpty() && (unbeaten.isEmpty() || g.taking))
-                        PillButton(if (g.taking) "Отдать" else "Бито", { g.finishRound(); tick++ }, Modifier.weight(1f))
-                    if (!humanAttacking && unbeaten.isNotEmpty() && !g.taking)
+                    if (iThrow && g.attack.isNotEmpty() && (unbeaten.isEmpty() || g.taking) && me !in g.passed)
+                        PillButton(if (g.taking) "Пас" else "Бито", { g.pass(me); tick++ }, Modifier.weight(1f))
+                    if (iDefend && unbeaten.isNotEmpty() && !g.taking)
                         PillButton("Беру", { g.taking = true; g.message = "Ты берёшь"; tick++ }, Modifier.weight(1f), bg = Pal.Rose, fg = Pal.RoseInk)
                     PillButton("Заново", { gen++ }, Modifier.weight(0.6f), bg = Pal.Card, fg = Pal.Ink)
                 }
             }
-            // рука веером: большие карты внахлёст, кладутся только перетаскиванием
+            // рука веером
             BoxWithConstraints(Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp)) {
                 val cw = 92.dp; val ch = 132.dp
                 val n = g.hands[0].size
@@ -440,4 +533,17 @@ fun DurakScreen(onBack: () -> Unit) {
             }
         }
     }
+    if (opts) androidx.compose.material3.AlertDialog(onDismissRequest = { opts = false }, title = { Text("Дурак") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Соперников", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(1, 2).forEach { n -> Chip(if (n == 1) "1 бот" else "2 бота", bots == n, { bots = n }) } }
+            Text("Игра", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Chip("Подкидной", !transfer, { transfer = false }); Chip("Переводной", transfer, { transfer = true }) }
+            Text("Карты", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Chip("Классические", CardSkin.classic, { CardSkin.classic = true }); Chip("Рисованные", !CardSkin.classic, { CardSkin.classic = false }) }
+            Text("Классическая колода — SVG-cards (David Bellot, LGPL-2.1). Кто ходит первым — случайно.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+        }
+    }, confirmButton = { androidx.compose.material3.TextButton({
+        dp.edit().putInt("bots", bots).putBoolean("transfer", transfer).putBoolean("classic", CardSkin.classic).apply(); opts = false; gen++
+    }) { Text("Новая партия") } }, dismissButton = { androidx.compose.material3.TextButton({ dp.edit().putBoolean("classic", CardSkin.classic).apply(); opts = false }) { Text("Готово") } })
 }

@@ -1,0 +1,6 @@
+Задачи: база задач lichess.org (https://database.lichess.org/#puzzles), лицензия CC0. 500 штук, от простых к сложным.
+Фигуры (из lichess.org, файлы public/piece): cburnett, merida — Colin M.L. Burnett / Armando H. Marroquin, GPLv2+;
+california, cardinal, maestro, staunty, tatiana, gioco, fresca — Jerry S. / sadsnake1, CC BY-NC-SA 4.0; chessnut — Alexis Luengas, Apache 2.0;
+fantasy, spatial, celtic — Maurizio Monge, MIT; pixel — therealqtpi, AGPLv3+.
+Доски (public/images/board) — авторы lichess и pirouetti, AGPLv3+. Звуки sfx, piano, nes, futuristic — Enigmahack, AGPLv3+; lisp — EdinburghCollective, CC BY-NC-SA 4.0.
+Всё — для личного некоммерческого использования; исходники — github.com/lichess-org/lila.

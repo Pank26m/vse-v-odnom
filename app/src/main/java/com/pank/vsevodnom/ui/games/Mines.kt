@@ -29,7 +29,8 @@ import kotlinx.coroutines.delay
 import kotlin.random.Random
 
 private data class Level(val name: String, val cols: Int, val rows: Int, val mines: Int)
-private val LEVELS = listOf(Level("Новичок", 9, 9, 10), Level("Любитель", 16, 16, 40), Level("Профи", 16, 30, 99))
+/** Одно поле: 16 по ширине × 27 по высоте (целиком на экране), 85 мин (~20%, как у «Профи»). */
+private val LEVELS = listOf(Level("16×27", 16, 27, 85))
 
 private class MineBoard(val cols: Int, val rows: Int, val mines: Int) {
     val mine = BooleanArray(cols * rows)
@@ -107,7 +108,6 @@ fun MinesScreen(onBack: () -> Unit) {
 
     ScreenScaffold("Сапёр", onBack) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { LEVELS.forEachIndexed { i, l -> Chip(l.name, i == lvl, { lvl = i; gen++ }) } }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("✱ ${L.mines - b.flags}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 Text(
@@ -126,7 +126,8 @@ fun MinesScreen(onBack: () -> Unit) {
         }
         Spacer(Modifier.height(10.dp))
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-            val cell: Dp = ((maxWidth - 2.dp * L.cols) / L.cols).coerceIn(20.dp, 40.dp)
+            // клетка — чтобы всё поле влезло и по ширине, и по высоте
+            val cell: Dp = minOf((maxWidth - 2.dp * L.cols) / L.cols, (maxHeight - 2.dp * L.rows - 8.dp) / L.rows).coerceIn(14.dp, 40.dp)
             Column(Modifier.verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 for (y in 0 until L.rows) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     for (x in 0 until L.cols) {

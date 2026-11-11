@@ -18,34 +18,24 @@ class GamesTest {
         }
     }
 
-    /** Бот играет за обе стороны: партия должна закончиться, карт всегда 36. */
+    /** Боты играют за всех (2–3 игрока, подкидной и переводной): партия заканчивается, карт всегда 36. */
     @Test fun durakSelfPlay() {
-        repeat(200) { game ->
-            val g = Durak()
+        for (players in 2..3) for (tr in listOf(false, true)) repeat(150) { game ->
+            val g = Durak(players = players, transfer = tr, rnd = kotlin.random.Random(game * 7 + players))
             var steps = 0
-            while (g.over == null && steps < 5000) {
+            while (g.over == null && steps < 8000) {
                 steps++
-                // ход «человека» делаем той же логикой, временно меняя местами руки
-                val acted = if (g.attacker == 1 || (g.defender == 1)) g.botStep() else false
-                if (!acted) {
-                    // игрок 0: простая стратегия
-                    val h = g.hands[0]
-                    if (g.attacker == 0) {
-                        val c = h.firstOrNull { g.canAttackWith(it) && (g.attack.isEmpty() || g.unbeaten().isEmpty() || g.taking) }
-                        if (c != null && (g.attack.isEmpty() || g.attack.size < 3)) g.playAttack(0, c)
-                        else if (g.attack.isNotEmpty() && (g.unbeaten().isEmpty() || g.taking)) g.finishRound()
-                    } else {
-                        val u = g.unbeaten()
-                        if (u.isNotEmpty() && !g.taking) {
-                            val i = u.first(); val c = h.filter { g.beats(it, g.attack[i]) }.minByOrNull { it.rank }
-                            if (c != null) g.playDefense(c, i) else g.taking = true
-                        }
-                    }
+                if (g.roundCanEnd()) { g.finishRound() }
+                else {
+                    val order = listOf(g.defender) + g.throwers()
+                    var acted = false
+                    for (p in order) if (g.botStep(p)) { acted = true; break }
+                    if (!acted) error("никто не ходит: players=$players tr=$tr шаг $steps")
                 }
-                val total = g.deck.size + g.hands[0].size + g.hands[1].size + g.attack.size + g.defense.count { it != null } + g.discarded
+                val total = g.deck.size + g.hands.sumOf { it.size } + g.attack.size + g.defense.count { it != null } + g.discarded
                 assertEquals(36, total, "карт стало $total на шаге $steps")
             }
-            assertNotNull(g.over, "партия $game не закончилась за $steps шагов")
+            assertNotNull(g.over, "партия $game ($players игр., перевод=$tr) не закончилась за $steps шагов")
         }
     }
 }

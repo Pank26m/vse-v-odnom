@@ -66,6 +66,41 @@ class ArcadeTest {
         assertNotNull(g.winner, "партия ботов заканчивается за $turns ходов")
     }
 
+    @Test fun territoryModes() {
+        // формула шанса: 2 на 2 — 50%, 2 на 1 — 75%, 1 на 2 — 25%, симметрична
+        assertEquals(0.5, TerritoryGame.chance(2, 2), 1e-9); assertEquals(0.75, TerritoryGame.chance(2, 1), 1e-9); assertEquals(0.25, TerritoryGame.chance(1, 2), 1e-9)
+        for (a in 1..12) for (d in 1..12) assertEquals(1.0, TerritoryGame.chance(a, d) + TerritoryGame.chance(d, a), 1e-9)
+        for (size in 0..3) for (players in 2..4) for (sym in listOf(true, false)) for (mixed in listOf(false, true)) {
+            val g = TerritoryGame(players = players, seed = (size * 100 + players * 10 + (if (sym) 1 else 0)).toLong(), size = size,
+                brains = listOf(Brain.GOD, Brain.MASTER, Brain.DUMB), symmetric = sym, mixed = mixed)
+            assertTrue(g.cells.size >= 8, "точек мало: ${g.cells.size}")
+            // связность
+            val seen = HashSet<Int>(); val st = ArrayDeque(listOf(g.cells[0]))
+            while (st.isNotEmpty()) { val h = st.removeLast(); if (seen.add(h.id)) g.nbrs(h).forEach { if (it.id !in seen) st.add(it) } }
+            assertEquals(g.cells.size, seen.size, "карта несвязна size=$size p=$players sym=$sym")
+            assertEquals(players, (0 until players).count { g.alive(it) })
+            if (mixed) assertTrue(g.cells.all { it.owner >= 0 && it.v == 2 })
+            var turns = 0
+            while (g.winner == null && turns < 3000) {
+                while (g.botAttackOnce() && g.winner == null) {}
+                if (g.winner != null) break
+                g.endAttack(); g.autoGrow(g.brainOf(g.turn)); g.endTurn(); turns++
+                g.cells.forEach { assertTrue(it.v in 0..it.cap) }
+            }
+            println("size=$size p=$players sym=$sym mixed=$mixed: точек ${g.cells.size}, мостов ${g.edges.size}, аванпостов ${g.cells.count { it.outpost }}, ходов $turns, победил ${g.winner}")
+            assertNotNull(g.winner, "партия ботов не закончилась: size=$size p=$players sym=$sym mixed=$mixed")
+        }
+    }
+
+    @Test fun sudokuGod() {
+        val t0 = System.currentTimeMillis()
+        val (p, sol) = com.pank.vsevodnom.ui.games.SudokuGen.generateGod(7)
+        assertEquals(1, com.pank.vsevodnom.ui.games.SudokuGen.count(p.copyOf()))
+        assertFalse(com.pank.vsevodnom.ui.games.SudokuGen.easyLogic(p))
+        assertTrue(sol.none { it == 0 })
+        println("божество: подсказок ${p.count { it != 0 }}, ${System.currentTimeMillis() - t0} мс")
+    }
+
     @Test fun connectFourWinAndBot() {
         val b = C4.empty()
         // три красных внизу — бот обязан закрыть четвёртую

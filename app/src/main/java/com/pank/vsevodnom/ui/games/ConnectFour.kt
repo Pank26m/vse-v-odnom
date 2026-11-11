@@ -116,10 +116,10 @@ private val C4_BOARD = Color(0xFF3E6FD6)
 fun ConnectFourScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("c4", android.content.Context.MODE_PRIVATE) }
-    var level by remember { mutableIntStateOf(prefs.getInt("level", 1)) }
+    val level = 2   // только сильный бот (глубина 7)
     var b by remember { mutableStateOf(C4.empty()) }
     var turn by remember { mutableIntStateOf(1) }
-    var botFirst by remember { mutableStateOf(false) }
+    var botFirst by remember { mutableStateOf(kotlin.random.Random.nextBoolean()) }
     var score by remember { mutableStateOf(Triple(prefs.getInt("w", 0), prefs.getInt("l", 0), prefs.getInt("d", 0))) }
     var last by remember { mutableIntStateOf(-1) }
     val drop = remember { Animatable(1f) }
@@ -128,7 +128,9 @@ fun ConnectFourScreen(onBack: () -> Unit) {
     var counted by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
-    fun reset() { b = C4.empty(); last = -1; counted = false; turn = if (botFirst) 2 else 1 }
+    LaunchedEffect(Unit) { turn = if (botFirst) 2 else 1 }
+    // кто ходит первым — случайно
+    fun reset() { b = C4.empty(); last = -1; counted = false; botFirst = kotlin.random.Random.nextBoolean(); turn = if (botFirst) 2 else 1 }
     suspend fun put(c: Int) {
         val r = C4.dropRow(b, c); if (r < 0) return
         drop.snapTo(0f)
@@ -151,18 +153,12 @@ fun ConnectFourScreen(onBack: () -> Unit) {
     }
     ScreenScaffold("Четыре в ряд", onBack) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Лёгкий", "Средний", "Сильный").forEachIndexed { i, t -> Chip(t, level == i, { level = i; prefs.edit().putInt("level", i).apply(); reset() }) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Я хожу первым", !botFirst, { botFirst = false; reset() }); Chip("Бот первым", botFirst, { botFirst = true; reset() })
-            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf("победы" to score.first, "ничьи" to score.third, "поражения" to score.second).forEach { (k, v) ->
                     Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$v", style = MaterialTheme.typography.headlineMedium); Text(k, style = MaterialTheme.typography.labelLarge, color = Pal.Muted) }
                 }
             }
-            Text(when { win?.first == 1 -> "Ты собрал четыре!"; win?.first == 2 -> "Бот собрал четыре"; draw -> "Ничья — поле заполнено"; turn == 2 -> "Бот думает…"; else -> "Твой ход: нажми на столбец" },
+            Text(when { win?.first == 1 -> "Ты собрал четыре!"; win?.first == 2 -> "Бот собрал четыре"; draw -> "Ничья — поле заполнено"; turn == 2 -> "Бот думает…"; b.all { it == 0 } -> "Ты ходишь первым — нажми на столбец"; else -> "Твой ход: нажми на столбец" },
                 style = MaterialTheme.typography.titleLarge, modifier = Modifier.align(Alignment.CenterHorizontally))
             Box(Modifier.fillMaxWidth().aspectRatio(C4.W / (C4.H + 0.2f)).clip(RoundedCornerShape(20.dp))) {
                 Canvas(Modifier.fillMaxSize().pointerInput(b, turn, win) {
@@ -190,7 +186,7 @@ fun ConnectFourScreen(onBack: () -> Unit) {
                         if (i in hl) drawCircle(Color.White, rad * 0.3f, Offset(cx, y))
                     }
                 }
-                if (win?.first == 1) VictoryOverlay("Четыре в ряд!", "Бот (${listOf("лёгкий", "средний", "сильный")[level]}) повержен", "Ещё партия") { reset() }
+                if (win?.first == 1) VictoryOverlay("Четыре в ряд!", "Сильный бот повержен", "Ещё партия") { reset() }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Canvas(Modifier.size(18.dp)) { drawCircle(C4_ME) }; Text("ты", style = MaterialTheme.typography.labelLarge)

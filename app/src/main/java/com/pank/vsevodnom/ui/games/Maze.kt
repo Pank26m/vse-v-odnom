@@ -94,8 +94,10 @@ private class MazeGame(var level: Int = 1, var lives: Int = 3, var score: Int = 
         }
     }
 
+    /** Сколько точек съедено — экран по нему играет «вака». */
+    var chomps = 0
     private fun eat(p: Pair<Int, Int>) {
-        if (dots.remove(p)) score += 10
+        if (dots.remove(p)) { score += 10; chomps++ }
         if (stars.remove(p)) { score += 50; fright = (8f - level * 0.6f).coerceAtLeast(3f); combo = 0 }
     }
 
@@ -166,9 +168,11 @@ fun MazeScreen(onBack: () -> Unit) {
     var g by remember { mutableStateOf(MazeGame()) }
     var tick by remember { mutableIntStateOf(0) }
     var best by remember { mutableIntStateOf(Hi.get(ctx, "maze")) }
+    var lastChomp by remember { mutableIntStateOf(0) }
     GameLoop(g.started && !g.over) { dt ->
         g.step(dt); tick++
-        if (g.cleared) g = MazeGame(g.level + 1, g.lives, g.score).apply { started = true }
+        if (g.chomps != lastChomp) { if (g.chomps > lastChomp) PacSfx.chomp(); lastChomp = g.chomps }
+        if (g.cleared) { g = MazeGame(g.level + 1, g.lives, g.score).apply { started = true }; lastChomp = 0 }
         if (g.over && Hi.submit(ctx, "maze", g.score)) best = g.score
     }
     ScreenScaffold("Pac-Man", onBack) {
@@ -219,11 +223,62 @@ fun MazeScreen(onBack: () -> Unit) {
                 val alive = g.deathPause <= 0
                 val mouth = if (alive) (kotlin.math.abs(kotlin.math.sin((g.me.px + g.me.py) * Math.PI)).toFloat() * 46f + 4f) else (1f - g.deathPause.coerceIn(0f, 1f)) * 180f
                 val dirDeg = when { g.me.dx > 0 -> 0f; g.me.dx < 0 -> 180f; g.me.dy > 0 -> 90f; g.me.dy < 0 -> 270f; else -> 0f }
-                drawArc(Color(0xFFFFD43B), dirDeg + mouth / 2, 360f - mouth, true, Offset(p.x - r, p.y - r), Size(2 * r, 2 * r))
-                if (alive) { val ea = Math.toRadians((dirDeg - 60).toDouble()); drawCircle(Color(0xFF1C1B22), r * 0.12f, Offset(p.x + (kotlin.math.cos(ea) * r * 0.5).toFloat(), p.y + (kotlin.math.sin(ea) * r * 0.5).toFloat())) }
+                // немного пиксельный: круг 13×13 «пикселей», рот — вырезанный клин
+                val px = 2 * r / 13f
+                val dirRad = Math.toRadians(dirDeg.toDouble())
+                for (i in 0 until 13) for (j in 0 until 13) {
+                    val vx = (i - 6f); val vy = (j - 6f)
+                    if (vx * vx + vy * vy > 6.6f * 6.6f) continue
+                    // угол пикселя относительно направления взгляда
+                    var ang = Math.toDegrees(kotlin.math.atan2(vy.toDouble(), vx.toDouble()) - dirRad)
+                    while (ang > 180) ang -= 360; while (ang < -180) ang += 360
+                    if (vx * vx + vy * vy > 1.2f && kotlin.math.abs(ang) < mouth / 2) continue
+                    val shade = if (vx * kotlin.math.cos(dirRad - 1.0) + vy * kotlin.math.sin(dirRad - 1.0) < -3.5) Color(0xFFE8B923) else Color(0xFFFFD43B)
+                    drawRect(shade, Offset(p.x - r + i * px, p.y - r + j * px), Size(px + 0.6f, px + 0.6f))
+                }
+                if (alive) {
+                    val ea = Math.toRadians((dirDeg - 65).toDouble())
+                    val ex = p.x + (kotlin.math.cos(ea) * r * 0.5).toFloat(); val ey = p.y + (kotlin.math.sin(ea) * r * 0.5).toFloat()
+                    drawRect(Color(0xFF1C1B22), Offset(ex - px * 0.75f, ey - px * 0.75f), Size(px * 1.5f, px * 1.5f))
+                }
             }
             if (!g.started) GameOverlay("Pac-Man", "Смахивай, чтобы вести Pac-Man. Съешь все точки. Большая точка — на время привидения становятся съедобными.", "Старт") { g.started = true }
-            if (g.over) GameOverlay("Поймали!", "Счёт ${g.score} · уровень ${g.level}", "Ещё раз") { g = MazeGame().apply { started = true } }
+            if (g.over) GameOverlay("Поймали!", "Счёт ${g.score} · уровень ${g.level}", "Ещё раз") { g = MazeGame().apply { started = true }; lastChomp = 0 }
         }
+    }
+}
+
+/**
+ * «Вака-вака»: своё синтезированное «чавканье» — два коротких слога (вниз «ва», вверх «ка») по очереди на каждую точку.
+ * Сделано синтезом (своё), не запись из игры.
+ */
+private object PacSfx {
+    private var flip = false
+    private var lastAt = 0L
+    private fun syllable(up: Boolean): ShortArray {
+        val sr = com.pank.vsevodnom.ui.random.Sfx.SR
+        val n = (0.115 * sr).toInt()
+        val out = ShortArray(n)
+        var ph = 0.0
+        for (k in 0 until n) {
+            val t = k.toDouble() / n
+            // частота скользит: «ва» 480→190 Гц, «ка» 190→480 Гц
+            val f = if (up) 190 + 290 * t else 480 - 290 * t
+            ph += 2 * Math.PI * f / sr
+            // треугольник + немного квадрата — «8-битный» тембр, мягкая атака и спад
+            val tri = 2 / Math.PI * kotlin.math.asin(kotlin.math.sin(ph))
+            val sq = if (kotlin.math.sin(ph) >= 0) 1.0 else -1.0
+            val env = kotlin.math.min(1.0, t * 25) * kotlin.math.min(1.0, (1 - t) * 8)
+            out[k] = ((tri * 0.75 + sq * 0.25) * env * 0.22 * Short.MAX_VALUE).toInt().toShort()
+        }
+        return out
+    }
+    private val wa by lazy { syllable(false) }
+    private val ka by lazy { syllable(true) }
+    fun chomp() {
+        val now = System.currentTimeMillis()
+        if (now - lastAt < 90) return
+        lastAt = now; flip = !flip
+        com.pank.vsevodnom.ui.random.Sfx.playPcm("pac", if (flip) wa else ka)
     }
 }

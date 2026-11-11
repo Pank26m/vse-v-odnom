@@ -1,0 +1,2 @@
+Карты: SVG-cards 4.0.2 — (C) 2005 David Bellot, сборка htdebeer (https://github.com/htdebeer/SVG-cards).
+Лицензия LGPL-2.1. Картинки отрисованы из svg-cards.svg в WebP 320×463 без изменений рисунка.

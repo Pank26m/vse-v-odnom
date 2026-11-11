@@ -411,15 +411,17 @@ class Chess {
     /**
      * Лучший ход за ограниченное время. level 1..5: глубина/время и «ошибки» на слабых уровнях.
      */
-    fun bestMove(level: Int): Int? {
+    fun bestMove(level: Int, capMs: Long = Long.MAX_VALUE): Int? {
         val moves = legal(); if (moves.isEmpty()) return null
-        val (maxDepth, timeMs, noise) = when (level) {
+        val (maxDepth, timeMs0, noise) = when (level) {
             1 -> Triple(1, 300L, 250)
             2 -> Triple(2, 500L, 120)
             3 -> Triple(3, 800L, 40)
             4 -> Triple(5, 1800L, 0)
             else -> Triple(64, 3500L, 0)
         }
+        // на часах мало времени — думаем быстрее
+        val timeMs = minOf(timeMs0, capMs.coerceAtLeast(120L))
         if (noise > 0) {
             // слабые уровни: оцениваем ходы мелко и добавляем случайность
             val scored = moves.map { m -> make(m); val v = -(if (maxDepth <= 1) quiesce(-1_000_000, 1_000_000, 0) else { deadline = System.currentTimeMillis() + timeMs; stop = false; search(maxDepth - 1, -1_000_000, 1_000_000, 1) }); unmake(); m to v + Random.nextInt(-noise, noise + 1) }
@@ -445,6 +447,20 @@ class Chess {
         }
         return best
     }
+
+    // ----------- UCI (задачи, сохранение партий) -----------
+
+    /** Ход в виде «e2e4», «e7e8q». */
+    fun uci(m: Int): String = sqName(from(m)) + sqName(toSq(m)) + when (promo(m)) { 5 -> "q"; 4 -> "r"; 3 -> "b"; 2 -> "n"; else -> "" }
+    /** Найти законный ход по «e2e4». */
+    fun fromUci(u: String): Int? {
+        if (u.length < 4) return null
+        val f = (u[0] - 'a') + (u[1] - '1') * 8; val t = (u[2] - 'a') + (u[3] - '1') * 8
+        val p = when (u.getOrNull(4)) { 'q' -> 5; 'r' -> 4; 'b' -> 3; 'n' -> 2; else -> 0 }
+        return legal().firstOrNull { from(it) == f && toSq(it) == t && promo(it) == p }
+    }
+    /** Материал стороны c (без короля) — для «жертв» в анализе. */
+    fun material(c: Int): Int { var m = 0; for (s in 0 until 64) { val p = b[s]; if (p != 0 && (p > 0) == (c > 0) && abs(p) != 6) m += VAL[abs(p)] }; return m }
 
     // ----------- Нотация -----------
 

@@ -32,4 +32,22 @@ class ChessTest {
         val c = Chess()
         val t = System.currentTimeMillis(); val m = c.bestMove(5); println("best=${c.san(m!!)} in ${System.currentTimeMillis() - t} ms")
     }
+
+    /** Все 500 задач: позиция читается, каждый ход решения законен; последний ход часто — мат. */
+    @Test fun puzzlesValid() {
+        val f = listOf(java.io.File("src/main/assets/chess/puzzles.csv"), java.io.File("app/src/main/assets/chess/puzzles.csv")).first { it.exists() }
+        val lines = f.readLines().filter { it.isNotBlank() }
+        kotlin.test.assertEquals(500, lines.size)
+        var mates = 0
+        lines.forEach { l ->
+            val p = l.split('|')
+            val g = com.pank.vsevodnom.ui.games.Chess(); g.loadFen(p[1])
+            p[2].split(' ').forEachIndexed { k, u ->
+                val m = g.fromUci(u) ?: error("задача ${p[0]}: ход $k «$u» незаконен")
+                g.make(m)
+            }
+            if (g.inCheck() && g.legal().isEmpty()) mates++
+        }
+        println("задач: ${lines.size}, заканчиваются матом: $mates")
+    }
 }

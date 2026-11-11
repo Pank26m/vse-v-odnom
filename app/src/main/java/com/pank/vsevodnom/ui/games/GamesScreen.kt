@@ -24,18 +24,18 @@ import com.pank.vsevodnom.ui.theme.Tints
 private data class Game(val key: String, val title: String, val sub: String, val glyph: String, val tint: Tint)
 
 private val GAMES = listOf(
-    Game("chess", "Шахматы", "против бота, 5 уровней", "♞", Tints.Lilac),
-    Game("durak", "Дурак", "подкидной, против бота", "♠", Tints.Rose),
-    Game("sudoku", "Судоку", "3 сложности", "9", Tints.Sky),
-    Game("mines", "Сапёр", "3 размера поля", "✱", Tints.Mint),
+    Game("chess", "Шахматы", "бот с часами, 500 задач, разбор партий, темы", "♞", Tints.Lilac),
+    Game("durak", "Дурак", "подкидной и переводной, 1–2 бота", "♠", Tints.Rose),
+    Game("sudoku", "Судоку", "4 сложности, вплоть до «Божества»", "9", Tints.Sky),
+    Game("mines", "Сапёр", "поле 16×27", "✱", Tints.Mint),
     Game("merge", "2048", "сдвигай плитки, собери 2048", "²", Tints.Lilac),
-    Game("snake", "Змейка", "классика, со стенами и без", "🐍", Tints.Mint),
-    Game("maze", "Pac-Man", "ешь точки, убегай от привидений", "🟡", Tints.Sky),
-    Game("cells", "Клетки", "съешь меньших, беги от больших", "🫧", Tints.Rose),
-    Game("ttt", "Крестики-нолики", "вдвоём или против бота", "✕", Tints.Sky),
-    Game("territory", "Территории", "захват гексов против 3 ботов", "⬢", Tints.Lilac),
-    Game("c4", "Четыре в ряд", "собери 4 фишки, против бота", "●", Tints.Rose),
-    Game("sea", "Морской бой", "на тетрадном листе, против бота", "⚓", Tints.Sky),
+    Game("snake", "Змейка", "гладкая змейка с глазками", "🐍", Tints.Mint),
+    Game("maze", "Pac-Man", "вака-вака! ешь точки, убегай от привидений", "🟡", Tints.Sky),
+    Game("cells", "Клетки", "огромное поле, островки, джойстик где угодно", "🫧", Tints.Rose),
+    Game("ttt", "Крестики-нолики", "против бота, кто кем — случайно", "✕", Tints.Sky),
+    Game("territory", "Территории", "свой редактор карты, 1–3 бота, шансы как в оригинале", "⬢", Tints.Lilac),
+    Game("c4", "Четыре в ряд", "сильный бот, кто первый — случайно", "●", Tints.Rose),
+    Game("sea", "Морской бой", "свой флот, корабли ручкой, взрывы", "⚓", Tints.Sky),
     Game("random", "Рандом", "монетка, колесо, шар, бутылочка, кости", "🎲", Tints.Butter),
 )
 

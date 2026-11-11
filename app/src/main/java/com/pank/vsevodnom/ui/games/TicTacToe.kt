@@ -40,42 +40,39 @@ object Ttt {
     }
 }
 
+/** Крестики-нолики против бота (минимакс, без ошибок). Кто кем играет и кто ходит первым (✕) — каждый раз случайно. */
 @Composable
 fun TicTacToeScreen(onBack: () -> Unit) {
-    var mode by remember { mutableIntStateOf(1) }      // 0 вдвоём, 1 бот-лёгкий, 2 бот-непобедимый
     var b by remember { mutableStateOf(List(9) { 0 }) }
     var turn by remember { mutableIntStateOf(1) }
-    var youX by remember { mutableStateOf(true) }
-    var wins by remember { mutableStateOf(Triple(0, 0, 0)) }  // X, O, ничья
+    var youX by remember { mutableStateOf(Random.nextBoolean()) }
+    var wins by remember { mutableStateOf(Triple(0, 0, 0)) }  // я, бот, ничья
     val win = Ttt.winner(b)
     val draw = win == null && b.none { it == 0 }
-    val bot = if (mode == 0) 0 else if (youX) 2 else 1
+    val me = if (youX) 1 else 2
+    val bot = 3 - me
     fun play(i: Int) {
         if (b[i] != 0 || win != null) return
         b = b.toMutableList().also { it[i] = turn }; turn = 3 - turn
-        Ttt.winner(b)?.let { w -> wins = if (w.first == 1) wins.copy(first = wins.first + 1) else wins.copy(second = wins.second + 1) }
+        Ttt.winner(b)?.let { w -> wins = if (w.first == me) wins.copy(first = wins.first + 1) else wins.copy(second = wins.second + 1) }
             ?: run { if (b.none { it == 0 }) wins = wins.copy(third = wins.third + 1) }
     }
-    LaunchedEffect(b, turn, mode) {
-        if (bot != 0 && turn == bot && win == null && !draw) {
+    LaunchedEffect(b, turn, youX) {
+        if (turn == bot && win == null && !draw) {
             delay(450)
-            val free = b.indices.filter { b[it] == 0 }
-            play(if (mode == 1 && Random.nextFloat() < 0.45f) free.random() else Ttt.best(b, bot))
+            // первый ход бота на пустом поле — случайный угол/центр (иначе всегда одинаково)
+            play(if (b.all { it == 0 }) listOf(0, 2, 4, 6, 8).random() else Ttt.best(b, bot))
         }
     }
-    fun reset() { b = List(9) { 0 }; turn = 1 }
+    fun reset() { b = List(9) { 0 }; turn = 1; youX = Random.nextBoolean() }
     ScreenScaffold("Крестики-нолики", onBack) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Вдвоём", mode == 0, { mode = 0; reset() }); Chip("Бот: лёгкий", mode == 1, { mode = 1; reset() }); Chip("Бот: сильный", mode == 2, { mode = 2; reset() })
-            }
-            if (mode != 0) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Chip("Я — ✕", youX, { youX = true; reset() }); Chip("Я — ○", !youX, { youX = false; reset() }) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                listOf("✕" to wins.first, "ничья" to wins.third, "○" to wins.second).forEach { (k, v) ->
+                listOf("я · " + (if (youX) "✕" else "○") to wins.first, "ничья" to wins.third, "бот · " + (if (youX) "○" else "✕") to wins.second).forEach { (k, v) ->
                     Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("$v", style = MaterialTheme.typography.headlineMedium); Text(k, style = MaterialTheme.typography.labelLarge, color = Pal.Muted) }
                 }
             }
-            Text(when { win != null -> (if (win.first == 1) "✕" else "○") + " победили!"; draw -> "Ничья"; bot != 0 && turn == bot -> "Бот думает…"; else -> "Ходят " + if (turn == 1) "✕" else "○" },
+            Text(when { win != null -> if (win.first == me) "Ты победил!" else "Бот победил"; draw -> "Ничья"; turn == bot -> "Бот думает…"; else -> "Твой ход — " + if (me == 1) "✕" else "○" },
                 style = MaterialTheme.typography.titleLarge, modifier = Modifier.align(Alignment.CenterHorizontally))
             Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(22.dp)).background(Pal.Card).padding(10.dp)) {
                 Column {
