@@ -60,7 +60,11 @@ object VseText {
             var who1 = "Яндекс"; var who2 = "LanguageTool"
             val res = runCatching { withContext(Dispatchers.IO) {
                 // 1) орфография: Яндекс.Спеллер; недоступен (в Украине часто заблокирован) — словарь на телефоне
-                val (t1, n1) = runCatching { yandex(full, langOf(full)) }.getOrElse { who1 = "словарь телефона"; offlineFix(ctx, full) }
+                val (ty, ny) = runCatching { yandex(full, langOf(full)) }.getOrElse { who1 = "словарь телефона"; full to 0 }
+                // словарь телефона проходит всегда — добирает то, что Яндекс пропустил или если он недоступен
+                val (t1, no) = offlineFix(ctx, ty)
+                val n1 = ny + no
+                if (who1 == "Яндекс" && no > 0) who1 = "Яндекс + словарь телефона"
                 // 2) запятые, заглавные, дефисы: LanguageTool
                 val (t2, n2) = runCatching { languageTool(t1, langOf(t1)) }.getOrElse { who2 = "—"; t1 to 0 }
                 Triple(t2, n1, n2)
