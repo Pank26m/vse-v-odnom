@@ -54,3 +54,21 @@ class KbCalcTest {
         kotlin.test.assertEquals(null, c("просто текст 42"))
     }
 }
+
+/** Пароли в клавиатуре: подбор записи по приложению (и кириллицей), код 2FA. */
+class KbVaultTest {
+    private fun e(t: String, url: String = "") = com.goodwy.keyboard.vse.VseVault.Entry(t, "", "", "", url, emptyList())
+    @Test fun matching() {
+        val V = com.goodwy.keyboard.vse.VseVault
+        kotlin.test.assertEquals("instagram", V.keyOf("com.instagram.android"))
+        kotlin.test.assertEquals("telegram", V.keyOf("org.telegram.messenger"))
+        assertTrue(V.matches(e("Инстаграм"), "instagram"))
+        assertTrue(V.matches(e("Телеграм"), "telegram"))
+        assertTrue(V.matches(e("Почта", "https://instagram.com"), "instagram"))
+        assertFalse(V.matches(e("Банк"), "instagram"))
+    }
+    @Test fun totpRfc() {
+        // RFC 6238: секрет «12345678901234567890» (base32 GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ), t=59 c → 287082 (6 цифр)
+        kotlin.test.assertEquals("287082", com.goodwy.keyboard.vse.VseVault.totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59_000))
+    }
+}

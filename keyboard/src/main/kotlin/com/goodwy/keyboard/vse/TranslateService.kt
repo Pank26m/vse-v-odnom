@@ -38,5 +38,10 @@ class TranslateService : Service() {
         }
     }
     private val messenger = Messenger(handler)
+    override fun onCreate() {
+        super.onCreate()
+        // на всякий случай: в 0.38 ML Kit падал внутри (NPE) — инициализируем явно
+        runCatching { com.google.mlkit.common.sdkinternal.MlKitContext.initializeIfNeeded(applicationContext) }
+    }
     override fun onBind(intent: Intent?): IBinder = messenger.binder
 }

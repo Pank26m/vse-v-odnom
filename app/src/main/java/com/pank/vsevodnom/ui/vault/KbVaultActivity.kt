@@ -71,12 +71,27 @@ class KbVaultActivity : FragmentActivity() {
 
     override fun onStop() { super.onStop(); if (!isChangingConfigurations) { Vault.lock(); finish() } }
 
+    /** Режим «unlock»: после отпечатка — записи паролей в клавиатуру (только внутри приложения) и закрыться. */
+    private fun handOver(list: List<VaultEntry>) {
+        val arr = org.json.JSONArray()
+        list.filter { it.kind != "doc" }.forEach { e ->
+            arr.put(org.json.JSONObject().put("title", e.title).put("login", e.login).put("password", e.password).put("totp", e.totp).put("url", e.url)
+                .put("extra", org.json.JSONArray(e.extra.map { org.json.JSONObject().put("label", it.label).put("value", it.value) })))
+        }
+        sendBroadcast(Intent("com.pank.vsevodnom.KBD_VAULT").setPackage(packageName).putExtra("json", arr.toString()))
+        finish()
+    }
+
+    private fun loaded(list: List<VaultEntry>?) {
+        if (list != null && intent.getStringExtra("mode") == "unlock") handOver(list) else entries = list
+    }
+
     private fun unlock() {
         err = null
-        if (Vault.isOpen) { entries = runCatching { Vault.load(this) }.getOrNull(); return }
+        if (Vault.isOpen) { loaded(runCatching { Vault.load(this) }.getOrNull()); return }
         BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                runCatching { Vault.openAfterAuth(this@KbVaultActivity); entries = Vault.load(this@KbVaultActivity) }
+                runCatching { Vault.openAfterAuth(this@KbVaultActivity); loaded(Vault.load(this@KbVaultActivity)) }
                     .onFailure { err = it.message ?: "Не удалось открыть хранилище" }
             }
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -92,7 +107,13 @@ class KbVaultActivity : FragmentActivity() {
         if (d.isNotBlank()) d.removePrefix("www.").removePrefix("m.").substringBeforeLast('.').substringAfterLast('.')
         else intent.getStringExtra("target").orEmpty().split('.').filter { it !in setOf("com", "org", "android", "app", "mobile", "ua", "ru", "net") }.maxByOrNull { it.length }.orEmpty()
     }
-    private fun matches(e: VaultEntry) = key.length >= 3 && (e.url.contains(key, true) || e.title.contains(key, true))
+    /** Подходит ли запись: по адресу или названию, в том числе кириллицей («Инстаграм» ↔ instagram). */
+    private fun matches(e: VaultEntry): Boolean {
+        if (key.length < 3) return false
+        val k = key.lowercase().take(6)
+        val tr = com.goodwy.keyboard.vse.VseVault.translit(e.title)
+        return e.url.contains(k, true) || e.title.contains(k, true) || tr.contains(k) || tr.replace("ks", "x").contains(k)
+    }
 
     /** Автозаполнение: вернуть Android логин и пароль выбранной записи. */
     private fun fillAndFinish(e: VaultEntry) {
@@ -144,7 +165,9 @@ class KbVaultActivity : FragmentActivity() {
         var pick by remember { mutableStateOf<VaultEntry?>(null) }
         AppTextField(q, { q = it }, "Найти", modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
         // подходящие сайту/приложению — сверху (подсвечены)
-        val shown = list.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) }
+        val qt = com.goodwy.keyboard.vse.VseVault.translit(q)
+        val shown = list.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) ||
+            com.goodwy.keyboard.vse.VseVault.translit(it.title).contains(qt) || it.url.contains(qt, true) }
             .sortedWith(compareBy({ !matches(it) }, { it.title.lowercase() }))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (shown.isEmpty()) item { Text("Ничего не найдено", color = Pal.Muted) }

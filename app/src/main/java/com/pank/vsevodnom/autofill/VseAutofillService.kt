@@ -90,7 +90,13 @@ class VseAutofillService : AutofillService() {
                         (v == InputType.TYPE_TEXT_VARIATION_PASSWORD || v == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD || v == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD) ||
                         "type=password" in html || hints.contains("password") || PASS_WORDS.any { it in words }
                     val value = n.autofillValue?.takeIf { it.isText }?.textValue?.toString()
-                    if (isPass) { if (pass == null) { pass = id; passV = value } }
+                    if (isPass) {
+                        if (pass == null) {
+                            pass = id; passV = value
+                            // логин не опознан по подсказкам — это текстовое поле прямо перед паролем (так в Instagram и большинстве форм)
+                            if (user == null) texts.lastOrNull()?.let { (uid, uv) -> user = uid; userV = uv }
+                        }
+                    }
                     else {
                         texts += id to value
                         if (user == null && (hints.contains("username") || hints.contains("email") || hints.contains("phone") ||

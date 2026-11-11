@@ -25,7 +25,23 @@ object VseVoice {
 
     fun toggle(ctx: Context) { if (listening) stop() else start(ctx) }
 
+    /** Последний промежуточный текст фразы и то, что из этой фразы уже вставлено. */
+    private var lastPartial = ""
+    private var sessionCommitted = ""
+    private var appCtx: Context? = null
+
+    /** Вставить с пробелом, если нужно. */
+    private fun put(ctx: Context, t: String) {
+        val text = t.trim(); if (text.isEmpty()) return
+        val prev = FlorisImeService.currentInputConnection()?.getTextBeforeCursor(1, 0)?.toString().orEmpty()
+        val sep = if (prev.isEmpty() || prev.endsWith(" ") || prev.endsWith("\n")) "" else " "
+        VseIme.commit(ctx, sep + text)
+    }
+
     fun stop() {
+        // результат после stopListening уже не придёт (распознаватель закрываем) — вставляем то, что успели сказать
+        appCtx?.let { c -> if (lastPartial.isNotBlank()) put(c, lastPartial.removePrefix(sessionCommitted).ifBlank { "" }) }
+        lastPartial = ""; sessionCommitted = ""
         listening = false
         runCatching { rec?.stopListening(); rec?.destroy() }
         rec = null
@@ -39,6 +55,7 @@ object VseVoice {
         }
         if (!SpeechRecognizer.isRecognitionAvailable(ctx)) { FlorisImeService.switchToVoiceInputMethod(); return }
         listening = true
+        appCtx = ctx.applicationContext
         listen(ctx)
     }
 
@@ -67,16 +84,21 @@ object VseVoice {
             override fun onBufferReceived(b: ByteArray?) {}
             override fun onEndOfSpeech() {}
             override fun onPartialResults(b: Bundle?) {
-                b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { VseIme.status.value = "🎙 $it" }
+                val p = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                if (p.isBlank()) return
+                // после паузы распознаватель начинает новую фразу «с нуля», а в итоге отдаёт только её —
+                // поэтому законченную часть вставляем сразу (так терялось «Он не заливает…» в примере владельца)
+                val head = lastPartial.take(8)
+                if (lastPartial.length > p.length && head.isNotEmpty() && !p.startsWith(head)) {
+                    put(ctx, lastPartial.removePrefix(sessionCommitted)); sessionCommitted = ""
+                }
+                lastPartial = p
+                VseIme.status.value = "🎙 $p"
             }
             override fun onResults(b: Bundle?) {
-                val t = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                if (t.isNotBlank()) {
-                    val ic = FlorisImeService.currentInputConnection()
-                    val prev = ic?.getTextBeforeCursor(1, 0)?.toString().orEmpty()
-                    val sep = if (prev.isEmpty() || prev.endsWith(" ") || prev.endsWith("\n")) "" else " "
-                    VseIme.commit(ctx, sep + t)
-                }
+                val t = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().ifBlank { lastPartial }
+                put(ctx, t)
+                lastPartial = ""; sessionCommitted = ""
                 if (listening) listen(ctx)   // слушаем дальше, пока не нажали стоп
             }
             override fun onError(e: Int) {

@@ -129,6 +129,45 @@ fun VsePanel() {
                     }
                 }
             }
+            "passwords" -> {
+                // список после отпечатка; подходящие приложению/сайту — сверху; фильтр — по первой букве
+                if (!VseVault.alive()) {
+                    Text("Список закрыт (прошло 3 минуты). Нажми «Пароли» ещё раз.", color = ifg, modifier = Modifier.padding(12.dp))
+                } else {
+                    val key = VseVault.keyOf(VseIme.askedFromPackage.ifBlank { VseIme.targetPackage })
+                    var letter by remember { mutableStateOf<Char?>(null) }
+                    var open by remember { mutableStateOf<Int?>(null) }
+                    val all = VseVault.entries
+                    val list = all.filter { e -> letter == null || e.title.firstOrNull()?.uppercaseChar() == letter }
+                        .sortedWith(compareBy({ !VseVault.matches(it, key) }, { it.title.lowercase() }))
+                    val letters = all.mapNotNull { it.title.firstOrNull()?.uppercaseChar() }.distinct().sorted()
+                    LazyRow(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentPadding = PaddingValues(horizontal = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        item { Box(Modifier.clip(RoundedCornerShape(10.dp)).background(if (letter == null) ifg.copy(alpha = 0.25f) else ibg).clickable { letter = null; open = null }.padding(10.dp, 6.dp)) { Text("Все", color = ifg, fontSize = 13.sp) } }
+                        items(letters) { l -> Box(Modifier.clip(RoundedCornerShape(10.dp)).background(if (letter == l) ifg.copy(alpha = 0.25f) else ibg).clickable { letter = l; open = null }.padding(10.dp, 6.dp)) { Text(l.toString(), color = ifg, fontSize = 13.sp) } }
+                    }
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        items(list.size) { i ->
+                            val e = list[i]
+                            Row1((if (VseVault.matches(e, key)) "★ " else "") + e.title.ifBlank { "Без названия" }, e.login.ifBlank { null }) { open = if (open == i) null else i }
+                            if (open == i) {
+                                val opts = buildList {
+                                    if (e.login.isNotBlank()) add("Логин" to e.login)
+                                    if (e.password.isNotBlank()) add("Пароль" to e.password)
+                                    if (e.totp.isNotBlank()) VseVault.totp(e.totp)?.let { add("Код 2FA" to it) }
+                                    e.extra.filter { it.second.isNotBlank() }.forEach { add(it.first.ifBlank { "Поле" } to it.second) }
+                                }
+                                LazyRow(Modifier.fillMaxWidth().padding(start = 10.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    items(opts) { (label, value) ->
+                                        Box(Modifier.clip(RoundedCornerShape(12.dp)).background(ifg.copy(alpha = 0.18f)).clickable {
+                                            VseIme.commit(ctx, value); km.activeState.imeUiMode = ImeUiMode.TEXT
+                                        }.padding(14.dp, 8.dp)) { Text(label, color = ifg, fontSize = 14.sp) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             "translate" -> {
                 Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Весь текст поля переведётся на выбранный язык. Оригинал — в буфере обмена.", color = ifg.copy(alpha = 0.7f), fontSize = 13.sp)
@@ -151,8 +190,9 @@ fun VseNavMic(modifier: Modifier = Modifier) {
     val style = FlorisImeTheme.style.get(FlorisImeUi.Key)
     val fg = style.foreground.solidColor(ctx)
     val on = VseVoice.listening && status != null
-    Box(modifier.padding(end = 20.dp).windowInsetsBottomHeight(WindowInsets.navigationBars).widthIn(min = 56.dp)
+    // выше на ползначка и серый (владелец: «очень низко»)
+    Box(modifier.offset(y = (-10).dp).padding(end = 20.dp).windowInsetsBottomHeight(WindowInsets.navigationBars).widthIn(min = 56.dp)
         .clip(RoundedCornerShape(12.dp)).clickable { VseVoice.toggle(ctx) }, contentAlignment = Alignment.Center) {
-        Icon(androidx.compose.material.icons.Icons.Rounded.Mic, "Голосовой ввод", tint = if (on) Color(0xFFE5484D) else fg, modifier = Modifier.size(24.dp))
+        Icon(androidx.compose.material.icons.Icons.Rounded.Mic, "Голосовой ввод", tint = if (on) Color(0xFFE5484D) else Color(0xFF8E8E93), modifier = Modifier.size(24.dp))
     }
 }

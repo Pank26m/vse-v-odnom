@@ -38,7 +38,7 @@ object VseIme {
     val ACTIONS = listOf("passwords", "docs", "templates", "contact", "translate", "punct", "location")
 
     fun title(id: String) = when (id) {
-        "passwords" -> "Пароли"; "docs" -> "Документы"; "templates" -> "Шаблоны"; "contact" -> "Контакт"
+        "passwords" -> "Пароли"; "passwords_" -> "Пароли"; "docs" -> "Документы"; "templates" -> "Шаблоны"; "contact" -> "Контакт"
         "translate" -> "Перевести"; "punct" -> "Проверить"; "location" -> "Где я"; else -> id
     }
 
@@ -69,6 +69,22 @@ object VseIme {
     /** Подсказки скрыты крестиком до следующего поля. */
     private var dismissed = false
     private var receiver: BroadcastReceiver? = null
+    private var vaultReceiver: BroadcastReceiver? = null
+    const val ACTION_VAULT = "com.pank.vsevodnom.KBD_VAULT"
+    /** Панель, которую открыть, когда клавиатура снова на экране (после окна отпечатка). */
+    private var pendingPanel: String? = null
+
+    fun openPendingPanel(ctx: Context) {
+        val p = pendingPanel ?: return
+        if (FlorisImeService.currentInputConnection() == null) return
+        if (targetPackage == ctx.packageName && askedFrom != ctx.packageName) return
+        pendingPanel = null
+        val km by ctx.keyboardManager()
+        panel.value = p; km.activeState.imeUiMode = ImeUiMode.VSE
+    }
+
+    /** Приложение, откуда открыли пароли (для подсветки подходящих записей). */
+    val askedFromPackage get() = askedFrom
 
     fun attach(ctx: Context) {
         if (receiver != null) return
@@ -81,10 +97,22 @@ object VseIme {
             }
         }
         ContextCompat.registerReceiver(ctx, receiver, IntentFilter(ACTION_COMMIT), ContextCompat.RECEIVER_NOT_EXPORTED)
+        // записи паролей после отпечатка — список откроется в клавиатуре
+        vaultReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                VseVault.put(i.getStringExtra("json") ?: return)
+                pendingPanel = "passwords"
+                scope.launch { kotlinx.coroutines.delay(400); FlorisImeService.showUi(); openPendingPanel(c) }
+            }
+        }
+        ContextCompat.registerReceiver(ctx, vaultReceiver, IntentFilter(ACTION_VAULT), ContextCompat.RECEIVER_NOT_EXPORTED)
         VseWatch.watch(ctx)
     }
 
-    fun detach(ctx: Context) { receiver?.let { runCatching { ctx.unregisterReceiver(it) } }; receiver = null }
+    fun detach(ctx: Context) {
+        receiver?.let { runCatching { ctx.unregisterReceiver(it) } }; receiver = null
+        vaultReceiver?.let { runCatching { ctx.unregisterReceiver(it) } }; vaultReceiver = null
+    }
 
     /**
      * Вставить пароль. Раньше вставлялось сразу — пока на экране было окно паролей, и текст уходил «в пустоту»
@@ -111,6 +139,7 @@ object VseIme {
         targetPackage = info.packageName ?: ""
         dismissed = false
         VseWatch.enterField(info)
+        openPendingPanel(ctx)
         val cls = info.base.inputType and InputType.TYPE_MASK_CLASS
         val v = info.base.inputType and InputType.TYPE_MASK_VARIATION
         isPassword = (cls == InputType.TYPE_CLASS_TEXT && (v == InputType.TYPE_TEXT_VARIATION_PASSWORD || v == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
@@ -134,9 +163,11 @@ object VseIme {
         chips.value = out
     }
 
+    /** Вставить текст в поле: напрямую в соединение с полем (надёжнее, чем через редактор Inkwell с его составным словом). */
     fun commit(ctx: Context, text: String) {
-        val ed by ctx.editorInstance()
-        ed.commitText(text)
+        val ic = FlorisImeService.currentInputConnection()
+        if (ic != null) { ic.finishComposingText(); ic.commitText(text, 1) }
+        else { val ed by ctx.editorInstance(); ed.commitText(text) }
     }
 
     /** Действие из «троеточия». */
@@ -144,13 +175,24 @@ object VseIme {
         val km by ctx.keyboardManager()
         km.activeState.isActionsOverflowVisible = false
         when (id) {
-            "passwords", "docs" -> {
-                // окно паролей — в основном процессе приложения: отпечаток, выбор, текст вернётся сюда
+            "passwords" -> {
+                askedFrom = targetPackage
+                // отпечаток уже был в последние 3 минуты — сразу список
+                if (VseVault.alive()) { panel.value = "passwords"; km.activeState.imeUiMode = ImeUiMode.VSE; return }
+                FlorisImeService.hideUi()
+                runCatching {
+                    ctx.startActivity(Intent().setClassName(ctx.packageName, "com.pank.vsevodnom.ui.vault.KbVaultActivity")
+                        .putExtra("mode", "unlock").putExtra("target", targetPackage)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+                }
+            }
+            "docs" -> {
+                // окно документов — в основном процессе приложения: отпечаток, выбор, отправка в это же приложение
                 askedFrom = targetPackage
                 FlorisImeService.hideUi()
                 runCatching {
                     ctx.startActivity(Intent().setClassName(ctx.packageName, "com.pank.vsevodnom.ui.vault.KbVaultActivity")
-                        .putExtra("mode", if (id == "docs") "doc" else "pass").putExtra("target", targetPackage)
+                        .putExtra("mode", "doc").putExtra("target", targetPackage)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY))
                 }
             }
