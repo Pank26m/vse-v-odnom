@@ -6,14 +6,11 @@ import android.content.Context
 import com.goodwy.keyboard.FlorisImeService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * Работа с текстом поля целиком: проверка пунктуации и орфографии (LanguageTool — правила, без ИИ, бесплатный
@@ -41,7 +38,7 @@ object VseText {
         ic.endBatchEdit()
     }
 
-    private fun toClipboard(ctx: Context, label: String, text: String) = runCatching {
+    fun toClipboard(ctx: Context, label: String, text: String) = runCatching {
         ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
@@ -60,14 +57,20 @@ object VseText {
         VseIme.status.value = "Проверяю текст…"
         VseIme.scope.launch {
             // сначала орфография (Яндекс.Спеллер — сильнее всего в русском/украинском), потом запятые и грамматика (LanguageTool)
+            var who1 = "Яндекс"; var who2 = "LanguageTool"
             val res = runCatching { withContext(Dispatchers.IO) {
-                val (t1, n1) = runCatching { yandex(full, langOf(full)) }.getOrDefault(full to 0)
-                val (t2, n2) = runCatching { languageTool(t1, langOf(t1)) }.getOrElse { if (n1 > 0) t1 to 0 else throw it }
-                t2 to (n1 + n2)
+                // 1) орфография: Яндекс.Спеллер; недоступен (в Украине часто заблокирован) — словарь на телефоне
+                val (t1, n1) = runCatching { yandex(full, langOf(full)) }.getOrElse { who1 = "словарь телефона"; offlineFix(ctx, full) }
+                // 2) запятые, заглавные, дефисы: LanguageTool
+                val (t2, n2) = runCatching { languageTool(t1, langOf(t1)) }.getOrElse { who2 = "—"; t1 to 0 }
+                Triple(t2, n1, n2)
             } }
-            res.onSuccess { (fixed, n) ->
-                if (n == 0) VseIme.status.value = "Ошибок не нашёл"
-                else { toClipboard(ctx, "Исходный текст", full); replaceField(b, s, a, fixed); VseIme.status.value = "Исправлено: $n (исходный — в буфере)" }
+            res.onSuccess { (fixed, n1, n2) ->
+                if (n1 + n2 == 0) VseIme.status.value = "Ошибок не нашёл (орфография: $who1, запятые: $who2)"
+                else {
+                    toClipboard(ctx, "Исходный текст", full); replaceField(b, s, a, fixed)
+                    VseIme.status.value = "Исправлено: орфография $n1 ($who1), запятые и прочее $n2 ($who2). Исходный — в буфере"
+                }
             }.onFailure { VseIme.status.value = "Проверка не удалась: ${it.message ?: "нет связи"}" }
             clear()
         }
@@ -109,6 +112,31 @@ object VseText {
         return out.joinToString("") to n
     }
 
+    /** Без интернета: каждое слово не из словаря → самый частый вариант с одной правкой; «невиделись» → «не виделись». */
+    fun offlineFix(ctx: Context, text: String): Pair<String, Int> = offlineFixIn({ VseSpell.dict(ctx, it) }, text)
+
+    fun offlineFixIn(dict: (String) -> KDict?, text: String): Pair<String, Int> {
+        var n = 0
+        // язык — по всему тексту: в русском тексте «сонце», «гарячий» — ошибки, хоть по-украински и правильно
+        val cyr = Regex("[А-Яа-яЁёІіЇїЄєҐґ]").containsMatchIn(text)
+        val textLangs = when {
+            Regex("[іїєґІЇЄҐ]").containsMatchIn(text) -> listOf("uk")
+            cyr -> listOf("ru")
+            else -> listOf("en")
+        }
+        val out = Regex("[A-Za-zА-Яа-яЁёІіЇїЄєҐґ'’]+").replace(text) { m ->
+            val w = m.value
+            val langs = if (w.any { it in 'a'..'z' || it in 'A'..'Z' }) listOf("en") else textLangs
+            if (VseSpell.okLangs(dict, w, langs)) return@replace w
+            val low = w.lowercase()
+            // слитное «не» с глаголом: «невиделись» → «не виделись»
+            if (low.startsWith("не") && low.length > 4 && VseSpell.okLangs(dict, low.drop(2), langs)) { n++; return@replace w.take(2) + " " + w.drop(2) }
+            val s = VseSpell.bestIn(dict, w, langs) ?: return@replace w
+            n++; s
+        }
+        return out to n
+    }
+
     private fun languageTool(text: String, lang: String): Pair<String, Int> {
         val l = when (lang) { "uk" -> "uk-UA"; "ru" -> "ru-RU"; else -> "en-US" }
         val c = URL("https://api.languagetool.org/v2/check").openConnection() as HttpURLConnection
@@ -145,15 +173,18 @@ object VseText {
         if (full.isBlank()) { VseIme.status.value = "Поле пустое"; clear(); return }
         val from = langOf(full)
         if (from == to) { VseIme.status.value = "Текст уже на этом языке"; clear(); return }
-        VseIme.status.value = "Перевожу… (первый раз скачивается словарь ~30 МБ)"
+        VseIme.status.value = "Перевожу…"
         VseIme.scope.launch {
-            // онлайн — Google (как в «Google Переводчике»), запасной — MyMemory; без сети — словарь ML Kit на телефоне
-            runCatching { withContext(Dispatchers.IO) { runCatching { google(full, from, to) }.getOrElse { myMemory(full, from, to) } } }
-                .recoverCatching { viaService(ctx, full, from, to) }
-                .onSuccess { out ->
-                    toClipboard(ctx, "Исходный текст", full); replaceField(b, s, a, out)
-                    VseIme.status.value = "Переведено (оригинал — в буфере)"
-                }.onFailure { VseIme.status.value = "Перевод не удался: ${it.message ?: "ошибка"}" }
+            // онлайн: Google (как «Google Переводчик»), запасной — MyMemory. Ошибки обоих показываем как есть.
+            val res = withContext(Dispatchers.IO) {
+                runCatching { google(full, from, to) }.recoverCatching { e1 ->
+                    runCatching { myMemory(full, from, to) }.getOrElse { e2 -> throw Exception("Google: ${e1.message ?: e1.javaClass.simpleName}; MyMemory: ${e2.message ?: e2.javaClass.simpleName}") }
+                }
+            }
+            res.onSuccess { out ->
+                toClipboard(ctx, "Исходный текст", full); replaceField(b, s, a, out)
+                VseIme.status.value = "Переведено (оригинал — в буфере)"
+            }.onFailure { VseIme.status.value = "Перевод не удался: ${it.message}" }
             clear()
         }
     }
@@ -188,41 +219,6 @@ object VseText {
             out += t.substring(start, end); start = end
         }
         return out
-    }
-
-    /** Перевод через службу в основном процессе (ML Kit там запускается сам). До 3 минут — на скачивание словаря. */
-    private suspend fun viaService(ctx: Context, text: String, from: String, to: String): String =
-        kotlinx.coroutines.withTimeout(180_000) {
-            suspendCancellableCoroutine { cont ->
-                val app = ctx.applicationContext
-                var conn: android.content.ServiceConnection? = null
-                val reply = android.os.Messenger(object : android.os.Handler(android.os.Looper.getMainLooper()) {
-                    override fun handleMessage(m: android.os.Message) {
-                        val ok = m.data.getBoolean("ok"); val t = m.data.getString("text").orEmpty()
-                        conn?.let { runCatching { app.unbindService(it) } }
-                        if (!cont.isActive) return
-                        if (ok) cont.resume(t) else cont.resumeWithException(Exception(t))
-                    }
-                })
-                conn = object : android.content.ServiceConnection {
-                    override fun onServiceConnected(n: android.content.ComponentName?, b: android.os.IBinder?) {
-                        runCatching {
-                            android.os.Messenger(b).send(android.os.Message.obtain(null, 1).apply {
-                                data = android.os.Bundle().apply { putString("text", text); putString("from", from); putString("to", to) }
-                                replyTo = reply
-                            })
-                        }.onFailure { if (cont.isActive) cont.resumeWithException(it) }
-                    }
-                    override fun onServiceDisconnected(n: android.content.ComponentName?) {}
-                }
-                val ok = app.bindService(android.content.Intent(app, TranslateService::class.java), conn!!, Context.BIND_AUTO_CREATE)
-                if (!ok) cont.resumeWithException(Exception("служба перевода не запустилась"))
-                cont.invokeOnCancellation { conn?.let { c -> runCatching { app.unbindService(c) } } }
-            }
-        }
-
-    private suspend fun <T> await(t: com.google.android.gms.tasks.Task<T>): T? = suspendCancellableCoroutine { cont ->
-        t.addOnSuccessListener { cont.resume(it) }.addOnFailureListener { cont.resumeWithException(it) }
     }
 
     private fun clear() = VseIme.scope.launch { kotlinx.coroutines.delay(4000); VseIme.status.value = null }

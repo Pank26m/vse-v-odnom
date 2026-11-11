@@ -77,6 +77,7 @@ fun VsePanel() {
         Row(Modifier.fillMaxWidth().height(FlorisImeSizing.smartbarHeight).snyggBackground(ctx, header), verticalAlignment = Alignment.CenterVertically) {
             FlorisIconButtonWithInnerPadding(onClick = { km.activeState.imeUiMode = ImeUiMode.TEXT }, icon = Icons.AutoMirrored.Rounded.ArrowBackIos, iconColor = hfg)
             Text(VseIme.title(panel), color = hfg, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            Text("v${VseIme.CODE}", color = hfg.copy(alpha = 0.5f), fontSize = 11.sp, modifier = Modifier.padding(end = 8.dp))
             if (panel == "templates") FlorisIconButtonWithInnerPadding(onClick = {
                 // новый шаблон — из выделенного текста или всего текста поля
                 val ic = FlorisImeService.currentInputConnection()
@@ -159,7 +160,10 @@ fun VsePanel() {
                                 LazyRow(Modifier.fillMaxWidth().padding(start = 10.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     items(opts) { (label, value) ->
                                         Box(Modifier.clip(RoundedCornerShape(12.dp)).background(ifg.copy(alpha = 0.18f)).clickable {
+                                            // как просил владелец: всегда в буфер обмена + попытка вставить; не вставилось — «Вставить» из буфера
+                                            VseText.toClipboard(ctx, label, value)
                                             VseIme.commit(ctx, value); km.activeState.imeUiMode = ImeUiMode.TEXT
+                                            VseIme.flash("$label скопирован в буфер")
                                         }.padding(14.dp, 8.dp)) { Text(label, color = ifg, fontSize = 14.sp) }
                                     }
                                 }
@@ -191,7 +195,7 @@ fun VseNavMic(modifier: Modifier = Modifier) {
     val fg = style.foreground.solidColor(ctx)
     val on = VseVoice.listening && status != null
     // выше на ползначка и серый (владелец: «очень низко»)
-    Box(modifier.offset(y = (-10).dp).padding(end = 20.dp).windowInsetsBottomHeight(WindowInsets.navigationBars).widthIn(min = 56.dp)
+    Box(modifier.offset(y = (-14).dp).padding(end = 20.dp).windowInsetsBottomHeight(WindowInsets.navigationBars).widthIn(min = 56.dp)
         .clip(RoundedCornerShape(12.dp)).clickable { VseVoice.toggle(ctx) }, contentAlignment = Alignment.Center) {
         Icon(androidx.compose.material.icons.Icons.Rounded.Mic, "Голосовой ввод", tint = if (on) Color(0xFFE5484D) else Color(0xFF8E8E93), modifier = Modifier.size(24.dp))
     }

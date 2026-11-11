@@ -116,23 +116,55 @@ object VseSpell {
         return false
     }
 
-    /** Варианты исправления: одна правка (замена, вставка, пропуск, перестановка), частые слова первыми. */
+    private const val VOWELS = "аеёиоуыэюяіїєaeiouy"
+
+    /**
+     * Варианты исправления (одна правка). Оценка = частота слова − штраф за вид правки: замена гласной на гласную — 0
+     * (так чаще всего ошибаются: «яблаками», «карандашы»), перестановка 10, вставка 15, другая замена 25, пропуск 25,
+     * правка первой буквы +60 (её почти не путают — иначе «яблаками» → «облаками»). [langs] — языки текста, если известны.
+     */
     fun suggest(ctx: Context, raw: String, limit: Int = 5): List<String> = suggestIn({ dict(ctx, it) }, raw, limit)
-    fun suggestIn(dictOf: (String) -> KDict?, raw: String, limit: Int = 5): List<String> {
+    fun suggestIn(dictOf: (String) -> KDict?, raw: String, limit: Int = 5, langs: List<String>? = null): List<String> =
+        scoredIn(dictOf, raw, langs).sortedByDescending { it.second }.take(limit).map { it.first }
+
+    /** Лучший вариант, если он достаточно правдоподобен (для автоисправления текста целиком), иначе null. */
+    fun bestIn(dictOf: (String) -> KDict?, raw: String, langs: List<String>? = null): String? =
+        scoredIn(dictOf, raw, langs).maxByOrNull { it.second }?.takeIf { it.second > 0 }?.first
+
+    private fun scoredIn(dictOf: (String) -> KDict?, raw: String, langs: List<String>?): List<Pair<String, Int>> {
         val w = norm(raw.trim('\'', '-'))
         val out = HashMap<String, Int>()
-        for (lang in langsOf(raw)) {
+        for (lang in langs ?: langsOf(raw)) {
             val d = dictOf(lang) ?: continue
             val letters = d.letters.filter { it.isLetter() || it == '\'' || it == '-' }
-            fun tryW(c: String) { if (c.isNotEmpty() && !out.containsKey(c)) { val f = d.freq(c); if (f >= 0) out[c] = f } }
-            for (i in w.indices) {
-                tryW(w.removeRange(i, i + 1))
-                if (i + 1 < w.length) tryW(w.substring(0, i) + w[i + 1] + w[i] + w.substring(i + 2))
-                for (ch in letters) if (ch != w[i]) tryW(w.substring(0, i) + ch + w.substring(i + 1))
+            fun tryW(c: String, pen: Int) {
+                if (c.isEmpty()) return
+                val f = d.freq(c); if (f < 0) return
+                val sc = f - pen
+                if ((out[c] ?: Int.MIN_VALUE) < sc) out[c] = sc
             }
-            for (i in 0..w.length) for (ch in letters) tryW(w.substring(0, i) + ch + w.substring(i))
+            for (i in w.indices) {
+                val first = if (i == 0) 60 else 0
+                tryW(w.removeRange(i, i + 1), 25 + first)
+                if (i + 1 < w.length) tryW(w.substring(0, i) + w[i + 1] + w[i] + w.substring(i + 2), 10 + first)
+                for (ch in letters) if (ch != w[i]) {
+                    val vv = w[i] in VOWELS && ch in VOWELS
+                    tryW(w.substring(0, i) + ch + w.substring(i + 1), (if (vv) 0 else 25) + first)
+                }
+            }
+            for (i in 0..w.length) for (ch in letters) tryW(w.substring(0, i) + ch + w.substring(i), 15 + if (i == 0) 60 else 0)
         }
         val cap = raw.firstOrNull()?.isUpperCase() == true
-        return out.entries.sortedByDescending { it.value }.take(limit).map { s -> if (cap) s.key.replaceFirstChar { it.uppercase() } else s.key }
+        return out.entries.map { (k, v) -> (if (cap) k.replaceFirstChar { it.uppercase() } else k) to v }
+    }
+
+    /** Правильно ли слово в заданных языках. */
+    fun okLangs(dict: (String) -> KDict?, raw: String, langs: List<String>): Boolean {
+        val w = raw.trim('\'', '-', '«', '»', '"')
+        if (skip(w)) return true
+        val n = norm(w)
+        if (langs.any { dict(it)?.contains(n) ?: true }) return true
+        if (n.contains('-')) return n.split('-').filter { it.isNotEmpty() }.all { p -> langs.any { dict(it)?.contains(p) ?: true } }
+        return false
     }
 }

@@ -82,9 +82,6 @@
             </intent-filter>
         </activity>
 
-        <!-- перевод для клавиатуры — в основном процессе (там запускается Google ML Kit) -->
-        <service android:name="com.goodwy.keyboard.vse.TranslateService" android:exported="false" />
-
         <provider
             android:name="com.goodwy.keyboard.ime.clipboard.provider.ClipboardMediaProvider"
             android:authorities="${applicationId}.provider.clipboard"

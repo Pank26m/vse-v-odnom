@@ -72,3 +72,17 @@ class KbVaultTest {
         kotlin.test.assertEquals("287082", com.goodwy.keyboard.vse.VseVault.totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59_000))
     }
 }
+
+/** Исправление текста без интернета (если Яндекс недоступен): пример владельца. */
+class OfflineFixTest {
+    private val dir = listOf("../keyboard/src/main/assets/kdict", "keyboard/src/main/assets/kdict").map(::File).first { it.exists() }
+    private val dicts = HashMap<String, KDict>()
+    private fun d(l: String): KDict = dicts.getOrPut(l) { RandomAccessFile(File(dir, "$l.kdict"), "r").channel.use { KDict(it.map(FileChannel.MapMode.READ_ONLY, 0, it.size())) } }
+    @Test fun ownerExample() {
+        val t = "превет вчера я решыл поехать в москву на поизде что бы встретить сваего друга ваню. мы невиделись уже очинь давно из за этой непреятной пагоды. сонце светило ярко но на улице стоял сильный дубарь и учица вовсе нехотелось. когда мы пришли в кафейню ваня заказал себе гарячий кафэ а я взяла вкусную пирожное с яблаками. на столе лежали карандашы и белая бумага каторая так и манила что то нарисовать. кстате мы долго спорили о том кто пойдет за щетом но в итоге заплатили пополам. эта была замечатильная прогулка хотя мы ужасно устали и чуть незапоздали на обратный автобус."
+        val (out, n) = com.goodwy.keyboard.vse.VseText.offlineFixIn(::d, t)
+        println("исправлено $n:\n$out")
+        for (w in listOf("привет", "решил", "поезде", "своего", "не виделись", "очень", "неприятной", "солнце", "кофейню", "горячий", "яблоками", "которая", "кстати", "замечательная"))
+            assertTrue(out.contains(w), w)
+    }
+}

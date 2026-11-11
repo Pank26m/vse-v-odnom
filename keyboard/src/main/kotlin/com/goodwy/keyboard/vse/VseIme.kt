@@ -34,6 +34,11 @@ import java.io.File
  * внутри приложения и вставляется, когда поле снова в фокусе).
  */
 object VseIme {
+    /** Версия кода клавиатуры — видна в шапке панели и при первом показе после обновления. */
+    const val CODE = "0.40"
+
+    /** Короткое сообщение в верхней панели на 3 секунды. */
+    fun flash(t: String) { status.value = t; scope.launch { kotlinx.coroutines.delay(3000); if (status.value == t) status.value = null } }
     /** Действия «троеточия» — порядок как в списке. */
     val ACTIONS = listOf("passwords", "docs", "templates", "contact", "translate", "punct", "location")
 
@@ -135,6 +140,11 @@ object VseIme {
 
     /** Вход в поле: запоминаем приложение, ставим подсказки (код из СМС, «Пароли» в поле пароля). */
     fun onStartInput(ctx: Context, info: FlorisEditorInfo) {
+        // первый показ после обновления — сказать, какая версия клавиатуры работает
+        runCatching {
+            val f = File(ctx.applicationContext.filesDir, "kbd_code_version")
+            if (!f.exists() || f.readText() != CODE) { f.writeText(CODE); flash("Клавиатура обновлена: v$CODE") }
+        }
         VseWatch.leaveField(ctx)
         targetPackage = info.packageName ?: ""
         dismissed = false
