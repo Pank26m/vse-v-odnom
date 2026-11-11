@@ -267,7 +267,6 @@ private fun dayNotes(alarms: List<com.pank.vsevodnom.data.AlarmEntity>, tasks: L
         txt?.let { out += Triple(Icons.Rounded.Umbrella, it, "weather") }
     }
     bdays.filter { it.day == today.dayOfMonth && it.month == today.monthValue }.take(2).forEach { out += Triple(Icons.Rounded.Cake, "День рождения: ${it.name}", "todo") }
-    if (alert == 2) out += Triple(Icons.Rounded.Campaign, "В Киеве тревога", "alerts")
     return out
 }
 
@@ -557,13 +556,12 @@ fun AppsScreen(open: (String) -> Unit) {
                 Text(t.title, style = MaterialTheme.typography.labelMedium, maxLines = 1, textAlign = TextAlign.Center)
             }
         }
-        item(span = { GridItemSpan(4) }) { BackupCard() }
     }
 }
 
 /** Резервная копия всего (кроме паролей — у них свой зашифрованный бэкап). */
 @Composable
-private fun BackupCard() {
+internal fun BackupCard() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var msg by remember { mutableStateOf<String?>(null) }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -288,7 +289,7 @@ private fun DocEditor(d: VaultEntry, folders: List<String>, onSave: (VaultEntry)
                 AppTextField(notes, { notes = it }, "Заметка (номер, срок действия…)", singleLine = false)
                 Text("Файлы", style = MaterialTheme.typography.titleSmall)
                 d.files.forEach { f ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Card).clickable { LockGuard.suppress = true; openVaultFile(ctx, f, false) }.padding(10.dp),
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Card).clickable { LockGuard.suppress = true; openVaultFile(ctx, f, false, inApp = true) }.padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         val img by produceState<ImageBitmap?>(null, f.id) { value = withContext(Dispatchers.IO) { DocThumbs.get(ctx, f) } }
                         Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(Pal.Lilac), contentAlignment = Alignment.Center) {
@@ -299,6 +300,8 @@ private fun DocEditor(d: VaultEntry, folders: List<String>, onSave: (VaultEntry)
                             Text(f.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
                             Text("${f.size / 1024} КБ", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
                         }
+                        IconButton({ LockGuard.suppress = true; openVaultFile(ctx, f, false, inApp = true) }) { Icon(Icons.Rounded.Visibility, "Открыть", tint = Pal.SkyInk) }
+                        IconButton({ LockGuard.suppress = true; openVaultFile(ctx, f, false) }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Открыть как", tint = Pal.Muted) }
                         IconButton({ LockGuard.suppress = true; openVaultFile(ctx, f, true) }) { Icon(Icons.Rounded.Share, "Отправить", tint = Pal.Muted) }
                         IconButton({ save(d.files.filter { it.id != f.id }) }) { Icon(Icons.Rounded.Close, "Убрать файл", tint = Pal.Muted) }
                     }

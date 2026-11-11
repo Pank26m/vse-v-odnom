@@ -37,7 +37,6 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
                 MenuRow(Icons.Rounded.Layers, "Слои и вид карты", sub = "авто / пешком / вело, рельеф, онлайн-карты") { page = "source" }
                 MenuRow(Icons.Rounded.FilterList, "Объекты на карте", sub = "какие значки показывать, маршруты OSM") { page = "filter" }
                 MenuRow(Icons.Rounded.Navigation, "Навигация", sub = "способ, голос, автомасштаб, запись трека") { page = "nav" }
-                MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "GLMap, Google, EasyWay, Waze и все подключённые сервисы") { page = "keys" }
                 MenuRow(Icons.Rounded.Storage, "Кэш карт", sub = "онлайн-тайлы и рельеф на телефоне") { page = "cache" }
                 MenuRow(Icons.Rounded.Backup, "Резервные копии", sub = "все метки и треки — в файл KML и обратно") { page = "backup" }
                 MenuRow(Icons.Rounded.Straighten, "Единицы измерения", sub = "расстояние, высота, координаты, язык подписей") { page = "units" }

@@ -94,6 +94,8 @@ fun AppSettingsScreen(onDismiss: () -> Unit, onName: (String) -> Unit) {
                     MenuRow(s.icon, s.title, sub = "заполнено $filled из ${s.fields.size}") { page = s.id }
                 }
                 SectionLabel("Приложение")
+                MenuRow(Icons.Rounded.Key, "Ключи и сервисы", sub = "GLMap, Google, Telegram (кино), EasyWay, Waze") { page = "keys" }
+                MenuRow(Icons.Rounded.Backup, "Резервная копия", sub = "всё приложение в один файл и обратно") { page = "backup" }
                 MenuRow(Icons.Rounded.Notifications, "Уведомления", sub = "ToDo, привычки, тревоги, свет, фокус, СМС, звонки…") { page = "notif" }
                 MenuRow(Icons.Rounded.Settings, "Системные настройки приложения", sub = "разрешения, батарея, хранилище") {
                     runCatching { ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName))) }
@@ -101,6 +103,10 @@ fun AppSettingsScreen(onDismiss: () -> Unit, onName: (String) -> Unit) {
             }
         }
         "notif" -> NotificationsPage { page = null }
+        "keys" -> com.pank.vsevodnom.ui.map.KeysPage({ com.pank.vsevodnom.ui.map.MapUi.engineTick++ }) { page = null }
+        "backup" -> FullScreen("Резервная копия", { page = null }) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 40.dp)) { BackupCard() }
+        }
         else -> Profile.SECTIONS.firstOrNull { it.id == page }?.let { ProfilePage(it) { page = null } } ?: run { page = null }
     }
 }

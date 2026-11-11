@@ -535,12 +535,21 @@ private fun VaultAvatar(e: VaultEntry, size: androidx.compose.ui.unit.Dp) {
 }
 
 /** Открыть или отправить вложение: расшифровка во временную папку (чистится при следующем открытии хранилища). */
-internal fun openVaultFile(ctx: Context, f: VaultFile, share: Boolean) {
+/**
+ * Открыть файл хранилища: расшифрованная временная копия в cache/vault_view (стирается при следующем открытии).
+ * inApp — нашим просмотрщиком (картинки, PDF, документы); иначе — «открыть как» (выбор приложения) или отправить.
+ */
+internal fun openVaultFile(ctx: Context, f: VaultFile, share: Boolean, inApp: Boolean = false) {
     runCatching {
         val bytes = Vault.readFile(ctx, f.id) ?: throw IllegalStateException("Файл не найден")
         val dir = java.io.File(ctx.cacheDir, "vault_view").apply { deleteRecursively(); mkdirs() }
         val out = java.io.File(dir, f.name.replace(Regex("[\\\\/:*?\"<>|]"), "_")); out.writeBytes(bytes)
         val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", out)
+        if (inApp && !share) {
+            ctx.startActivity(android.content.Intent(ctx, com.pank.vsevodnom.ui.files.ViewerActivity::class.java).setDataAndType(uri, f.mime)
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            return@runCatching
+        }
         val i = if (share) android.content.Intent(android.content.Intent.ACTION_SEND).setType(f.mime).putExtra(android.content.Intent.EXTRA_STREAM, uri)
             else android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, f.mime)
         ctx.startActivity(android.content.Intent.createChooser(i.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), f.name))
