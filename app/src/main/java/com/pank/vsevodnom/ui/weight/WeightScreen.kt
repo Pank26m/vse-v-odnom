@@ -8,6 +8,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,6 +58,7 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
     var heightCm by remember { mutableStateOf(wp.getInt("height", 0).takeIf { it > 0 }) }
     var askGoal by remember { mutableStateOf(false) }
     var askHeight by remember { mutableStateOf(false) }
+    var full by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<List<com.pank.vsevodnom.data.WeightCsv.Row>?>(null) }
     var importErr by remember { mutableStateOf<String?>(null) }
     fun readCsv(u: android.net.Uri) {
@@ -81,7 +85,7 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
                             Text(
                                 (if (d > 0) "+" else if (d < 0) "−" else "") + fmtKg(kotlin.math.abs(d)) + " с ${ref.dateStr()}",
                                 style = MaterialTheme.typography.titleSmall,
-                                color = if (d <= 0) Pal.MintInk else Pal.PeachInk
+                                color = changeColor(d)
                             )
                         }
                     }
@@ -92,7 +96,10 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
                     Spacer(Modifier.height(8.dp))
                     val from = LocalDate.now().minusDays(range.toLong()).toEpochDay()
                     val shown = entries.filter { it.epochDay >= from }.ifEmpty { entries.takeLast(2) }
-                    WeightChart(shown, Modifier.fillMaxWidth().height(160.dp))
+                    Box {
+                        WeightChart(shown, Modifier.fillMaxWidth().height(180.dp))
+                        IconButton({ full = true }, Modifier.align(Alignment.TopEnd).size(32.dp)) { Icon(Icons.Rounded.OpenInFull, "Во весь экран", tint = Pal.Muted, modifier = Modifier.size(18.dp)) }
+                    }
                     if (shown.size >= 2) Row(Modifier.fillMaxWidth()) {
                         Text(shown.first().dateStr(true), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                         Text("мин ${fmtKg(shown.minOf { it.kg })} · макс ${fmtKg(shown.maxOf { it.kg })}", style = MaterialTheme.typography.labelSmall)
@@ -126,6 +133,7 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
         }
     }
 
+    if (full) FullChart(entries) { full = false }
     if (askGoal) NumberDialog("Цель, кг", goal?.let { fmtKg(it) } ?: "", { askGoal = false }) { v -> goal = v; wp.edit().putFloat("goal", v.toFloat()).apply() }
     if (askHeight) NumberDialog("Рост, см", heightCm?.toString() ?: "", { askHeight = false }) { v -> heightCm = v.toInt(); wp.edit().putInt("height", v.toInt()).apply() }
     preview?.let { rows ->
@@ -181,29 +189,64 @@ fun WeightScreen(onBack: () -> Unit, startNew: Boolean = false) {
 
 private fun WeightEntry.dateStr(full: Boolean = false) = LocalDate.ofEpochDay(epochDay).format(if (full) DMY else DM)
 
+/** График веса; нажатие — ближайшая запись (дата и вес) подсвечивается и подписывается. */
 @Composable
-fun WeightChart(entries: List<WeightEntry>, modifier: Modifier = Modifier, line: Color = Color(0xFF5FB287)) {
-    Canvas(modifier) {
-        val w = size.width; val h = size.height
-        for (i in 0..2) drawLine(Pal.Line, Offset(0f, h * i / 2f), Offset(w, h * i / 2f), 2f)
-        if (entries.size < 2) {
-            entries.firstOrNull()?.let { drawCircle(Pal.MintInk, 10f, Offset(w / 2, h / 2)) }
-            return@Canvas
+fun WeightChart(entries: List<WeightEntry>, modifier: Modifier = Modifier, line: Color = Color(0xFF5FB287), interactive: Boolean = true) {
+    var sel by remember(entries.size, entries.lastOrNull()?.id) { mutableStateOf<WeightEntry?>(null) }
+    Column(modifier) {
+        if (interactive) Text(sel?.let { "${it.dateStr(true)}: ${fmtKg(it.kg)} кг" } ?: "Нажми на график — вес записи", style = MaterialTheme.typography.labelMedium,
+            color = if (sel != null) Pal.MintInk else Pal.Muted)
+        Canvas(Modifier.fillMaxWidth().weight(1f).pointerInput(entries) {
+            if (interactive) detectTapGestures { o ->
+                if (entries.size < 2) { sel = entries.firstOrNull(); return@detectTapGestures }
+                val d0 = entries.first().epochDay.toFloat(); val d1 = entries.last().epochDay.toFloat()
+                val day = d0 + ((o.x - 12f) / (size.width - 24f)).coerceIn(0f, 1f) * (d1 - d0)
+                sel = entries.minByOrNull { kotlin.math.abs(it.epochDay - day) }
+            }
+        }) {
+            val w = size.width; val h = size.height
+            for (i in 0..2) drawLine(Pal.Line, Offset(0f, h * i / 2f), Offset(w, h * i / 2f), 2f)
+            if (entries.size < 2) {
+                entries.firstOrNull()?.let { drawCircle(Pal.MintInk, 10f, Offset(w / 2, h / 2)) }
+                return@Canvas
+            }
+            val lo = entries.minOf { it.kg } - 0.5
+            val hi = entries.maxOf { it.kg } + 0.5
+            val d0 = entries.first().epochDay.toFloat(); val d1 = entries.last().epochDay.toFloat()
+            fun pt(e: WeightEntry) = Offset((e.epochDay - d0) / (d1 - d0).coerceAtLeast(1f) * (w - 24f) + 12f, (h - 12f) - ((e.kg - lo) / (hi - lo)).toFloat() * (h - 24f))
+            val pts = entries.map(::pt)
+            val p = Path().apply { moveTo(pts[0].x, pts[0].y); pts.drop(1).forEach { lineTo(it.x, it.y) } }
+            drawPath(p, line, style = Stroke(6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            if (pts.size <= 60) pts.forEach { drawCircle(line, 5f, it) }
+            drawCircle(Pal.MintInk, 10f, pts.last())
+            sel?.let { e -> val o = pt(e); drawLine(Pal.Muted, Offset(o.x, 0f), Offset(o.x, h), 2f); drawCircle(Color.White, 12f, o); drawCircle(Pal.MintInk, 8f, o) }
         }
-        val lo = entries.minOf { it.kg } - 0.5
-        val hi = entries.maxOf { it.kg } + 0.5
-        val d0 = entries.first().epochDay.toFloat(); val d1 = entries.last().epochDay.toFloat()
-        val pts = entries.map {
-            Offset(
-                (it.epochDay - d0) / (d1 - d0).coerceAtLeast(1f) * (w - 24f) + 12f,
-                (h - 12f) - ((it.kg - lo) / (hi - lo)).toFloat() * (h - 24f)
-            )
-        }
-        val p = Path().apply { moveTo(pts[0].x, pts[0].y); pts.drop(1).forEach { lineTo(it.x, it.y) } }
-        drawPath(p, line, style = Stroke(6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        drawCircle(Pal.MintInk, 10f, pts.last())
     }
 }
+
+/** График на весь экран: неделя / месяц / год / всё время. */
+@Composable
+private fun FullChart(entries: List<WeightEntry>, onDismiss: () -> Unit) {
+    var range by remember { mutableIntStateOf(100_000) }
+    com.pank.vsevodnom.ui.map.FullScreen("График веса", onDismiss) {
+        Column(Modifier.fillMaxSize().padding(16.dp, 0.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(7 to "Неделя", 31 to "Месяц", 365 to "Год", 100_000 to "Всё время").forEach { (d, t) -> Chip(t, range == d, { range = d }) }
+            }
+            val from = LocalDate.now().minusDays(range.toLong()).toEpochDay()
+            val shown = entries.filter { it.epochDay >= from }.ifEmpty { entries.takeLast(2) }
+            if (shown.size >= 2) {
+                val d = shown.last().kg - shown.first().kg
+                Text("${shown.first().dateStr(true)} → ${shown.last().dateStr(true)}: " + (if (d > 0) "+" else if (d < 0) "−" else "") + fmtKg(kotlin.math.abs(d)) + " кг · мин ${fmtKg(shown.minOf { it.kg })} · макс ${fmtKg(shown.maxOf { it.kg })}",
+                    style = MaterialTheme.typography.titleSmall, color = changeColor(d))
+            }
+            WeightChart(shown, Modifier.fillMaxWidth().weight(1f))
+        }
+    }
+}
+
+/** Цвет изменения веса: набор — красный, сброс — зелёный, без изменений — серый. */
+fun changeColor(d: Double) = when { d > 0.05 -> Color(0xFFE5484D); d < -0.05 -> Color(0xFF2DB37A); else -> Pal.Muted }
 
 @Composable
 private fun NumberDialog(title: String, initial: String, onDismiss: () -> Unit, onValue: (Double) -> Unit) {
@@ -275,7 +318,7 @@ private fun ChangesCard(entries: List<WeightEntry>) {
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Text(t, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Text((if (diff > 0) "+" else if (diff < 0) "−" else "") + fmtKg(kotlin.math.abs(diff)) + " кг", style = MaterialTheme.typography.titleSmall,
-                    color = if (diff > 0) Pal.PeachInk else Pal.MintInk)
+                    color = changeColor(diff))
             }
         }
     }

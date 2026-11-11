@@ -332,6 +332,17 @@ private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: We
                 }
                 Icon(Icons.Rounded.ChevronRight, "Записать вес", tint = Pal.SkyInk)
             }
+        // анализ состава тела — раз в 3 месяца: когда пора, напоминание в сводке
+        val bodyLeft = remember(today) { com.pank.vsevodnom.data.BodyCheck.daysLeft(ctx) }
+        if (bodyLeft != null && bodyLeft <= 0)
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pal.Rose).clickable { open("health") }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Biotech, null, tint = Pal.RoseInk)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("Обновите данные состава тела", style = MaterialTheme.typography.titleSmall, color = Pal.RoseInk)
+                    Text("биоимпедансный анализ — раз в 3 месяца", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                }
+                Icon(Icons.Rounded.ChevronRight, null, tint = Pal.RoseInk)
+            }
         @Suppress("UNUSED_EXPRESSION") holTick
         hol.filter { !HolidayDone.isDone(ctx, today, it.name) }.forEach { hd ->
             val h = hd.name

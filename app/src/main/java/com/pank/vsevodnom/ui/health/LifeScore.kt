@@ -49,17 +49,16 @@ object LifeScore {
         val weekAgo = today.minusDays(6)
         val out = ArrayList<LifePart>()
 
-        // Движение: шаги за неделю + треки + тренировки
-        val tracks = runCatching { db.map().tracks().first() }.getOrDefault(emptyList()).filter { !day(it.startedAt).isBefore(weekAgo) }
-        val km = tracks.sumOf { it.distanceM } / 1000
+        // Движение: шаги к цели (треки на карте сюда НЕ идут — импорт из Guru давал «26 000 км» и 10 баллов)
         val steps = hs?.weekSteps?.map { it.second }?.filter { it > 0 }
-        if (!steps.isNullOrEmpty() || km > 0 || !hs?.workouts.isNullOrEmpty()) {
-            val avg = steps?.average() ?: 0.0
-            val workouts = hs?.workouts?.count { !it.startTime.atZone(ZoneId.systemDefault()).toLocalDate().isBefore(weekAgo) } ?: 0
-            val s = clamp(avg / 1000.0 + km / 5 + workouts * 1.0)
-            out += LifePart("Движение", s, 1.5, "в среднем ${avg.toInt()} шагов в день" + (if (km > 0) ", треков на ${"%.1f".format(km).replace('.', ',')} км" else "") + (if (workouts > 0) ", тренировок: $workouts" else ""),
+        if (!steps.isNullOrEmpty()) {
+            val avg = steps.average()
+            val goal = com.pank.vsevodnom.ui.home.StepGoal.value(ctx, runCatching { db.weight().all().first().lastOrNull()?.kg }.getOrNull()).toDouble()
+            val workouts = hs.workouts.count { !it.startTime.atZone(ZoneId.systemDefault()).toLocalDate().isBefore(weekAgo) }
+            val s = clamp(avg / goal * 10 + minOf(workouts, 3) * 0.5)
+            out += LifePart("Движение", s, 1.5, "в среднем ${avg.toInt()} шагов в день при цели ${goal.toInt()}" + (if (workouts > 0) ", тренировок: $workouts" else ""),
                 if (s >= 7) "Много двигаешься — это лучшее, что можно сделать для здоровья и настроения." else null,
-                if (s < 5) "Мало движения: добавь прогулку 30 минут или поездку на велосипеде — даже 6–7 тысяч шагов в день заметно меняют самочувствие." else null)
+                if (s < 5) "Мало движения: до цели не хватает ${(goal - avg).toInt()} шагов в день — это около ${((goal - avg) / 100).toInt()} минут прогулки." else null)
         }
 
         // Сон

@@ -177,6 +177,30 @@ internal fun DayReviewScreen(onDismiss: () -> Unit) {
             TabRow(tab, containerColor = Pal.Bg) {
                 listOf("День", "Неделя", "Месяц", "Год").forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t) }) }
             }
+            // оценка жизни (все стороны: движение, сон, настроение, привычки, дела, деньги, вес) — здесь, в «Моих успехах»
+            var life by remember { mutableStateOf<List<com.pank.vsevodnom.ui.health.LifePart>?>(null) }
+            LaunchedEffect(Unit) {
+                val hs = runCatching { if (com.pank.vsevodnom.ui.health.HealthRepo.status(ctx) == androidx.health.connect.client.HealthConnectClient.SDK_AVAILABLE && com.pank.vsevodnom.ui.health.HealthRepo.granted(ctx).isNotEmpty()) com.pank.vsevodnom.ui.health.HealthRepo.summary(ctx) else null }.getOrNull()
+                life = runCatching { com.pank.vsevodnom.ui.health.LifeScore.compute(ctx, hs) }.getOrDefault(emptyList())
+            }
+            life?.takeIf { it.isNotEmpty() }?.let { parts ->
+                val total = com.pank.vsevodnom.ui.health.LifeScore.total(parts)
+                Card("Как я проживаю жизнь") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LifeBadge(total, {}, 52.dp)
+                        Text("  " + (total?.let { com.pank.vsevodnom.ui.health.LifeScore.verdict(it) } ?: ""), style = MaterialTheme.typography.bodyMedium, color = Pal.Muted)
+                    }
+                    parts.forEach { p ->
+                        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(p.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(110.dp))
+                            Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Pal.Line)) {
+                                Box(Modifier.fillMaxWidth((p.score / 10).toFloat().coerceIn(0f, 1f)).fillMaxHeight().background(scoreColor(p.score)))
+                            }
+                            Text("  " + "%.1f".format(p.score).replace('.', ','), style = MaterialTheme.typography.labelLarge, color = scoreColor(p.score))
+                        }
+                    }
+                }
+            }
             when (tab) {
                 0 -> {
                     val doneList = tasks.filter { it.done && it.doneAt != null && day(it.doneAt) == today }

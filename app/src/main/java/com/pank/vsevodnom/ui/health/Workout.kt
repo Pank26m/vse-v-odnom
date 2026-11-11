@@ -122,8 +122,22 @@ private fun zone(bpm: Int, max: Int): Pair<String, Color> {
     }
 }
 
+/** Вид тренировки: название, тип Health Connect, на улице ли (тогда пишется трек). */
+data class WorkoutKind(val key: String, val title: String, val hcType: Int, val outdoor: Boolean, val emoji: String)
+val WORKOUT_KINDS = listOf(
+    WorkoutKind("walk", "Ходьба", ExerciseSessionRecord.EXERCISE_TYPE_WALKING, true, "🚶"),
+    WorkoutKind("run", "Бег на улице", ExerciseSessionRecord.EXERCISE_TYPE_RUNNING, true, "🏃"),
+    WorkoutKind("bike", "Велотренировка", ExerciseSessionRecord.EXERCISE_TYPE_BIKING, true, "🚴"),
+    WorkoutKind("treadmill", "Беговая дорожка", ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL, false, "🏃‍♂️"),
+    WorkoutKind("swim", "Плавание", ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL, false, "🏊"),
+)
+
 @Composable
-fun CyclingWorkout(onDone: () -> Unit) {
+fun CyclingWorkout(onDone: () -> Unit) = WorkoutSession(WORKOUT_KINDS[2], onDone)
+
+/** Тренировка: таймер, живой пульс с браслета (если отдаёт), на улице — запись трека; итог — в Health Connect. */
+@Composable
+fun WorkoutSession(kind: WorkoutKind, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val hr = remember { HrMonitor(ctx) }
@@ -153,7 +167,9 @@ fun CyclingWorkout(onDone: () -> Unit) {
         }
     }
 
-    ScreenScaffold("Велотренировка", onDone) {
+    val trackDist by com.pank.vsevodnom.data.TrackService.distance.collectAsState()
+    val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    ScreenScaffold(kind.title, onDone) {
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 val (zn, zc) = zone(hr.bpm, maxHr)
@@ -163,6 +179,7 @@ fun CyclingWorkout(onDone: () -> Unit) {
                         Text(if (hr.bpm > 0) "уд/мин · $zn" else hr.state, style = MaterialTheme.typography.titleMedium)
                         val sec = if (running) (now - startAt) / 1000 else 0
                         Text("%d:%02d:%02d".format(sec / 3600, sec / 60 % 60, sec % 60), style = MaterialTheme.typography.headlineMedium)
+                        if (kind.outdoor && running) Text("Трек: " + com.pank.vsevodnom.data.fmtKm(trackDist), style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }
@@ -181,9 +198,12 @@ fun CyclingWorkout(onDone: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!running) PillButton("Старт", {
                         running = true; startAt = SystemClock.elapsedRealtime(); startInstant = Instant.now(); samples.clear(); saved = null
+                        // на улице — пишем трек (он попадёт в треки и в историю тренировки)
+                        if (kind.outdoor) { if (com.pank.vsevodnom.data.TrackService.canStart(ctx)) com.pank.vsevodnom.data.TrackService.start(ctx) else locPerm.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
                     }, Modifier.weight(1f))
                     else PillButton("Стоп и сохранить", {
                         running = false
+                        if (kind.outdoor && com.pank.vsevodnom.data.TrackService.recording.value) com.pank.vsevodnom.data.TrackService.stop(ctx)
                         val st = startInstant ?: return@PillButton
                         val end = Instant.now()
                         scope.launch {
@@ -192,7 +212,7 @@ fun CyclingWorkout(onDone: () -> Unit) {
                                 val c = HealthRepo.client(ctx)
                                 val recs = mutableListOf<androidx.health.connect.client.records.Record>(
                                     ExerciseSessionRecord(startTime = st, startZoneOffset = z, endTime = end, endZoneOffset = z,
-                                        exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_BIKING, title = "Велотренировка")
+                                        exerciseType = kind.hcType, title = kind.title)
                                 )
                                 if (samples.isNotEmpty()) recs += HeartRateRecord(startTime = st, startZoneOffset = z, endTime = end, endZoneOffset = z,
                                     samples = samples.map { HeartRateRecord.Sample(it.first, it.second.toLong()) })
