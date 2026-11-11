@@ -277,7 +277,21 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 // (Nominatim раньше подставлял ближайшую названную улицу — убран)
                 if (f == null) {
                     val m = eng.streetRadius() ?: return
-                    scope.launch { eng.streetAt(lat, lon, m)?.let { if (target == null && selTrack == null) openFeature(it) } }
+                    scope.launch {
+                        val hit = eng.streetAt(lat, lon, m) ?: if (Net.online && !MapPrefs.offlineOnly(ctx)) {
+                            // офлайн-поиск GLMap дорог почти не находит — спрашиваем OSM (Nominatim), но берём улицу,
+                            // только если палец действительно на её линии (раньше подставлялась соседняя названная улица)
+                            Streets.nearestOnline(lat, lon)?.takeIf { st ->
+                                st.name != null && st.lines.isNotEmpty() && Streets.distanceTo(GeoPt(lat, lon, 0), st.lines) <= maxOf(m, 12.0)
+                            }?.let { st ->
+                                val path = st.highway in GlEngine.PATHS
+                                FeatureHit(MapTarget(st.name!!, Streets.kind(st.highway), lat, lon,
+                                    props = st.tags + ("kind" to if (path) "route" else "street") + ("name_tag" to st.name) + (if (st.osmUrl.isNotBlank()) mapOf("osm_url" to st.osmUrl) else emptyMap())),
+                                    st.lines)
+                            }
+                        } else null
+                        hit?.let { if (target == null && selTrack == null) openFeature(it) }
+                    }
                     return
                 }
                 openFeature(f)
@@ -696,7 +710,15 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     GlFind.similar(ctx, ask.kv?.first.orEmpty(), ask.kv?.second.orEmpty(), t0.lat, t0.lon, limit = p.count, maxKm = p.km.toDouble(),
                         timeoutMs = p.seconds * 1000L, byName = p.name) { n -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { simSearch = what to n } }
                 } finally { simSearch = null }
-                if (hits.isEmpty()) { Toast.makeText(ctx, if (!Net.online && !GlFind.offlineAvailable()) "Без интернета ищется по скачанной карте (Загрузка карт)" else "Рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
+                if (hits.isEmpty()) {
+                    // без названий (площадки, бюветы, лавочки) офлайн-поиск GLMap не находит — только Overpass; скажем, если он не ответил
+                    val msg = when {
+                        !Net.online -> "Без интернета находятся только места с названием (по скачанной карте)"
+                        GlFind.lastError != null -> "Рядом не нашлось. Сервер OpenStreetMap не ответил: ${GlFind.lastError}"
+                        else -> "Рядом не нашлось"
+                    }
+                    Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show(); return@launch
+                }
                 eng.setSimilar(hits)
                 similar = what.replaceFirstChar { it.uppercase() } to hits; simIdx = 0
                 val h = hits[0]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon, props = GlFind.propsOf(h.kind)))

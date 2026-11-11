@@ -74,10 +74,35 @@ object GlFind {
         val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
         c.setRequestProperty("User-Agent", "VseVOdnom/0.29 (personal Android app)")
         c.connectTimeout = 8_000; c.readTimeout = 30_000; c.requestMethod = "POST"; c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        c.setRequestProperty("Accept", "application/json")
         c.outputStream.use { it.write(body.toByteArray()) }
+        if (c.responseCode !in 200..299) throw java.io.IOException("HTTP ${c.responseCode} (${url.substringAfter("//").substringBefore('/')})")
         return c.inputStream.bufferedReader().use { it.readText() }
     }
-    private fun overpass(q: String): org.json.JSONArray = org.json.JSONObject(http("https://overpass-api.de/api/interpreter", "data=" + java.net.URLEncoder.encode(q, "UTF-8"))).getJSONArray("elements")
+    /** Серверы Overpass: основной и зеркала — если один не отвечает (429/504/таймаут), пробуем следующий. */
+    private val OVERPASS = listOf("https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter")
+    @Volatile private var good = 0
+    /** Последняя ошибка Overpass — показываем владельцу, если ничего не нашлось. */
+    @Volatile var lastError: String? = null
+    private fun overpass(q: String): org.json.JSONArray {
+        val body = "data=" + java.net.URLEncoder.encode(q, "UTF-8")
+        var err: Throwable? = null
+        for (i in OVERPASS.indices) {
+            val k = (good + i) % OVERPASS.size
+            try {
+                val a = org.json.JSONObject(http(OVERPASS[k], body)).getJSONArray("elements")
+                good = k; lastError = null
+                return a
+            } catch (e: Throwable) {
+                if (e is InterruptedException || e is java.io.InterruptedIOException && Thread.currentThread().isInterrupted) throw e
+                err = e
+            }
+        }
+        lastError = err?.let { (it::class.simpleName ?: "ошибка") + ": " + (it.message ?: "") }?.take(160)
+        throw err ?: Exception("Overpass недоступен")
+    }
     private fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
 
     /** Вид места, если о нём ничего не известно (метка, Google): ближайший объект OSM в 40 м (с тем же названием, если есть). Онлайн. */
@@ -114,7 +139,9 @@ object GlFind {
         val nameRx = nameQ?.map { c -> if (c.isLetterOrDigit() || c == ' ') c else '.' }?.joinToString("")
         kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
             for (km in radii) {
-                add(if (nameQ != null) offlineByName(ctx, nameQ, lat, lon, km) else offlineSimilar(ctx, key, value, lat, lon, km, label)); onProgress(found.size)
+                add(if (nameQ != null) offlineByName(ctx, nameQ, lat, lon, km) else offlineSimilar(ctx, key, value, lat, lon, km, label)); onProgress(minOf(found.size, limit))
+                // набрали сколько просили — стоп (в 0.34 просили 15, нашлось 100, а поиск шёл дальше)
+                if (found.size >= limit) break
                 if (Net.online) runCatching {
                     kotlinx.coroutines.runInterruptible {
                         val filter = if (nameRx != null) "[\"name\"~\"${esc(nameRx)}\",i]" else "[\"${esc(key)}\"=\"${esc(value)}\"]"
@@ -132,9 +159,8 @@ object GlFind {
                         })
                     }
                 }
-                onProgress(found.size)
-                // круг дал нужное число — дальние уже не ближе: стоп
-                if (found.values.count { d(it) <= km * 1000 } >= limit) break
+                onProgress(minOf(found.size, limit))
+                if (found.size >= limit) break
             }
         }
         best()

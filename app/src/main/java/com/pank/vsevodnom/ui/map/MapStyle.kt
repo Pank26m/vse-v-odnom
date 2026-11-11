@@ -39,7 +39,7 @@ object MapStyle {
         "fun" to Group("Кино, театры, развлечения", "movie", 0xFFFB8C00.toInt(), "Entertaiment"),
         "hotel" to Group("Гостиницы, хостелы, кемпинги", "bed", 0xFF7E57C2.toInt(), "Hotel"),
         "sport" to Group("Спорт и бассейны", "barbell", 0xFFFF7043.toInt(), "Sport"),
-        "transit" to Group("Общественный транспорт", "bus", 0xFF78909C.toInt(), "PublicTransport"),
+        "transit" to Group("Общественный транспорт, аэропорты", "bus", 0xFF78909C.toInt(), "PublicTransport"),
         "rail" to Group("Железная дорога и метро", "train", 0xFF78909C.toInt(), "Railway"),
         "bnames" to Group("Названия зданий", "home", 0xFF6D4C41.toInt(), "BuildingName"),
     )
@@ -64,15 +64,17 @@ object MapStyle {
      */
     val SERVICE_GROUPS = linkedMapOf(
         "x_car" to Group("Для машины: АЗС, зарядки, мойки, парковки, автосервисы", "gas-station", 0xFF546E7A.toInt(), ""),
-        "x_peaks" to Group("Вершины гор и холмов, перевалы", "mountain", 0xFF8D6E63.toInt(), ""),
-        "x_rest" to Group("Отдых: пикники, мангалы, смотровые, достопримечательности", "camera", 0xFF26A69A.toInt(), ""),
+        "x_peaks" to Group("Вершины, перевалы, пещеры, родники, скалы", "mountain", 0xFF8D6E63.toInt(), ""),
+        "x_amen" to Group("Вода, туалеты, скамейки, детские площадки", "droplet", 0xFF42A5F5.toInt(), ""),
+        "x_towers" to Group("Башни, вышки связи, водонапорные башни", "tower", 0xFF78909C.toInt(), ""),
+        "x_rest" to Group("Отдых: пикники, смотровые, достопримечательности, раскопки, инфо-стенды", "camera", 0xFF26A69A.toInt(), ""),
         "x_power" to Group("Линии электропередач и опоры", "bolt", 0xFF9E9E9E.toInt(), ""),
         "x_barrier" to Group("Заборы, калитки, шлагбаумы, входы", "fence", 0xFFE6A176.toInt(), ""),
     )
     /** Правила скрытия по группам: в стиль попадают только правила выключенных групп (последними — перекрывают стандартный). */
     private val HIDE_RULES = mapOf(
         "l_districts" to "node, area { [place=suburb], [place=quarter], [place=neighbourhood], [place=city_block], [place=locality], [place=borough], [landuse=residential] { text: none; } }",
-        "l_streets" to "line { [highway] { text: none; } }\narea { [highway=pedestrian], [highway=footway], [place=square] { text: none; } }",
+        "l_streets" to "line { [highway] { text: none; } }\nnode, area { [highway=pedestrian], [highway=footway], [place=square] { text: none; } }",
         "l_water" to "node, area { [natural=water], [water], [waterway], [place=sea], [place=ocean], [place=bay], [natural=bay], [natural=strait] { text: none; } }\nline { [waterway] { text: none; } }",
         "l_countries" to "node, area { [place=country], [place=state], [place=region], [place=province] { text: none; } }",
         "l_nature" to "node, area { [boundary=protected_area], [boundary=national_park], [leisure=nature_reserve], [leisure=park], [leisure=garden], [place=island], [place=islet] { text: none; } }",
@@ -97,14 +99,16 @@ object MapStyle {
         "fun" to "amenity=nightclub amenity=cinema amenity=theatre tourism=zoo tourism=theme_park leisure=water_park",
         "hotel" to "tourism=hotel tourism=hostel tourism=motel tourism=guest_house tourism=chalet tourism=alpine_hut tourism=camp_site tourism=caravan_site",
         "sport" to "leisure=stadium amenity=swimming_pool leisure=swimming_pool leisure=sports_centre leisure=fitness_centre",
-        "transit" to "amenity=bus_station highway=bus_stop railway=tram_stop",
+        "transit" to "amenity=bus_station highway=bus_stop railway=tram_stop aeroway=aerodrome aeroway=terminal amenity=ferry_terminal",
         "rail" to "railway=station railway=halt building=train_station",
     )
     /** Правила «служебных» групп и номеров трасс — отдельный уровень: если движок их не примет, остальное скрытие работает. */
     private val EXTRA_RULES = mapOf(
         "x_car" to poiRule("amenity=fuel amenity=charging_station amenity=car_wash amenity=parking amenity=parking_entrance amenity=car_rental amenity=car_sharing shop=car_repair shop=car shop=car_parts shop=motorcycle shop=tyres"),
-        "x_peaks" to poiRule("natural=peak natural=volcano natural=saddle mountain_pass=yes natural=hill"),
-        "x_rest" to poiRule("tourism=picnic_site leisure=picnic_table leisure=firepit amenity=bbq tourism=viewpoint tourism=attraction"),
+        "x_peaks" to poiRule("natural=peak natural=volcano natural=saddle mountain_pass=yes natural=hill natural=cave_entrance natural=spring man_made=adit natural=rock natural=stone"),
+        "x_rest" to poiRule("tourism=picnic_site leisure=picnic_table leisure=firepit amenity=bbq tourism=viewpoint tourism=attraction historic=archaeological_site tourism=information"),
+        "x_amen" to poiRule("amenity=drinking_water amenity=water_point man_made=water_tap man_made=water_well amenity=toilets leisure=playground amenity=bench amenity=shelter"),
+        "x_towers" to poiRule("man_made=tower man_made=water_tower man_made=mast man_made=communications_tower amenity=hunting_stand"),
         "x_power" to "line { [power=line], [power=minor_line] { width: none; } }\n" + poiRule("power=tower power=pole"),
         "x_barrier" to "area, line { [barrier] { width: none; } }\n" + "node, area { [barrier], [entrance] { icon-image: none; text: none; } }",
         "l_shields" to "line { [highway] { shield-image: none; shield-text: none; } }",

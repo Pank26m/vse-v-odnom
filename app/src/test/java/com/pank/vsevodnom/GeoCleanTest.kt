@@ -37,3 +37,10 @@ class GeoCleanTest {
         assertTrue(len(out) < len(line) * 1.01)
     }
 }
+
+/** Улица из Nominatim берётся, только если нажатие на её линии (а не на соседнем безымянном проезде). */
+class StreetDistanceTest {
+    private val street = listOf(listOf(GeoPt(50.4000, 30.5000, 0), GeoPt(50.4000, 30.5100, 0)))   // с запада на восток ~710 м
+    @Test fun onLine() { assertTrue(com.pank.vsevodnom.data.Streets.distanceTo(GeoPt(50.40005, 30.505, 0), street) < 7) }
+    @Test fun yardFarAway() { assertTrue(com.pank.vsevodnom.data.Streets.distanceTo(GeoPt(50.4006, 30.505, 0), street) > 60) }
+}

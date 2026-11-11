@@ -309,7 +309,14 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             l.onLongTap(g.lat, g.lon)
         }
         override fun onPitch(angle: Float) { super.onPitch(angle); l.onGesture() }
-        // поворот двумя пальцами начинается раньше (по умолчанию GLMap ждёт 10°, в 3D это ощущалось как «не крутится»)
+        // поворот двумя пальцами быстрее, чем повернулись пальцы: в 3D ×2, сверху ×1,5 (владелец: облёт Пику —
+        // 12 движений против 7 в Guru; у GLMap поворот 1:1)
+        override fun onRotate(angle: Float, x: Float, y: Float) {
+            val k = if (runCatching { r.mapPitch }.getOrDefault(0f) > 3f) 2f else 1.5f
+            super.onRotate(angle * k, x, y)
+            l.onGesture()
+        }
+        // поворот двумя пальцами начинается раньше (по умолчанию GLMap ждёт 10°)
         override fun getRotationGate(): Float = 4f
         override fun getRotationResetGate(): Float = 8f
     }

@@ -116,6 +116,21 @@ object Streets {
         }.getOrNull()
     }
 
+    /** Расстояние от точки до ближайшего отрезка линий, м (по плоскому приближению — для десятков метров точно). */
+    fun distanceTo(p: GeoPt, lines: List<List<GeoPt>>): Double {
+        val kx = 111_320.0 * Math.cos(Math.toRadians(p.lat)); val ky = 110_540.0
+        var best = Double.MAX_VALUE
+        for (l in lines) for (i in 1 until l.size) {
+            val ax = (l[i - 1].lon - p.lon) * kx; val ay = (l[i - 1].lat - p.lat) * ky
+            val bx = (l[i].lon - p.lon) * kx; val by = (l[i].lat - p.lat) * ky
+            val dx = bx - ax; val dy = by - ay; val len = dx * dx + dy * dy
+            val t = if (len == 0.0) 0.0 else (-(ax * dx + ay * dy) / len).coerceIn(0.0, 1.0)
+            best = minOf(best, Math.hypot(ax + t * dx, ay + t * dy))
+        }
+        if (lines.any { it.size == 1 }) lines.filter { it.size == 1 }.forEach { best = minOf(best, Osm.distance(p, it[0])) }
+        return best
+    }
+
     private fun norm(s: String?) = s?.lowercase()?.replace('ё', 'е')?.replace(Regex("\\s+"), " ")?.trim()
 
     /**
