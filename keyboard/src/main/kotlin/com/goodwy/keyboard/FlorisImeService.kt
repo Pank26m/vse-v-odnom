@@ -332,6 +332,8 @@ class FlorisImeService : LifecycleInputMethodService() {
         if (info == null) return
         val editorInfo = FlorisEditorInfo.wrap(info)
         editorInstance.handleStartInput(editorInfo)
+        // поле получило фокус (даже если клавиатура ещё не показана) — пароль из окна паролей можно вставлять
+        com.goodwy.keyboard.vse.VseIme.onBind(this, info.packageName ?: "")
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -647,6 +649,8 @@ class FlorisImeService : LifecycleInputMethodService() {
                         )
                     }
                 }
+                // Всё в одном: микрофон в нижней полосе справа (напротив системной ⌄), как просил владелец
+                com.goodwy.keyboard.vse.VseNavMic(Modifier.align(Alignment.BottomEnd))
             }
         }
     }

@@ -20,7 +20,7 @@ android {
     // yt-dlp запускает Python из папки нативных библиотек — их нужно распаковывать при установке
     packaging { jniLibs { useLegacyPackaging = true; pickFirsts += "**/libc++_shared.so" } }
     // карта мира GLMap (world.vm) и шрифты — без сжатия, иначе их распаковывают при первом запуске
-    androidResources { noCompress += listOf("vm", "ttf", "otf") }
+    androidResources { noCompress += listOf("vm", "ttf", "otf", "kdict") }   // kdict — словари клавиатуры читаются из APK напрямую
 
     // Подпись релизов: ключ передаётся через переменные окружения (секреты GitHub).
     val ksPath = System.getenv("SIGNING_KEYSTORE")
@@ -54,6 +54,7 @@ android {
 
 dependencies {
     implementation(project(":keyboard"))
+    implementation("androidx.autofill:autofill:1.1.0")   // встроенные подсказки автозаполнения в клавиатуре
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")

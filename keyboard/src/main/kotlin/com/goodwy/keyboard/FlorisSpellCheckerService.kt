@@ -101,8 +101,23 @@ class FlorisSpellCheckerService : SpellCheckerService() {
             }
         }
 
+        /**
+         * Всё в одном: свои словари (ru/uk/en, без интернета). Правильно — «в словаре»; ошибка — «похоже на опечатку»
+         * (Android подчёркивает красным) + варианты по нажатию. Автозамены нет.
+         */
+        private fun vseCheck(t: TextInfo, limit: Int): SuggestionsInfo {
+            val w = t.text ?: ""
+            val ok = com.goodwy.keyboard.vse.VseSpell.ok(this@FlorisSpellCheckerService, w)
+            val info = if (ok) SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_IN_THE_DICTIONARY, emptyArray())
+            else SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO,
+                com.goodwy.keyboard.vse.VseSpell.suggest(this@FlorisSpellCheckerService, w, limit.coerceIn(1, 6)).toTypedArray())
+            info.setCookieAndSequence(t.cookie, t.sequence)
+            return info
+        }
+
         override fun onGetSuggestions(textInfo: TextInfo?, suggestionsLimit: Int): SuggestionsInfo {
             flogInfo(LogTopic.SPELL_EVENTS) { "text=${textInfo?.text}, limit=$suggestionsLimit" }
+            if (textInfo?.text != null) return vseCheck(textInfo, suggestionsLimit)
 
             textInfo?.text ?: return SpellingResult.unspecified().suggestionsInfo
             setupSpellingIfNecessary()
@@ -124,6 +139,8 @@ class FlorisSpellCheckerService : SpellCheckerService() {
             flogInfo(LogTopic.SPELL_EVENTS)
 
             textInfos ?: return emptyArray()
+            return Array(textInfos.size) { vseCheck(textInfos[it], suggestionsLimit) }
+            @Suppress("UNREACHABLE_CODE")
             setupSpellingIfNecessary()
             val spellingSubtype = cachedSpellingSubtype ?: return emptyArray()
 

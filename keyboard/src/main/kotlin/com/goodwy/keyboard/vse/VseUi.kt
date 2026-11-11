@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBackIos
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -138,5 +139,20 @@ fun VsePanel() {
             }
             else -> Box(Modifier.fillMaxSize().background(Color.Transparent))
         }
+    }
+}
+
+
+/** Микрофон в полосе системной навигации под клавишами (справа). Горит, пока идёт голосовой ввод. */
+@Composable
+fun VseNavMic(modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    val status by VseIme.status.collectAsState()
+    val style = FlorisImeTheme.style.get(FlorisImeUi.Key)
+    val fg = style.foreground.solidColor(ctx)
+    val on = VseVoice.listening && status != null
+    Box(modifier.padding(end = 20.dp).windowInsetsBottomHeight(WindowInsets.navigationBars).widthIn(min = 56.dp)
+        .clip(RoundedCornerShape(12.dp)).clickable { VseVoice.toggle(ctx) }, contentAlignment = Alignment.Center) {
+        Icon(androidx.compose.material.icons.Icons.Rounded.Mic, "Голосовой ввод", tint = if (on) Color(0xFFE5484D) else fg, modifier = Modifier.size(24.dp))
     }
 }

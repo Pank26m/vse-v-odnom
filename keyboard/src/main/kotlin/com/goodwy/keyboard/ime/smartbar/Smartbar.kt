@@ -347,7 +347,13 @@ private fun SmartbarMainRow(modifier: Modifier = Modifier) {
             .padding(top = 4.dp) //TODO Goodwy. Smartbar padding
             .snyggBackground(context, smartbarStyle),
     ) {
-        when (smartbarLayout) {
+        // Всё в одном: подсказки (код из СМС, сохранить контакт, почта, пароли, калькулятор) и сообщения (перевод, голос)
+        // показываются ВМЕСТО верхней панели — при любом её виде (у владельца — только действия, строки подсказок нет)
+        val vseChips by com.goodwy.keyboard.vse.VseIme.chips.collectAsState()
+        val vseStatus by com.goodwy.keyboard.vse.VseIme.status.collectAsState()
+        if (vseChips.isNotEmpty() || vseStatus != null) Box(Modifier.weight(1f).fillMaxHeight()) {
+            com.goodwy.keyboard.vse.VseCandidatesOr { }
+        } else when (smartbarLayout) {
             SmartbarLayout.SUGGESTIONS_ONLY -> {
                 if (shouldShowInlineSuggestionsUi) {
                     InlineSuggestionsUi(inlineSuggestions)

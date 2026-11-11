@@ -46,18 +46,20 @@ class KbVaultActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        val docs = intent.getStringExtra("mode") == "doc"
+        val mode = intent.getStringExtra("mode").orEmpty()
+        val docs = mode == "doc"
         val target = intent.getStringExtra("target").orEmpty()
         setContent {
             AppTheme {
                 Surface(Modifier.fillMaxSize(), color = Pal.Bg) {
                     Column(Modifier.fillMaxSize().systemBarsPadding().padding(16.dp)) {
-                        Text(if (docs) "Документы" else "Пароли", style = MaterialTheme.typography.headlineSmall)
+                        Text(when (mode) { "doc" -> "Документы"; "save" -> "Сохранить пароль"; else -> "Пароли" }, style = MaterialTheme.typography.headlineSmall)
                         val list = entries
                         when {
                             err != null -> { Text(err!!, color = Pal.RoseInk, modifier = Modifier.padding(top = 12.dp)); PillButton("Ещё раз", { unlock() }, Modifier.padding(top = 8.dp)) }
                             list == null -> Text("Подтверди, что это ты…", color = Pal.Muted, modifier = Modifier.padding(top = 12.dp))
                             docs -> DocsPicker(list.filter { it.kind == "doc" }, target)
+                            mode == "save" -> SaveForm(list)
                             else -> PassPicker(list.filter { it.kind != "doc" })
                         }
                     }
@@ -84,6 +86,52 @@ class KbVaultActivity : FragmentActivity() {
             .setAllowedAuthenticators(BIOMETRIC_STRONG or DEVICE_CREDENTIAL).build())
     }
 
+    /** Ключевое слово сайта/приложения: «instagram» из instagram.com или com.instagram.android. */
+    private val key: String by lazy {
+        val d = intent.getStringExtra("domain").orEmpty()
+        if (d.isNotBlank()) d.removePrefix("www.").removePrefix("m.").substringBeforeLast('.').substringAfterLast('.')
+        else intent.getStringExtra("target").orEmpty().split('.').filter { it !in setOf("com", "org", "android", "app", "mobile", "ua", "ru", "net") }.maxByOrNull { it.length }.orEmpty()
+    }
+    private fun matches(e: VaultEntry) = key.length >= 3 && (e.url.contains(key, true) || e.title.contains(key, true))
+
+    /** Автозаполнение: вернуть Android логин и пароль выбранной записи. */
+    private fun fillAndFinish(e: VaultEntry) {
+        val ds = android.service.autofill.Dataset.Builder()
+        val pres = android.widget.RemoteViews(packageName, com.pank.vsevodnom.R.layout.autofill_item).apply { setTextViewText(com.pank.vsevodnom.R.id.autofill_text, e.title) }
+        @Suppress("DEPRECATION")
+        androidx.core.content.IntentCompat.getParcelableExtra(intent, "user_id", android.view.autofill.AutofillId::class.java)?.let { ds.setValue(it, android.view.autofill.AutofillValue.forText(e.login), pres) }
+        @Suppress("DEPRECATION")
+        androidx.core.content.IntentCompat.getParcelableExtra(intent, "pass_id", android.view.autofill.AutofillId::class.java)?.let { ds.setValue(it, android.view.autofill.AutofillValue.forText(e.password), pres) }
+        setResult(RESULT_OK, Intent().putExtra(android.view.autofill.AutofillManager.EXTRA_AUTHENTICATION_RESULT, ds.build()))
+        finish()
+    }
+
+    /** Сохранение из автозаполнения: та же запись (сайт + логин) обновляется, иначе — новая. */
+    @Composable
+    private fun SaveForm(list: List<VaultEntry>) {
+        val login = intent.getStringExtra("login").orEmpty(); val pass = intent.getStringExtra("password").orEmpty()
+        val domain = intent.getStringExtra("domain").orEmpty(); val pkg = intent.getStringExtra("target").orEmpty()
+        val appName = remember { runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull() }
+        var title by remember { mutableStateOf(domain.ifBlank { appName ?: pkg }) }
+        val existing = list.firstOrNull { it.kind != "doc" && it.login.equals(login, true) && (matches(it) || (domain.isNotBlank() && it.url.contains(domain, true))) }
+        Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(if (existing != null) "Обновить пароль в записи «${existing.title}»?" else "Новая запись в «Паролях»", color = Pal.Muted)
+            if (existing == null) AppTextField(title, { title = it }, "Название", modifier = Modifier.fillMaxWidth())
+            Text("Логин: ${login.ifBlank { "—" }}\nПароль: ${"•".repeat(pass.length.coerceAtMost(12))}\nСайт/приложение: ${domain.ifBlank { appName ?: pkg }}")
+            PillButton("Сохранить", {
+                runCatching {
+                    val all = Vault.load(this@KbVaultActivity)
+                    val next = if (existing != null) all.map { if (it.id == existing.id) it.copy(password = pass, updatedAt = System.currentTimeMillis()) else it }
+                    else all + VaultEntry(id = java.util.UUID.randomUUID().toString(), title = title.ifBlank { "Без названия" }, login = login, password = pass,
+                        url = if (domain.isNotBlank()) "https://$domain" else "android://$pkg")
+                    Vault.save(this@KbVaultActivity, next)
+                }.onSuccess { Toast.makeText(this@KbVaultActivity, "Сохранено в «Пароли»", Toast.LENGTH_SHORT).show(); finish() }
+                    .onFailure { err = it.message }
+            }, Modifier.fillMaxWidth())
+            TextButton({ finish() }) { Text("Не сохранять") }
+        }
+    }
+
     /** Отдать текст клавиатуре и закрыться (поле снова получит фокус — клавиатура вставит). */
     private fun send(text: String) {
         sendBroadcast(Intent("com.pank.vsevodnom.KBD_COMMIT").setPackage(packageName).putExtra("text", text))
@@ -95,11 +143,14 @@ class KbVaultActivity : FragmentActivity() {
         var q by remember { mutableStateOf("") }
         var pick by remember { mutableStateOf<VaultEntry?>(null) }
         AppTextField(q, { q = it }, "Найти", modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
-        val shown = list.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) }.sortedBy { it.title.lowercase() }
+        // подходящие сайту/приложению — сверху (подсвечены)
+        val shown = list.filter { q.isBlank() || it.title.contains(q, true) || it.login.contains(q, true) || it.url.contains(q, true) }
+            .sortedWith(compareBy({ !matches(it) }, { it.title.lowercase() }))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (shown.isEmpty()) item { Text("Ничего не найдено", color = Pal.Muted) }
             items(shown, key = { it.id }) { e ->
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { pick = e }.padding(14.dp, 10.dp)) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (matches(e)) Pal.Sky else Pal.Card)
+                    .clickable { if (intent.getStringExtra("mode") == "autofill") fillAndFinish(e) else pick = e }.padding(14.dp, 10.dp)) {
                     Text(e.title.ifBlank { "Без названия" }, style = MaterialTheme.typography.titleSmall)
                     if (e.login.isNotBlank()) Text(e.login, style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                 }

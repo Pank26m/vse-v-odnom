@@ -99,22 +99,45 @@ object VseText {
         if (from == to) { VseIme.status.value = "Текст уже на этом языке"; clear(); return }
         VseIme.status.value = "Перевожу… (первый раз скачивается словарь ~30 МБ)"
         VseIme.scope.launch {
-            runCatching {
-                com.google.mlkit.common.sdkinternal.MlKitContext.initializeIfNeeded(ctx.applicationContext)
-                val code = { l: String -> when (l) { "uk" -> com.google.mlkit.nl.translate.TranslateLanguage.UKRAINIAN; "ru" -> com.google.mlkit.nl.translate.TranslateLanguage.RUSSIAN; else -> com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH } }
-                val tr = com.google.mlkit.nl.translate.Translation.getClient(
-                    com.google.mlkit.nl.translate.TranslatorOptions.Builder().setSourceLanguage(code(from)).setTargetLanguage(code(to)).build())
-                try {
-                    await(tr.downloadModelIfNeeded(com.google.mlkit.common.model.DownloadConditions.Builder().build()))
-                    await(tr.translate(full))
-                } finally { tr.close() }
-            }.onSuccess { out ->
-                toClipboard(ctx, "Исходный текст", full); replaceField(b, s, a, out ?: full)
-                VseIme.status.value = "Переведено (оригинал — в буфере)"
-            }.onFailure { VseIme.status.value = "Перевод не удался: ${it.message ?: "ошибка"}" }
+            runCatching { viaService(ctx, full, from, to) }
+                .onSuccess { out ->
+                    toClipboard(ctx, "Исходный текст", full); replaceField(b, s, a, out)
+                    VseIme.status.value = "Переведено (оригинал — в буфере)"
+                }.onFailure { VseIme.status.value = "Перевод не удался: ${it.message ?: "ошибка"}" }
             clear()
         }
     }
+
+    /** Перевод через службу в основном процессе (ML Kit там запускается сам). До 3 минут — на скачивание словаря. */
+    private suspend fun viaService(ctx: Context, text: String, from: String, to: String): String =
+        kotlinx.coroutines.withTimeout(180_000) {
+            suspendCancellableCoroutine { cont ->
+                val app = ctx.applicationContext
+                var conn: android.content.ServiceConnection? = null
+                val reply = android.os.Messenger(object : android.os.Handler(android.os.Looper.getMainLooper()) {
+                    override fun handleMessage(m: android.os.Message) {
+                        val ok = m.data.getBoolean("ok"); val t = m.data.getString("text").orEmpty()
+                        conn?.let { runCatching { app.unbindService(it) } }
+                        if (!cont.isActive) return
+                        if (ok) cont.resume(t) else cont.resumeWithException(Exception(t))
+                    }
+                })
+                conn = object : android.content.ServiceConnection {
+                    override fun onServiceConnected(n: android.content.ComponentName?, b: android.os.IBinder?) {
+                        runCatching {
+                            android.os.Messenger(b).send(android.os.Message.obtain(null, 1).apply {
+                                data = android.os.Bundle().apply { putString("text", text); putString("from", from); putString("to", to) }
+                                replyTo = reply
+                            })
+                        }.onFailure { if (cont.isActive) cont.resumeWithException(it) }
+                    }
+                    override fun onServiceDisconnected(n: android.content.ComponentName?) {}
+                }
+                val ok = app.bindService(android.content.Intent(app, TranslateService::class.java), conn!!, Context.BIND_AUTO_CREATE)
+                if (!ok) cont.resumeWithException(Exception("служба перевода не запустилась"))
+                cont.invokeOnCancellation { conn?.let { c -> runCatching { app.unbindService(c) } } }
+            }
+        }
 
     private suspend fun <T> await(t: com.google.android.gms.tasks.Task<T>): T? = suspendCancellableCoroutine { cont ->
         t.addOnSuccessListener { cont.resume(it) }.addOnFailureListener { cont.resumeWithException(it) }

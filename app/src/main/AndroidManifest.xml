@@ -194,6 +194,17 @@
             android:name=".ui.recorder.RecorderService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+        <!-- автозаполнение паролей (сайты в Chrome, приложения): Настройки Android → Служба автозаполнения -->
+        <service
+            android:name=".autofill.VseAutofillService"
+            android:label="Всё в одном · пароли"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data android:name="android.autofill" android:resource="@xml/autofill_service" />
+        </service>
         <!-- окно паролей/документов для клавиатуры (без истории, поверх) -->
         <activity
             android:name=".ui.vault.KbVaultActivity"

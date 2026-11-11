@@ -4,10 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.ContactsContract
-import com.goodwy.keyboard.editorInstance
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -20,21 +17,16 @@ object VsePhone {
     private var last = ""
     private val RX = Regex("(\\+?\\d[\\d ()\\-]{8,}\\d)$")
 
-    fun watch(ctx: Context) {
-        val ed by ctx.editorInstance()
-        VseIme.scope.launch {
-            ed.activeContentFlow.collectLatest { content ->
-                val before = content.textBeforeSelection.takeLast(30)
-                val m = RX.find(before.trimEnd())?.value
-                val digits = m?.filter { it.isDigit() || it == '+' }.orEmpty()
-                val ok = digits.count { it.isDigit() } in 10..13 && (digits.startsWith("+") || digits.startsWith("0"))
-                val num = if (ok) digits else ""
-                if (num == last) return@collectLatest
-                last = num
-                unknown = if (num.isEmpty()) null else withContext(Dispatchers.IO) { if (known(ctx, num)) null else num }
-                VseIme.rebuildChips(ctx)
-            }
-        }
+    /** Проверить текст перед курсором: набран номер, которого нет в контактах? true — что-то поменялось. */
+    suspend fun update(ctx: Context, before: String): Boolean {
+        val m = RX.find(before.takeLast(30).trimEnd())?.value
+        val digits = m?.filter { it.isDigit() || it == '+' }.orEmpty()
+        val ok = digits.count { it.isDigit() } in 10..13 && (digits.startsWith("+") || digits.startsWith("0"))
+        val num = if (ok) digits else ""
+        if (num == last) return false
+        last = num
+        unknown = if (num.isEmpty()) null else withContext(Dispatchers.IO) { if (known(ctx, num)) null else num }
+        return true
     }
 
     private fun known(ctx: Context, num: String): Boolean = runCatching {

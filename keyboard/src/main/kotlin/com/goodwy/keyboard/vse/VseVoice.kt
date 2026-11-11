@@ -11,6 +11,7 @@ import android.speech.SpeechRecognizer
 import androidx.core.content.ContextCompat
 import com.goodwy.keyboard.FlorisImeService
 import com.goodwy.keyboard.subtypeManager
+import kotlinx.coroutines.launch
 
 /**
  * Голосовой ввод прямо в клавиатуре: распознавание Google на телефоне (на Pixel — без интернета) с расстановкой
@@ -41,13 +42,18 @@ object VseVoice {
         listen(ctx)
     }
 
+    /** Распознавание на телефоне не знает этот язык (ошибка 12/13) — дальше онлайн-распознавание Google. */
+    private var onlineOnly = false
+
     private fun listen(ctx: Context) {
         runCatching { rec?.destroy() }
-        val r = if (android.os.Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx))
-            SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx) else SpeechRecognizer.createSpeechRecognizer(ctx)
+        val onDevice = !onlineOnly && android.os.Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx)
+        val r = if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx) else SpeechRecognizer.createSpeechRecognizer(ctx)
         rec = r
         val sm by ctx.subtypeManager()
-        val lang = runCatching { sm.activeSubtype.primaryLocale.languageTag() }.getOrDefault("ru-RU")
+        // полный код языка: «ru» → «ru-RU» (с коротким кодом распознавание отвечает «язык не поддерживается», ошибка 12)
+        val raw = runCatching { sm.activeSubtype.primaryLocale.languageTag() }.getOrDefault("ru-RU")
+        val lang = when (raw.substringBefore('-').lowercase()) { "ru" -> "ru-RU"; "uk" -> "uk-UA"; "en" -> if (raw.contains('-')) raw else "en-US"; else -> raw }
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
@@ -75,8 +81,21 @@ object VseVoice {
             }
             override fun onError(e: Int) {
                 if (listening && (e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) { listen(ctx); return }
+                // 12/13 — язык не поддерживается/не скачан на телефоне: просим скачать и сразу слушаем онлайн
+                if (onDevice && (e == 12 || e == 13)) {
+                    if (android.os.Build.VERSION.SDK_INT >= 33) runCatching { r.triggerModelDownload(i) }
+                    onlineOnly = true
+                    if (listening) { listen(ctx); return }
+                }
                 stop()
-                if (e != SpeechRecognizer.ERROR_CLIENT) VseIme.status.value = "Голос: ошибка $e"
+                val why = when (e) {
+                    SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "нет сети"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "нет доступа к микрофону"
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "распознавание занято, попробуй ещё раз"
+                    12, 13 -> "язык не поддерживается (нужны «Распознавание речи Google» и язык в его настройках)"
+                    else -> "ошибка $e"
+                }
+                if (e != SpeechRecognizer.ERROR_CLIENT) { VseIme.status.value = "Голос: $why"; VseIme.scope.launch { kotlinx.coroutines.delay(5000); if (!listening) VseIme.status.value = null } }
             }
             override fun onEvent(t: Int, p: Bundle?) {}
         })

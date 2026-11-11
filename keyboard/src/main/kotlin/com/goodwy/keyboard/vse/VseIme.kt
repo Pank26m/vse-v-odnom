@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.rounded.ShortText
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Spellcheck
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -34,16 +35,16 @@ import java.io.File
  */
 object VseIme {
     /** Действия «троеточия» — порядок как в списке. */
-    val ACTIONS = listOf("passwords", "docs", "templates", "contact", "translate", "punct")
+    val ACTIONS = listOf("passwords", "docs", "templates", "contact", "translate", "punct", "location")
 
     fun title(id: String) = when (id) {
         "passwords" -> "Пароли"; "docs" -> "Документы"; "templates" -> "Шаблоны"; "contact" -> "Контакт"
-        "translate" -> "Перевести"; "punct" -> "Проверить"; else -> id
+        "translate" -> "Перевести"; "punct" -> "Проверить"; "location" -> "Где я"; else -> id
     }
 
     fun icon(id: String): ImageVector = when (id) {
         "passwords" -> Icons.Rounded.Key; "docs" -> Icons.Rounded.Description; "templates" -> Icons.AutoMirrored.Rounded.ShortText
-        "contact" -> Icons.Rounded.Contacts; "translate" -> Icons.Rounded.Translate; else -> Icons.Rounded.Spellcheck
+        "contact" -> Icons.Rounded.Contacts; "translate" -> Icons.Rounded.Translate; "location" -> Icons.Rounded.LocationOn; else -> Icons.Rounded.Spellcheck
     }
 
     /** Подсказка над клавиатурой: текст кнопки и что делать. */
@@ -61,7 +62,12 @@ object VseIme {
     private var isPassword = false
 
     const val ACTION_COMMIT = "com.pank.vsevodnom.KBD_COMMIT"
-    private var pending: Pair<String, Long>? = null
+    /** Текст из окна паролей: (текст, когда, в какое приложение). Вставляется, только когда снова открыто то же приложение. */
+    private var pending: Triple<String, Long, String>? = null
+    /** Приложение, из которого открыли окно паролей. */
+    private var askedFrom = ""
+    /** Подсказки скрыты крестиком до следующего поля. */
+    private var dismissed = false
     private var receiver: BroadcastReceiver? = null
 
     fun attach(ctx: Context) {
@@ -69,27 +75,42 @@ object VseIme {
         receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
                 val t = i.getStringExtra("text") ?: return
-                pending = t to System.currentTimeMillis()
-                // если поле уже снова в фокусе — вставляем сразу
-                scope.launch { kotlinx.coroutines.delay(400); flushPending(c) }
+                pending = Triple(t, System.currentTimeMillis(), askedFrom)
+                // поле приложения получит фокус после закрытия окна паролей — пробуем несколько раз
+                scope.launch { repeat(10) { kotlinx.coroutines.delay(300); if (pending == null) return@launch; flushPending(c) } }
             }
         }
         ContextCompat.registerReceiver(ctx, receiver, IntentFilter(ACTION_COMMIT), ContextCompat.RECEIVER_NOT_EXPORTED)
-        VsePhone.watch(ctx)
+        VseWatch.watch(ctx)
     }
 
     fun detach(ctx: Context) { receiver?.let { runCatching { ctx.unregisterReceiver(it) } }; receiver = null }
 
-    private fun flushPending(ctx: Context) {
-        val (t, at) = pending ?: return
+    /**
+     * Вставить пароль. Раньше вставлялось сразу — пока на экране было окно паролей, и текст уходил «в пустоту»
+     * (Telegram, Instagram). Теперь — только когда поле снова того приложения, откуда просили.
+     */
+    fun flushPending(ctx: Context) {
+        val (t, at, pkg) = pending ?: return
         if (System.currentTimeMillis() - at > 120_000) { pending = null; return }
+        if (pkg.isNotEmpty() && targetPackage != pkg) return
+        if (targetPackage == ctx.packageName && pkg != ctx.packageName) return
         val ic = FlorisImeService.currentInputConnection() ?: return
         if (ic.commitText(t, 1)) pending = null
     }
 
+    /** Поле получило фокус (onStartInput): обновить приложение и вставить ждущий пароль. */
+    fun onBind(ctx: Context, pkg: String) {
+        targetPackage = pkg
+        scope.launch { kotlinx.coroutines.delay(150); flushPending(ctx) }
+    }
+
     /** Вход в поле: запоминаем приложение, ставим подсказки (код из СМС, «Пароли» в поле пароля). */
     fun onStartInput(ctx: Context, info: FlorisEditorInfo) {
+        VseWatch.leaveField(ctx)
         targetPackage = info.packageName ?: ""
+        dismissed = false
+        VseWatch.enterField(info)
         val cls = info.base.inputType and InputType.TYPE_MASK_CLASS
         val v = info.base.inputType and InputType.TYPE_MASK_VARIATION
         isPassword = (cls == InputType.TYPE_CLASS_TEXT && (v == InputType.TYPE_TEXT_VARIATION_PASSWORD || v == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
@@ -99,10 +120,17 @@ object VseIme {
     }
 
     fun rebuildChips(ctx: Context) {
+        if (dismissed) { chips.value = emptyList(); return }
         val out = ArrayList<Chip>()
         VseCodes.fresh(ctx)?.let { code -> out += Chip("Вставить код $code") { c -> commit(c, code); VseCodes.used(c) } }
+        VseWatch.calc?.let { (res, withEq) -> out += Chip("= $res") { c -> commit(c, if (withEq) res else " = $res"); VseWatch.calc = null; rebuildChips(c) } }
+        VseWatch.emails.forEach { (typed, e) -> out += Chip(e) { c ->
+            if (typed.isNotEmpty()) FlorisImeService.currentInputConnection()?.deleteSurroundingText(typed.length, 0)
+            commit(c, e); VseWatch.emails = emptyList(); rebuildChips(c)
+        } }
         if (isPassword) out += Chip("🔑 Пароли") { c -> action(c, "passwords") }
         VsePhone.unknown?.let { num -> out += Chip("Сохранить контакт $num?") { c -> VsePhone.save(c, num) } }
+        if (out.isNotEmpty()) out += Chip("✕") { c -> dismissed = true; rebuildChips(c) }
         chips.value = out
     }
 
@@ -118,6 +146,7 @@ object VseIme {
         when (id) {
             "passwords", "docs" -> {
                 // окно паролей — в основном процессе приложения: отпечаток, выбор, текст вернётся сюда
+                askedFrom = targetPackage
                 FlorisImeService.hideUi()
                 runCatching {
                     ctx.startActivity(Intent().setClassName(ctx.packageName, "com.pank.vsevodnom.ui.vault.KbVaultActivity")
@@ -127,14 +156,18 @@ object VseIme {
             }
             "templates", "contact", "translate" -> { panel.value = id; km.activeState.imeUiMode = ImeUiMode.VSE }
             "punct" -> VseText.punctuate(ctx)
+            "location" -> VseWatch.location(ctx)
         }
     }
 
     // ---------- шаблоны ответов: файл files/kbd_templates.txt (по одному на строку, переводы строк — \n) ----------
     private fun tplFile(ctx: Context) = File(ctx.applicationContext.filesDir, "kbd_templates.txt")
-    fun templates(ctx: Context): List<String> = runCatching {
-        tplFile(ctx).readLines().filter { it.isNotBlank() }.map { it.replace("\\n", "\n") }
-    }.getOrDefault(emptyList()).ifEmpty { listOf("Привет! Сейчас не могу говорить, напишу позже.", "Буду через 10 минут.", "Спасибо!", "Хорошо, договорились.") }
+    /** Примеры — только пока файла нет; удалил всё — список пустой (раньше примеры возвращались). */
+    fun templates(ctx: Context): List<String> {
+        val f = tplFile(ctx)
+        if (!f.exists()) return listOf("Привет! Сейчас не могу говорить, напишу позже.", "Буду через 10 минут.", "Спасибо!", "Хорошо, договорились.")
+        return runCatching { f.readLines().filter { it.isNotBlank() }.map { it.replace("\\n", "\n") } }.getOrDefault(emptyList())
+    }
     fun saveTemplates(ctx: Context, list: List<String>) = runCatching {
         tplFile(ctx).writeText(list.joinToString("\n") { it.replace("\n", "\\n") })
     }
