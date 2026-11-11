@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- «Всё в одном»: то, что в Inkwell задавалось сборкой (resValue). -->
+<resources>
+    <string name="floris_app_name">Клавиатура · Всё в одном</string>
+    <item name="floris_app_icon" type="mipmap">@mipmap/ic_app_icon_stable</item>
+    <item name="floris_app_icon_foreground" type="drawable">@drawable/ic_app_icon_stable_foreground</item>
+</resources>

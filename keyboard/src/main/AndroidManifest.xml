@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Клавиатура (Inkwell / FlorisBoard, Apache 2.0) внутри «Всё в одном».
+  Все её части — в отдельном процессе :ime: тяжёлые разделы приложения (карта, Telegram) её не тормозят,
+  а падение приложения не роняет клавиатуру. Без интернета и без покупок.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <queries>
+        <intent>
+            <action android:name="android.view.InputMethod"/>
+        </intent>
+        <intent>
+            <action android:name="android.service.textservice.SpellCheckerService"/>
+        </intent>
+    </queries>
+
+    <application>
+        <service
+            android:name="com.goodwy.keyboard.FlorisImeService"
+            android:label="@string/floris_app_name"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:process=":ime"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod"/>
+            </intent-filter>
+            <meta-data android:name="android.view.im" android:resource="@xml/method"/>
+        </service>
+
+        <service
+            android:name="com.goodwy.keyboard.FlorisSpellCheckerService"
+            android:label="@string/floris_app_name"
+            android:permission="android.permission.BIND_TEXT_SERVICE"
+            android:process=":ime"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.textservice.SpellCheckerService"/>
+            </intent-filter>
+            <meta-data android:name="android.view.textservice.scs" android:resource="@xml/spellchecker"/>
+        </service>
+
+        <!-- Настройки клавиатуры: в том же процессе, что и сама клавиатура (общие настройки JetPref не рассчитаны на два процесса) -->
+        <activity
+            android:name="com.goodwy.keyboard.app.FlorisAppActivity"
+            android:icon="@mipmap/floris_app_icon"
+            android:label="@string/floris_app_name"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.pank.vsevodnom.keyboard"
+            android:process=":ime"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/FlorisAppTheme.Splash"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ui" android:host="florisboard" android:pathPrefix="/" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="com.goodwy.keyboard.lib.crashutility.CrashDialogActivity"
+            android:icon="@mipmap/floris_app_icon"
+            android:label="@string/crash_dialog__title_g"
+            android:process=":ime"
+            android:theme="@style/CrashDialogTheme"/>
+
+        <activity
+            android:name="com.goodwy.keyboard.ime.clipboard.FlorisCopyToClipboardActivity"
+            android:theme="@style/FlorisAppTheme.Transparent"
+            android:process=":ime"
+            android:label="Скопировать в буфер клавиатуры"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="com.goodwy.keyboard.ime.clipboard.provider.ClipboardMediaProvider"
+            android:authorities="${applicationId}.provider.clipboard"
+            android:grantUriPermissions="true"
+            android:process=":ime"
+            android:exported="false"/>
+
+        <provider
+            android:name="com.goodwy.keyboard.lib.KbFileProvider"
+            android:authorities="${applicationId}.provider.file"
+            android:grantUriPermissions="true"
+            android:process=":ime"
+            android:exported="false">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/kb_file_paths"/>
+        </provider>
+    </application>
+</manifest>

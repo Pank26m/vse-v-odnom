@@ -151,6 +151,14 @@ class MainActivity : FragmentActivity() {
                     }
                     composable("weather") { WeatherScreen(back) }
                     composable("calc") { CalcScreen(back) }
+                    // клавиатура (Inkwell/FlorisBoard) — свои настройки в отдельном окне и процессе :ime
+                    composable("keyboard") {
+                        val c = androidx.compose.ui.platform.LocalContext.current
+                        androidx.compose.runtime.LaunchedEffect(Unit) {
+                            runCatching { c.startActivity(android.content.Intent().setClassName(c, "com.goodwy.keyboard.app.FlorisAppActivity")) }
+                            back()
+                        }
+                    }
                     composable("random") { RandomScreen(back) }
                     composable("weight?new={new}", arguments = listOf(navArgument("new") { type = NavType.IntType; defaultValue = 0 })) { WeightScreen(back, it.arguments?.getInt("new") == 1) }
                     composable("piggy") { PiggyScreen(back) }

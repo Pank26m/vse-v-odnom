@@ -18,3 +18,6 @@ dependencyResolutionManagement {
 }
 rootProject.name = "vse-v-odnom"
 include(":app")
+// клавиатура (Inkwell/FlorisBoard, Apache 2.0) — отдельный модуль
+include(":keyboard")
+include(":keyboard-strings")

@@ -82,6 +82,7 @@ val TILES = listOf(
     Tile("PDF", Icons.Rounded.PictureAsPdf, Tints.Rose, "pdf"),
     Tile("Карточки", Icons.Rounded.Style, Tints.Mint, "cards"),
     Tile("Английский", Icons.Rounded.Translate, Tints.Sky, "english"),
+    Tile("Клавиатура", Icons.Rounded.Keyboard, Tints.Lilac, "keyboard"),
 )
 
 /** Какие плитки показывать на главной — выбирает пользователь. */
