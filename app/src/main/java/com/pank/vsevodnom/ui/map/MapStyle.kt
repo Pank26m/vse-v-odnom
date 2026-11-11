@@ -8,7 +8,7 @@ import com.pank.vsevodnom.data.OnlineMaps
  * группы объектов «Объекты на карте» (опции стандартного стиля GLMap + наши: пешие/вело маршруты).
  */
 object MapStyle {
-    enum class Variant(val key: String, val title: String) { CAR("car", "На машине"), FOOT("foot", "Пешком"), BIKE("bike", "Велосипед") }
+    enum class Variant(val key: String, val title: String) { CAR("car", "Город"), FOOT("foot", "Пешком"), BIKE("bike", "Велосипед") }
 
     data class Opts(
         val variant: Variant = Variant.CAR,
@@ -55,13 +55,27 @@ object MapStyle {
         "l_water" to Group("Названия рек, озёр, морей", "droplet", 0xFF42A5F5.toInt(), "HideWaterNames"),
         "l_countries" to Group("Названия стран и областей", "world", 0xFF5C6BC0.toInt(), "HideCountries"),
         "metro" to Group("Метро: линии, станции, входы", "train", 0xFFE53935.toInt(), "HideMetro"),
+        "l_nature" to Group("Названия парков, заповедников, островов", "trees", 0xFF43A047.toInt(), "HideNature"),
+        "l_shields" to Group("Номера трасс и дорог", "road-sign", 0xFF1E88E5.toInt(), "HideShields"),
+    )
+    /**
+     * Служебное, чего нет в опциях стиля GLMap (рисуется всегда) — скрывается только нашими правилами.
+     * Ключи — в том же наборе hidden.
+     */
+    val SERVICE_GROUPS = linkedMapOf(
+        "x_car" to Group("Для машины: АЗС, зарядки, мойки, парковки, автосервисы", "gas-station", 0xFF546E7A.toInt(), ""),
+        "x_peaks" to Group("Вершины гор и холмов, перевалы", "mountain", 0xFF8D6E63.toInt(), ""),
+        "x_rest" to Group("Отдых: пикники, мангалы, смотровые, достопримечательности", "camera", 0xFF26A69A.toInt(), ""),
+        "x_power" to Group("Линии электропередач и опоры", "bolt", 0xFF9E9E9E.toInt(), ""),
+        "x_barrier" to Group("Заборы, калитки, шлагбаумы, входы", "fence", 0xFFE6A176.toInt(), ""),
     )
     /** Правила скрытия по группам: в стиль попадают только правила выключенных групп (последними — перекрывают стандартный). */
     private val HIDE_RULES = mapOf(
-        "l_districts" to "node, area { [place=suburb], [place=quarter], [place=neighbourhood], [place=city_block], [place=locality], [place=borough] { text: none; } }",
+        "l_districts" to "node, area { [place=suburb], [place=quarter], [place=neighbourhood], [place=city_block], [place=locality], [place=borough], [landuse=residential] { text: none; } }",
         "l_streets" to "line { [highway] { text: none; } }\narea { [highway=pedestrian], [highway=footway], [place=square] { text: none; } }",
         "l_water" to "node, area { [natural=water], [water], [waterway], [place=sea], [place=ocean], [place=bay], [natural=bay], [natural=strait] { text: none; } }\nline { [waterway] { text: none; } }",
         "l_countries" to "node, area { [place=country], [place=state], [place=region], [place=province] { text: none; } }",
+        "l_nature" to "node, area { [boundary=protected_area], [boundary=national_park], [leisure=nature_reserve], [leisure=park], [leisure=garden], [place=island], [place=islet] { text: none; } }",
         "metro" to "node, area { [station=subway], [railway=subway_entrance] { icon-image: none; text: none; } }\nline { [railway=subway] { width: none; dashes-width: none; } }",
     )
     /**
@@ -86,11 +100,21 @@ object MapStyle {
         "transit" to "amenity=bus_station highway=bus_stop railway=tram_stop",
         "rail" to "railway=station railway=halt building=train_station",
     )
+    /** Правила «служебных» групп и номеров трасс — отдельный уровень: если движок их не примет, остальное скрытие работает. */
+    private val EXTRA_RULES = mapOf(
+        "x_car" to poiRule("amenity=fuel amenity=charging_station amenity=car_wash amenity=parking amenity=parking_entrance amenity=car_rental amenity=car_sharing shop=car_repair shop=car shop=car_parts shop=motorcycle shop=tyres"),
+        "x_peaks" to poiRule("natural=peak natural=volcano natural=saddle mountain_pass=yes natural=hill"),
+        "x_rest" to poiRule("tourism=picnic_site leisure=picnic_table leisure=firepit amenity=bbq tourism=viewpoint tourism=attraction"),
+        "x_power" to "line { [power=line], [power=minor_line] { width: none; } }\n" + poiRule("power=tower power=pole"),
+        "x_barrier" to "area, line { [barrier] { width: none; } }\n" + "node, area { [barrier], [entrance] { icon-image: none; text: none; } }",
+        "l_shields" to "line { [highway] { shield-image: none; shield-text: none; } }",
+    )
     private fun poiRule(tags: String) = "node, area { " + tags.split(' ').joinToString(", ") { "[$it]" } + " { icon-image: none; text: none; } }"
 
     /** Правила скрытия: подписи/метро + значки скрытых групп. pois=false — без значков (запасной вариант, если стиль не разобрался). */
-    fun hideCss(hidden: Set<String>, pois: Boolean = true): String {
+    fun hideCss(hidden: Set<String>, pois: Boolean = true, extra: Boolean = true): String {
         val out = HIDE_RULES.filterKeys { it in hidden }.values.toMutableList()
+        if (extra) EXTRA_RULES.forEach { (k, r) -> if (k in hidden) out += r }
         if (pois) POI_TAGS.forEach { (k, t) -> if (k in hidden) out += poiRule(t) }
         if (pois && "shop" in hidden && "mall" in hidden) out += poiRule("shop")
         return out.joinToString("\n", postfix = "\n")

@@ -416,8 +416,8 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         MenuRow(Icons.Rounded.Home, "Сделать «Домом»") { MapPrefs.setHome(ctx, MapPrefs.Spot("Дом", t.lat, t.lon, title)); more = false; Toast.makeText(ctx, "Дом задан", Toast.LENGTH_SHORT).show() }
         MenuRow(Icons.Rounded.Work, "Сделать «Работой»") { MapPrefs.setWork(ctx, MapPrefs.Spot("Работа", t.lat, t.lon, title)); more = false; Toast.makeText(ctx, "Работа задана", Toast.LENGTH_SHORT).show() }
         MenuRow(Icons.Rounded.EventAvailable, "Запланировать посещение места", sub = "дата и время → задача в ToDo с точкой; «Начать сейчас» строит путь") { more = false; planVisit = true }
-        if (onSimilar != null && t.props["kind"] != "route" && (t.props["subclass"] != null || t.props["class"] != null))
-            MenuRow(Icons.Rounded.TravelExplore, "Похожие рядом", sub = "${t.kind.ifBlank { "такие же места" }} поблизости — на карте") { more = false; onSimilar(t) }
+        if (onSimilar != null && t.props["kind"] != "route")
+            MenuRow(Icons.Rounded.TravelExplore, "Похожие рядом", sub = "такие же места или по названию — на карте и списком") { more = false; onSimilar(t) }
         MenuRow(Icons.Rounded.Star, "В избранное маршрутов") { MapPrefs.setFavs(ctx, MapPrefs.favs(ctx) + MapPrefs.Spot(title.take(24), t.lat, t.lon, title)); more = false; Toast.makeText(ctx, "Добавлено в избранное маршрутов", Toast.LENGTH_SHORT).show() }
         MenuRow(Icons.Rounded.ContentCopy, "Копировать координаты") { copy(ctx, MapPrefs.coords(ctx, t.lat, t.lon)); more = false }
         if (t.place != null) {
@@ -815,6 +815,7 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
                 update { it.copy(visible = false) }
                 Toast.makeText(ctx, "Трек скрыт — вернуть в «Коллекциях» (глазок)", Toast.LENGTH_SHORT).show(); onClose()
             }
+            ActionChip(Icons.Rounded.DeleteOutline, "Удалить", Pal.Rose, Pal.RoseInk) { askDelete = true }
             ActionChip(Icons.Rounded.MoreHoriz, "Ещё", Pal.Lilac, Pal.LilacInk) { more = true }
         }
         if (expanded) Column(Modifier.fillMaxWidth().heightIn(max = (screenH * 0.5f).dp).verticalScroll(rememberScrollState()).background(Pal.Bg).padding(12.dp)) { TrackStatsContent(t) }
@@ -838,7 +839,6 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
             more = false; AppScope.io.launch { AppDb.get(ctx).map().track(t.id)?.let { MapArchive.track(ctx, it) } }
             Toast.makeText(ctx, "Трек в архиве", Toast.LENGTH_SHORT).show(); onClose()
         }
-        MenuRow(Icons.Rounded.DeleteOutline, "Удалить трек", tint = Pal.RoseInk) { more = false; askDelete = true }
     }
     if (plan) PlanDialog(if (trackPlan(t) != null) "Перенести" else "Запланировать", t.name, onDismiss = { plan = false }) { at ->
         plan = false
@@ -896,7 +896,7 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
         }
         SectionLabel("Вид карты")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Triple("car", "Авто", Icons.Rounded.DirectionsCar), Triple("foot", "Пешком", Icons.AutoMirrored.Rounded.DirectionsWalk), Triple("bike", "Вело", Icons.AutoMirrored.Rounded.DirectionsBike)).forEach { (k, n, ic) ->
+            listOf(Triple("car", "Город", Icons.Rounded.LocationCity), Triple("foot", "Пешком", Icons.AutoMirrored.Rounded.DirectionsWalk), Triple("bike", "Вело", Icons.AutoMirrored.Rounded.DirectionsBike)).forEach { (k, n, ic) ->
                 val sel = !useOnline && variant == k
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (sel) Pal.Sky else Pal.Card).border(if (sel) 2.dp else 0.dp, Pal.SkyInk, RoundedCornerShape(16.dp))
                     .clickable { variant = k; useOnline = false; p.edit().putString("variant", k).putBoolean("use_online", false).apply(); onChanged() }.padding(vertical = 14.dp),

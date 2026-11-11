@@ -27,10 +27,21 @@ class AlertWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
 
     override suspend fun doWork(): Result {
         if (!AlertsApi.notifyEnabled(applicationContext)) return Result.success()
-        val st = runCatching { AlertsApi.fetch(applicationContext) }.getOrElse { return Result.retry() }
+        // включена служба «без задержки» — она и проверяет; здесь только запасной путь, если служба не запущена
+        if (AlertLiveService.running) return Result.success()
+        return if (check(applicationContext)) Result.success() else Result.retry()
+    }
+}
+
+/** Проверка тревоги в Киеве и уведомление при смене уровня (общая для фоновой задачи и службы «без задержки»). false — нет связи. */
+internal suspend fun check(ctx: Context): Boolean = AlertCheck(ctx).run()
+
+private class AlertCheck(val applicationContext: Context) {
+    suspend fun run(): Boolean {
+        val st = runCatching { AlertsApi.fetch(applicationContext) }.getOrElse { return false }
         val prefs = applicationContext.getSharedPreferences("alerts", Context.MODE_PRIVATE)
         // уровень по alert_level: 2 — красная, 1 — жёлтая (угроза), 0 — нет
-        val now = com.pank.vsevodnom.ui.home.kyivAlertLevel(st) ?: return Result.success()
+        val now = com.pank.vsevodnom.ui.home.kyivAlertLevel(st) ?: return true
         val was = prefs.getString("lvl2_kyiv", null)?.toIntOrNull() ?: 0
         if (now != was) {
             prefs.edit().putString("lvl2_kyiv", now.toString()).apply()
@@ -41,7 +52,7 @@ class AlertWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
                 else -> notify(100, "Отбой: Киев", "Тревога закончилась")
             }
         }
-        return Result.success()
+        return true
     }
 
     private fun notify(id: Int, title: String, text: String) {

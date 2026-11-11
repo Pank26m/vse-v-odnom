@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -117,6 +118,7 @@ fun HomeScreen(open: (String) -> Unit) {
     var refreshTick by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
     var lifeOpen by remember { mutableStateOf(false) }
+    var reviewTop by remember { mutableStateOf(false) }   // оценка жизни в шапке → «Мои успехи»
     var taskList by remember { mutableStateOf<String?>(null) }
     val head = rememberHeaderData(refreshTick)
 
@@ -155,7 +157,7 @@ fun HomeScreen(open: (String) -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WeatherPill(weather) { open("weather") }
-                        LifeBadge(com.pank.vsevodnom.ui.health.LifeScore.total(head.parts), { lifeOpen = true })
+                        LifeBadge(com.pank.vsevodnom.ui.health.LifeScore.total(head.parts), { reviewTop = true })
                         PowerBadge(Power.state, { open("power") })
                         AlertBadge(kyivAlertLevel(AlertCache.state), { open("alerts") })
                     }
@@ -181,7 +183,13 @@ fun HomeScreen(open: (String) -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(if (notes.isEmpty()) 68.dp else 36.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // ряд плиток — во всю ширину экрана (выходит за отступы шапки), отступ 16 dp — только внутри прокрутки:
+                // раньше плитки обрезались невидимой рамкой в 16 dp от края
+                LazyRow(Modifier.layout { m, c ->
+                    val pad = 16.dp.roundToPx()
+                    val pl = m.measure(c.copy(minWidth = c.maxWidth + 2 * pad, maxWidth = c.maxWidth + 2 * pad))
+                    layout(c.maxWidth, pl.height) { pl.place(-pad, 0) }
+                }, contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(tiles.mapNotNull { r -> TILES.firstOrNull { it.route == r } }) { t -> BigTile(t) { open(t.route!!) } }
                     item {
                         Column(Modifier.size(104.dp).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.5f)).clickable { tilesEdit = true }.padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -210,6 +218,7 @@ fun HomeScreen(open: (String) -> Unit) {
                 }
             })
     }
+    if (reviewTop) DayReviewScreen { reviewTop = false }
     if (lifeOpen) LifeDialog(head.parts, head.hs, onOpenHealth = { lifeOpen = false; open("health") }) { lifeOpen = false }
     if (tilesEdit) {
         val sel = remember { mutableStateListOf(*tiles.toTypedArray()) }
@@ -251,23 +260,56 @@ private fun dayNotes(alarms: List<com.pank.vsevodnom.data.AlarmEntity>, tasks: L
     if (urgent > 0) out += Triple(Icons.Rounded.PriorityHigh, "$urgent " + plural(urgent, "неотложное дело", "неотложных дела", "неотложных дел"), "tasks:urgent")
     if (overdue > 0) out += Triple(Icons.Rounded.EventBusy, "У вас $overdue " + plural(overdue, "просроченная задача", "просроченные задачи", "просроченных задач"), "tasks:overdue")
     if (urgent == 0 && todayN > 0) out += Triple(Icons.Rounded.Checklist, "$todayN " + plural(todayN, "дело", "дела", "дел") + " на сегодня", "tasks:today")
-    w?.days?.firstOrNull { it.date == today }?.let { d ->
-        val txt = when {
-            d.code in 95..99 -> "Сегодня гроза"
-            d.code in listOf(65, 81, 82) || (d.precipSum ?: 0.0) >= 15 -> "Сегодня сильный ливень"
-            d.code in 71..77 || d.code in 85..86 -> "Сегодня снег"
-            d.code in listOf(56, 57, 66, 67) -> "Гололёд: ледяной дождь"
-            d.rainProb >= 60 -> "Возьми зонт — дождь ${d.rainProb}%"
-            d.tMax >= 30 -> "Жара до +${d.tMax.toInt()}°"
-            d.tMin <= -10 -> "Мороз до ${d.tMin.toInt()}°"
-            (d.windMax ?: 0.0) >= 14 -> "Сильный ветер до ${(d.windMax ?: 0.0).toInt()} м/с"
-            d.code in listOf(45, 48) -> "Туман"
-            else -> null
-        }
-        txt?.let { out += Triple(Icons.Rounded.Umbrella, it, "weather") }
-    }
+    w?.let { weatherTip(it, now) }?.let { out += Triple(Icons.Rounded.Umbrella, it, "weather") }
     bdays.filter { it.day == today.dayOfMonth && it.month == today.monthValue }.take(2).forEach { out += Triple(Icons.Rounded.Cake, "День рождения: ${it.name}", "todo") }
     return out
+}
+
+/**
+ * Совет по погоде с учётом времени: смотрим только оставшиеся часы сегодня (в 22:00 «возьми зонт» на прошедший дождь
+ * больше не пишется), а с 20:00 — уже завтрашний день (7–21 ч): «завтра дождь с 9:00 — приготовь зонт».
+ */
+internal fun weatherTip(w: WeatherData, now: java.time.LocalDateTime): String? {
+    val today = now.toLocalDate()
+    val all = (w.allHours.ifEmpty { w.hours })
+    fun hh(h: com.pank.vsevodnom.data.HourW) = "%d:00".format(h.time.hour)
+    fun wet(h: com.pank.vsevodnom.data.HourW) = h.rainProb >= 60 || h.code in 51..67 || h.code in 80..82 || h.code in 95..99
+    fun snow(h: com.pank.vsevodnom.data.HourW) = h.code in 71..77 || h.code in 85..86
+    if (now.hour >= 20) {
+        val tm = today.plusDays(1)
+        val hrs = all.filter { it.time.toLocalDate() == tm && it.time.hour in 7..21 }
+        val d = w.days.firstOrNull { it.date == tm }
+        val firstWet = hrs.firstOrNull { wet(it) }
+        return when {
+            hrs.any { it.code in 95..99 } -> "Завтра гроза с ${hh(hrs.first { it.code in 95..99 })}"
+            hrs.any { snow(it) } -> "Завтра снег с ${hh(hrs.first { snow(it) })} — одевайся теплее"
+            hrs.any { it.code in listOf(56, 57, 66, 67) } -> "Завтра гололёд — ледяной дождь"
+            firstWet != null -> "Завтра дождь с ${hh(firstWet)} — приготовь зонт"
+            d != null && d.tMax >= 30 -> "Завтра жара до +${d.tMax.toInt()}°"
+            d != null && d.tMin <= -10 -> "Завтра мороз до ${d.tMin.toInt()}°"
+            d != null && (d.windMax ?: 0.0) >= 14 -> "Завтра сильный ветер до ${(d.windMax ?: 0.0).toInt()} м/с"
+            else -> null
+        }
+    }
+    val rest = all.filter { it.time.toLocalDate() == today && !it.time.isBefore(now.withMinute(0).withSecond(0).withNano(0)) }
+    if (rest.isEmpty()) return null
+    val wetNow = wet(rest.first())
+    val firstWet = rest.firstOrNull { wet(it) }
+    val lastWet = if (wetNow) rest.takeWhile { wet(it) }.lastOrNull() else null
+    val d = w.days.firstOrNull { it.date == today }
+    return when {
+        rest.any { it.code in 95..99 } -> rest.first { it.code in 95..99 }.let { if (it == rest.first()) "Сейчас гроза" else "Гроза с ${hh(it)}" }
+        rest.any { it.code in listOf(56, 57, 66, 67) } -> "Гололёд: ледяной дождь"
+        rest.any { snow(it) } -> rest.first { snow(it) }.let { if (it == rest.first()) "Идёт снег" else "Снег с ${hh(it)}" }
+        wetNow && lastWet != null && lastWet != rest.last() -> "Дождь до ${lastWet.time.plusHours(1).hour}:00 — зонт не помешает"
+        wetNow -> "Дождь до вечера — зонт обязательно"
+        firstWet != null -> "Дождь с ${hh(firstWet)} — возьми зонт"
+        rest.maxOf { it.temp } >= 30 -> "Жара до +${rest.maxOf { it.temp }.toInt()}°"
+        rest.minOf { it.temp } <= -10 -> "Мороз до ${rest.minOf { it.temp }.toInt()}°"
+        now.hour < 18 && d != null && (d.windMax ?: 0.0) >= 14 -> "Сильный ветер до ${(d.windMax ?: 0.0).toInt()} м/с"
+        rest.first().code in listOf(45, 48) -> "Туман"
+        else -> null
+    }
 }
 
 private fun plural(n: Int, one: String, few: String, many: String): String {

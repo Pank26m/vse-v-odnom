@@ -78,6 +78,7 @@ class MainActivity : FragmentActivity() {
         com.pank.vsevodnom.data.Net.init(this)
         AlarmScheduler.rescheduleAll(this)
         AlertWorker.schedule(this)
+        com.pank.vsevodnom.alarm.AlertLiveService.sync(this)
         com.pank.vsevodnom.data.AppScope.io.launch { com.pank.vsevodnom.data.HabitReminders.rescheduleAll(this@MainActivity) }
         pendingRoute.value = routeFrom(intent)
 

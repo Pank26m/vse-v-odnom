@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -128,6 +129,9 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var simIdx by remember { mutableIntStateOf(0) }
     var simSearch by remember { mutableStateOf<Pair<String, Int>?>(null) }   // идёт поиск похожих: что ищем, сколько нашлось
     var simJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var simAsk by remember { mutableStateOf<SimAsk?>(null) }      // окно «что и как искать рядом»
+    var simList by remember { mutableStateOf(false) }             // список найденного
+    var simFrom by remember { mutableStateOf<GeoPt?>(null) }      // откуда искали — от этой точки расстояния в списке
     LaunchedEffect(MapUi.reselect) { if (MapUi.reselect > 0) { clean = false; frameMenu = false } }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -649,6 +653,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     IconButton({ go(simIdx - 1) }) { Icon(Icons.Rounded.ChevronLeft, "Назад", tint = Pal.Ink) }
                     Text("$title рядом · ${simIdx + 1} из ${hits.size}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     IconButton({ go(simIdx + 1) }) { Icon(Icons.Rounded.ChevronRight, "Дальше", tint = Pal.Ink) }
+                    IconButton({ simList = true }) { Icon(Icons.AutoMirrored.Rounded.List, "Списком", tint = Pal.Ink) }
                     IconButton({ similar = null; eng.setSimilar(emptyList()) }) { Icon(Icons.Rounded.Close, "Закрыть похожие", tint = Pal.Muted) }
                 }
             } }
@@ -659,20 +664,12 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     onSimilar = { tt ->
                         simJob?.cancel()
                         simJob = scope.launch {
-                            // вид места: из свойств объекта карты, иначе — ближайший объект OSM (для меток и мест из поиска Google)
-                            val kv = tt.props["osm_key"]?.let { k -> tt.props["osm_value"]?.let { k to it } }
+                            // вид места: из свойств объекта карты, иначе — ближайший объект OSM (для меток и мест из поиска Google).
+                            // «здание» видом места не считаем (в 0.33 Бювет искался как building=yes — «yes», 0 найдено)
+                            val kv = tt.props["osm_key"]?.takeIf { it != "building" }?.let { k -> tt.props["osm_value"]?.let { k to it } }
                                 ?: GlFind.KEYS.firstOrNull { tt.props[it] != null && it != "building" }?.let { it to tt.props[it]!! }
-                                ?: GlFind.kindNear(tt.lat, tt.lon, tt.place?.name ?: tt.name)
-                            if (kv == null) { Toast.makeText(ctx, if (!Net.online) "Не знаю, что это за место — без интернета похожие не найти" else "Не удалось понять, что это за место", Toast.LENGTH_LONG).show(); return@launch }
-                            val what = MapNames.label(kv.first, kv.second)
-                            simSearch = what to 0
-                            val hits = try {
-                                GlFind.similar(ctx, kv.first, kv.second, tt.lat, tt.lon) { n -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { simSearch = what to n } }
-                            } finally { simSearch = null }
-                            if (hits.isEmpty()) { Toast.makeText(ctx, if (!Net.online && !GlFind.offlineAvailable()) "Без интернета похожие ищутся по скачанной карте (Загрузка карт)" else "Похожих рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
-                            eng.setSimilar(hits)
-                            similar = MapNames.label(kv.first, kv.second) to hits; simIdx = 0
-                            val h = hits[0]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon, props = GlFind.propsOf(h.kind)))
+                                ?: GlFind.kindNear(tt.lat, tt.lon, tt.place?.name ?: tt.name)?.takeIf { it.first != "building" }
+                            simAsk = SimAsk(tt, kv)
                         }
                     },
                     onWhole = { tt -> scope.launch {
@@ -683,6 +680,33 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             }
             selTrack?.let { t -> TrackCard(t, folders, onClose = { closeAll() }, onFit = { fit(Osm.decode(t.points)) }, color = trackColor, onColor = { trackColor = it },
                 onEditRoute = { tr -> closeAll(); RoutePlan.load(tr) }, onGo = { tr -> goTrack(tr) }) }
+        }
+    }
+
+    simAsk?.let { ask ->
+        SimilarDialog(ask, onDismiss = { simAsk = null }) { p ->
+            simAsk = null
+            val t0 = ask.target
+            simFrom = GeoPt(t0.lat, t0.lon, 0)
+            simJob?.cancel()
+            simJob = scope.launch {
+                val what = p.name?.let { "«$it»" } ?: ask.kv?.let { MapNames.label(it.first, it.second).lowercase() } ?: "места"
+                simSearch = what to 0
+                val hits = try {
+                    GlFind.similar(ctx, ask.kv?.first.orEmpty(), ask.kv?.second.orEmpty(), t0.lat, t0.lon, limit = p.count, maxKm = p.km.toDouble(),
+                        timeoutMs = p.seconds * 1000L, byName = p.name) { n -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { simSearch = what to n } }
+                } finally { simSearch = null }
+                if (hits.isEmpty()) { Toast.makeText(ctx, if (!Net.online && !GlFind.offlineAvailable()) "Без интернета ищется по скачанной карте (Загрузка карт)" else "Рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
+                eng.setSimilar(hits)
+                similar = what.replaceFirstChar { it.uppercase() } to hits; simIdx = 0
+                val h = hits[0]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon, props = GlFind.propsOf(h.kind)))
+            }
+        }
+    }
+    if (simList) similar?.let { (title, hits) ->
+        val from = simFrom ?: myLoc ?: GeoPt(hits.first().lat, hits.first().lon, 0)
+        SimilarList(title, hits, from, onDismiss = { simList = false }) { i ->
+            simList = false; simIdx = i; val h = hits[i]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon, props = GlFind.propsOf(h.kind)))
         }
     }
 

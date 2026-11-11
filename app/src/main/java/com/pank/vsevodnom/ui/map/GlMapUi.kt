@@ -87,6 +87,7 @@ internal fun GlDownloadsPage(onBack: () -> Unit) {
     @Suppress("UNUSED_VARIABLE") val v = GlMap.version
     var open by remember { mutableStateOf<GLMapInfo?>(null) }            // открытая страна-коллекция (области)
     var continent by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
     val all = remember(v) { if (GlMap.ready) runCatching { mapsOf(GLMapManager.GetMaps()) }.getOrDefault(emptyList()) else emptyList() }
     LaunchedEffect(Unit) { if (GlMap.ready && all.isEmpty()) GlMap.refreshList() }
     val title = open?.let { GlMap.name(it) } ?: continent ?: "Загрузка карт"
@@ -112,16 +113,18 @@ internal fun GlDownloadsPage(onBack: () -> Unit) {
                     if (have.isEmpty()) Text("Пока ничего. Без скачанных карт GLMap показывает карту онлайн; для работы без сети, офлайн-маршрутов и 3D-рельефа скачай страну или область.",
                         style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                     have.forEach { GlMapRow(it) }
-                    SectionLabel("Все карты мира")
+                    SectionLabel("Все страны")
                     when {
                         all.isEmpty() && GlMap.listLoading -> Text("Загружаю список карт…", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
                         all.isEmpty() -> {
                             Text(GlMap.listError?.let { "Список карт не загрузился: $it" } ?: "Список карт пуст.", style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk)
                             PillButton("Обновить список", { GlMap.refreshList() }, Modifier.fillMaxWidth(), bg = Pal.Card, fg = Pal.Ink)
                         }
-                        else -> (CONTINENTS.map { it.first } + "Другое").forEach { c ->
-                            val n = all.count { continentOf(it) == c }
-                            if (n > 0) MenuRow(Icons.Rounded.Public, c, sub = "$n " + plural(n, "страна", "страны", "стран")) { continent = c }
+                        else -> {
+                            // просто список стран (без континентов); нажатие — раскрыть, что и сколько качать
+                            AppTextField(query, { query = it }, "Найти страну")
+                            val q = query.trim().lowercase()
+                            all.sortedBy { GlMap.name(it).lowercase() }.filter { q.isEmpty() || GlMap.name(it).lowercase().contains(q) }.forEach { MapListRow(it) }
                         }
                     }
                 }
@@ -133,6 +136,33 @@ internal fun GlDownloadsPage(onBack: () -> Unit) {
 private fun plural(n: Int, one: String, few: String, many: String): String {
     val m10 = n % 10; val m100 = n % 100
     return if (m10 == 1 && m100 != 11) one else if (m10 in 2..4 && m100 !in 12..14) few else many
+}
+
+/** Строка страны/области: название и что скачано; нажатие раскрывает загрузку (у страны с областями — список областей). */
+@Composable
+private fun MapListRow(m: GLMapInfo, depth: Int = 0) {
+    @Suppress("UNUSED_VARIABLE") val v = GlMap.version
+    var open by remember(m.mapID) { mutableStateOf(false) }
+    val coll = m.isCollection
+    val have = if (coll) leaves(m).count { onDevice(it) } else if (onDevice(m)) 1 else 0
+    Column(Modifier.fillMaxWidth().padding(start = (depth * 14).dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable { open = !open }.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(GlMap.name(m), style = MaterialTheme.typography.titleSmall)
+                val sub = buildList {
+                    if (coll) runCatching { m.maps?.size ?: 0 }.getOrDefault(0).let { n -> add("$n " + plural(n, "область", "области", "областей")) }
+                    else GlMap.sizeOnServer(m, GLMapInfo.DataSetMask.MAP).takeIf { it > 0 }?.let { add("карта ${it / 1_048_576} МБ") }
+                    if (have > 0) add(if (coll) "скачано $have" else "скачано")
+                }.joinToString(" · ")
+                if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = if (have > 0) Pal.MintInk else Pal.Muted)
+            }
+            Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = Pal.Muted)
+        }
+        if (open) Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (coll) mapsOf(m.maps).sortedBy { GlMap.name(it).lowercase() }.forEach { MapListRow(it, depth + 1) } else GlMapRow(m)
+        }
+    }
 }
 
 @Composable

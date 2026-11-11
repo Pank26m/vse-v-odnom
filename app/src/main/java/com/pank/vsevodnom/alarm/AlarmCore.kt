@@ -166,6 +166,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         AlarmScheduler.rescheduleAll(ctx)
         com.pank.vsevodnom.data.AppScope.io.launch { com.pank.vsevodnom.data.HabitReminders.rescheduleAll(ctx) }
+        runCatching { AlertLiveService.sync(ctx) }
     }
 }
 

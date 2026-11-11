@@ -63,9 +63,21 @@ internal fun scoreColor(v: Double): Color {
 
 /** Образ жизни 0.0–10.0 — круг с цифрой; цвет от красного к зелёному. Нажатие — подробности. */
 @Composable
-internal fun LifeBadge(score: Double?, onClick: () -> Unit, size: Dp = 40.dp) {
-    Box(Modifier.size(size).clip(CircleShape).background(score?.let { scoreColor(it) } ?: BadgeGrey).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(score?.let { "%.1f".format(it).replace('.', ',') } ?: "—", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+internal fun LifeBadge(score: Double?, onClick: () -> Unit, size: Dp = 44.dp) {
+    // как «Оценка здоровья»: белый круг, дуга-спидометр заполняется с анимацией, цвет дуги и цифры — от красного к зелёному
+    val a = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(score) { a.animateTo(((score ?: 0.0) / 10).toFloat(), androidx.compose.animation.core.tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    Box(Modifier.size(size).clip(CircleShape).background(Color.White).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(3.dp)) {
+            val sw = this.size.minDimension * 0.12f
+            val tl = androidx.compose.ui.geometry.Offset(sw / 2, sw / 2)
+            val sz = androidx.compose.ui.geometry.Size(this.size.width - sw, this.size.height - sw)
+            val st = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawArc(Pal.Line, 135f, 270f, false, topLeft = tl, size = sz, style = st)
+            if (score != null) drawArc(scoreColor(a.value * 10.0), 135f, 270f * a.value, false, topLeft = tl, size = sz, style = st)
+        }
+        Text(score?.let { "%.1f".format(a.value * 10.0).replace('.', ',') } ?: "—", color = score?.let { scoreColor(it) } ?: Pal.Muted,
+            fontSize = (size.value * 0.27f).sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 

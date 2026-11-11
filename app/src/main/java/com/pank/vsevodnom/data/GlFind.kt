@@ -99,37 +99,71 @@ object GlFind {
      * onProgress — сколько уже найдено (для плашки «поиск… найдено 7»).
      */
     suspend fun similar(ctx: Context, key: String, value: String, lat: Double, lon: Double, limit: Int = 30,
+                        maxKm: Double = 30.0, timeoutMs: Long = 60_000, byName: String? = null,
                         onProgress: suspend (Int) -> Unit = {}): List<GeoHit> = withContext(Dispatchers.IO) {
-        if (key.isBlank() || value.isBlank()) return@withContext emptyList()
+        val nameQ = byName?.trim()?.takeIf { it.length >= 2 }
+        if (nameQ == null && (key.isBlank() || value.isBlank())) return@withContext emptyList()
         val here = GeoPt(lat, lon, 0)
-        val label = MapNames.label(key, value)
+        val label = if (nameQ != null) nameQ else MapNames.label(key, value)
         val found = LinkedHashMap<String, GeoHit>()
         fun d(h: GeoHit) = Osm.distance(here, GeoPt(h.lat, h.lon, 0))
-        fun add(l: List<GeoHit>) { for (h in l) if (d(h) > 15) found.putIfAbsent("${h.name}|${(h.lat * 3000).toInt()}|${(h.lon * 3000).toInt()}", h) }
+        fun add(l: List<GeoHit>) { for (h in l) if (d(h) > 15 && d(h) <= maxKm * 1000) found.putIfAbsent("${h.name}|${(h.lat * 3000).toInt()}|${(h.lon * 3000).toInt()}", h) }
         fun best() = found.values.sortedBy { d(it) }.take(limit)
-        kotlinx.coroutines.withTimeoutOrNull(60_000) {
-            for (km in listOf(1.0, 3.0, 10.0, 30.0)) {
-                add(offlineSimilar(ctx, key, value, lat, lon, km, label)); onProgress(found.size)
+        val radii = (listOf(1.0, 3.0, 10.0, 30.0, 60.0).filter { it < maxKm } + maxKm).distinct()
+        // по названию — регистронезависимо; знаки кроме букв/цифр — «любой символ» (чтобы не ломать регулярку Overpass)
+        val nameRx = nameQ?.map { c -> if (c.isLetterOrDigit() || c == ' ') c else '.' }?.joinToString("")
+        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            for (km in radii) {
+                add(if (nameQ != null) offlineByName(ctx, nameQ, lat, lon, km) else offlineSimilar(ctx, key, value, lat, lon, km, label)); onProgress(found.size)
                 if (Net.online) runCatching {
                     kotlinx.coroutines.runInterruptible {
-                        val els = overpass("[out:json][timeout:25];nwr(around:${(km * 1000).toInt()},$lat,$lon)[\"${esc(key)}\"=\"${esc(value)}\"];out tags center 300;")
+                        val filter = if (nameRx != null) "[\"name\"~\"${esc(nameRx)}\",i]" else "[\"${esc(key)}\"=\"${esc(value)}\"]"
+                        val els = overpass("[out:json][timeout:25];nwr(around:${(km * 1000).toInt()},$lat,$lon)$filter;out tags center ${maxOf(300, limit * 4)};")
                         add((0 until els.length()).mapNotNull { i ->
                             val e = els.getJSONObject(i)
                             val la = e.optDouble("lat").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lat") ?: return@mapNotNull null
                             val lo = e.optDouble("lon").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lon") ?: return@mapNotNull null
                             val t = e.optJSONObject("tags")
-                            val nm = t?.optString("name:ru")?.ifBlank { null } ?: t?.optString("name")?.ifBlank { null } ?: label
+                            val kind = t?.let { tt -> KEYS.firstOrNull { tt.has(it) }?.let { k -> MapNames.label(k, tt.getString(k)) } } ?: label
+                            val nm = t?.optString("name:ru")?.ifBlank { null } ?: t?.optString("name")?.ifBlank { null } ?: kind
                             val addr = listOfNotNull(t?.optString("addr:street")?.ifBlank { null }, t?.optString("addr:housenumber")?.ifBlank { null }).joinToString(", ")
-                            GeoHit(nm, listOf(label, addr).filter { it.isNotBlank() }.distinct().joinToString(" · "), la, lo, "$key:$value")
+                            val kv = t?.let { tt -> KEYS.firstOrNull { tt.has(it) }?.let { k -> "$k:${tt.getString(k)}" } } ?: "$key:$value"
+                            GeoHit(nm, listOf(kind, addr).filter { it.isNotBlank() }.distinct().joinToString(" · "), la, lo, kv)
                         })
                     }
                 }
                 onProgress(found.size)
-                // круг дал 30 и больше — дальние уже не ближе: стоп
+                // круг дал нужное число — дальние уже не ближе: стоп
                 if (found.values.count { d(it) <= km * 1000 } >= limit) break
             }
         }
         best()
+    }
+
+    /** Без интернета, по названию: GLSearch по скачанной карте. */
+    private fun offlineByName(ctx: Context, q: String, lat: Double, lon: Double, km: Double): List<GeoHit> {
+        if (!GlMap.init(ctx) || !offlineAvailable()) return emptyList()
+        val dLat = km / 111.0; val dLon = km / (111.0 * Math.cos(Math.toRadians(lat)))
+        val bb = GLMapBBox().apply { addPoint(MapPoint.CreateFromGeoCoordinates(lat - dLat, lon - dLon)); addPoint(MapPoint.CreateFromGeoCoordinates(lat + dLat, lon + dLon)) }
+        return runCatching {
+            val s = GLSearch()
+            try {
+                s.setLocaleSettings(GlMap.locale); s.setCenter(MapPoint.CreateFromGeoCoordinates(lat, lon)); s.setBBox(bb); s.setLimit(200)
+                runCatching { GLMapManager.VectorTilesAtBBox(bb)?.let { s.setTiles(it) } }
+                s.addFilter(GLSearchFilter.createWithQuery(q))
+                val l = s.search() ?: return@runCatching emptyList()
+                val r = l.toArray().mapNotNull { o ->
+                    runCatching {
+                        val g = MapGeoPoint(o.point())
+                        val nm = runCatching { o.localizedName(GlMap.locale)?.use { it.string } }.getOrNull()?.ifBlank { null } ?: o.tag("name") ?: return@runCatching null
+                        val k = KEYS.firstOrNull { o.tag(it) != null }
+                        GeoHit(nm, k?.let { MapNames.label(it, o.tag(it)!!) } ?: "", g.lat, g.lon, k?.let { "$it:${o.tag(it)}" } ?: "")
+                    }.getOrNull().also { runCatching { o.dispose() } }
+                }
+                runCatching { l.dispose() }
+                r
+            } finally { runCatching { s.dispose() } }
+        }.getOrDefault(emptyList())
     }
 
     /** Без интернета: поиск по скачанным картам GLMap; имена — из тегов, без GetDisplayInfo. */

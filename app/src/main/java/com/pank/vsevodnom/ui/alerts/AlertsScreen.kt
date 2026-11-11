@@ -150,6 +150,7 @@ fun AlertsScreen(onBack: () -> Unit) {
     if (settings) {
         var token by remember { mutableStateOf(AlertsApi.token(ctx)) }
         var notify by remember { mutableStateOf(AlertsApi.notifyEnabled(ctx)) }
+        var live by remember { mutableStateOf(com.pank.vsevodnom.alarm.AlertLiveService.enabled(ctx)) }
         AlertDialog(
             onDismissRequest = { settings = false },
             title = { Text("Тревоги") },
@@ -159,6 +160,17 @@ fun AlertsScreen(onBack: () -> Unit) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Уведомлять о тревоге в Киеве и области", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                             Switch(notify, { notify = it })
+                        }
+                    }
+                    item {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Без задержки", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                Switch(live, { live = it }, enabled = notify)
+                            }
+                            Text("Обычно Android проверяет не чаще раза в 15 минут. «Без задержки» — проверка каждые 30 секунд, " +
+                                "в шторке висит тихое уведомление «Слежу за тревогой». Батарею расходует заметнее.",
+                                style = MaterialTheme.typography.bodySmall, color = com.pank.vsevodnom.ui.theme.Pal.Muted)
                         }
                     }
                     item { Text("Как получить токен (бесплатно, один раз):", style = MaterialTheme.typography.titleSmall) }
@@ -178,6 +190,7 @@ fun AlertsScreen(onBack: () -> Unit) {
                 TextButton({
                     AlertsApi.setToken(ctx, token); AlertsApi.setNotify(ctx, notify)
                     AlertWorker.schedule(ctx)
+                    com.pank.vsevodnom.alarm.AlertLiveService.setEnabled(ctx, live)
                     settings = false; tick++
                 }) { Text("Сохранить") }
             },

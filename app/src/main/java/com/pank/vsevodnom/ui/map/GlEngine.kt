@@ -71,7 +71,9 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     private fun styleOptions(o: MapStyle.Opts): Map<String, String> {
         val m = HashMap<String, String>()
         when (o.variant) {
-            MapStyle.Variant.CAR -> { m["Style"] = "City"; m["SubStyle"] = "Car" }
+            // «Город»: без SubStyle=Car — с ним стиль не рисует тротуары и тропинки пунктиром (как в 0.33);
+            // так же выглядит Guru в городе
+            MapStyle.Variant.CAR -> { m["Style"] = "City" }
             MapStyle.Variant.FOOT -> { m["Style"] = "Outdoor"; m["SubStyle"] = "Hike" }
             MapStyle.Variant.BIKE -> { m["Style"] = "Outdoor"; m["SubStyle"] = "Bike" }
         }
@@ -90,7 +92,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         val raw = asset("DefaultStyle.bundle/$name") ?: asset(name) ?: return null
         if (name == "relations.mapcss") return patchRelations(String(raw)).toByteArray()
         // правила скрытия — прямо в конец Style.mapcss (последние правила перекрывают стандартные), без отдельного @import
-        if (name == "Style.mapcss" && level > 0) return (String(raw) + "\n\n// скрытое пользователем\n" + MapStyle.hideCss(curHidden, pois = level > 1)).toByteArray()
+        if (name == "Style.mapcss" && level > 0) return (String(raw) + "\n\n// скрытое пользователем\n" + MapStyle.hideCss(curHidden, pois = level > 1, extra = level > 2)).toByteArray()
         return raw
     }
 
@@ -107,6 +109,9 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val end = if (sel >= 0) s.indexOf("@endif", sel) else -1
             if (start >= 0 && end > sel) s = s.substring(0, start + "@if SubStyle != Car".length) + "\n" + s.substring(end)
         }
+        // линии метро в стиле нарисованы только внутри «@if Style == Outdoor» — в «Городе» метро не было никогда.
+        // Если метро не скрыто и вид не Outdoor — дописываем тот же блок отдельно.
+        if (level > 2 && "metro" !in hid && MapStyle.opts(ctx).variant == MapStyle.Variant.CAR) s += "\n" + METRO_CITY
         for ((cond, key) in listOf("@if SubStyle == Hike" to "hike", "@if SubStyle == Bike" to "bike")) {
             if (key !in hid) continue
             val i = s.indexOf(cond); if (i < 0) continue
@@ -117,8 +122,8 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     }
 
 
-    /** Наши правила скрытия: 2 — подписи, метро и значки; 1 — без значков; 0 — чистый стандартный стиль. */
-    private var level = 2
+    /** Наши правила скрытия: 3 — всё (+ служебные группы, метро в «Городе»); 2 — подписи, метро и значки; 1 — без значков; 0 — чистый стиль. */
+    private var level = 3
     private var curHidden: Set<String> = emptySet()
     private var relief: ReliefTileSource? = null
     private var extraOverlays: List<GLMapTileSource> = emptyList()
@@ -167,7 +172,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         // свои правила скрытия — только для выключенных групп; если стиль с ними не разобрался — проще (карта важнее)
         curHidden = o.hidden
         var ok = false
-        for (lv in 2 downTo 0) { level = lv; if (parse()) { ok = true; break } }
+        for (lv in 3 downTo 0) { level = lv; if (parse()) { ok = true; break } }
         styleReport = if (ok && errs.isEmpty()) "стиль разобран полностью" else if (ok) "стиль разобран упрощённо (уровень $level): ${errs.joinToString("; ")}" else "стиль НЕ разобран: ${errs.joinToString("; ")}"
         if (errs.isNotEmpty()) main.post { runCatching { android.widget.Toast.makeText(ctx, "Карта: " + styleReport, android.widget.Toast.LENGTH_LONG).show() } }
         // онлайн-карта (OSM, спутник, .ms) вместо векторной; первый слой — основа, остальные — поверх
@@ -304,6 +309,9 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             l.onLongTap(g.lat, g.lon)
         }
         override fun onPitch(angle: Float) { super.onPitch(angle); l.onGesture() }
+        // поворот двумя пальцами начинается раньше (по умолчанию GLMap ждёт 10°, в 3D это ощущалось как «не крутится»)
+        override fun getRotationGate(): Float = 4f
+        override fun getRotationResetGate(): Float = 8f
     }
     @SuppressLint("ClickableViewAccessibility")
     /** Тащим точку пальцем: карта не двигается, события идут в onDrag/onDragEnd. */
@@ -433,7 +441,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         // короткий линейный доворот, без разгона.
         if (follow == 2 && course == null && !down) runCatching {
             if (android.os.SystemClock.uptimeMillis() >= animUntil) r.mapAngle = heading
-            else r.animate { a -> a.setDuration(0.05); a.setTransition(GLMapAnimation.Linear); r.mapAngle = heading }
+            else r.animate { a -> a.setDuration(0.0); a.setTransition(GLMapAnimation.Linear); r.mapAngle = heading }
         }
     }
 
@@ -526,11 +534,18 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     private fun a(c: Int, alpha: Int) = (c and 0xFFFFFF) or (alpha shl 24)
 
     /** Для нажатий: точки треков в координатах карты (прорежены). */
-    private var trackHits: List<Pair<Long, Array<MapPoint>>> = emptyList()
-    private var selHits: List<Pair<Long, Array<MapPoint>>> = emptyList()
+    private class LineHit(val id: Long, val pts: Array<MapPoint>, val minX: Double, val minY: Double, val maxX: Double, val maxY: Double)
+    private var trackHits: List<LineHit> = emptyList()
+    private var selHits: List<LineHit> = emptyList()
+    /**
+     * Точки для попадания пальцем. Раньше трек прореживался до 400 точек — на длинном треке хорды между ними уходили
+     * в сторону от нарисованной линии дальше допуска, и на крупном масштабе в трек было не попасть. Теперь до 5000 точек
+     * + рамка трека (быстро отбрасываем далёкие).
+     */
     private fun hitPts(items: List<OvLine>) = items.filter { it.pts.size >= 2 }.map { t ->
-        val step = maxOf(1, t.pts.size / 400)
-        t.id to (t.pts.indices step step).map { mp(t.pts[it].lat, t.pts[it].lon) }.plus(mp(t.pts.last().lat, t.pts.last().lon)).toTypedArray()
+        val step = maxOf(1, t.pts.size / 5000)
+        val arr = (t.pts.indices step step).map { mp(t.pts[it].lat, t.pts[it].lon) }.plus(mp(t.pts.last().lat, t.pts.last().lon)).toTypedArray()
+        LineHit(t.id, arr, arr.minOf { it.x }, arr.minOf { it.y }, arr.maxOf { it.x }, arr.maxOf { it.y })
     }
 
     override fun setTracks(items: List<OvLine>) {
@@ -670,8 +685,17 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         }
         placeHits.mapNotNull { pl -> near(pl.lat, pl.lon)?.let { it to pl } }.minByOrNull { it.first }?.let { return UserHit.PlaceHit(it.second.id) }
         val tp = runCatching { r.convertDisplayToInternal(x.toDouble(), y.toDouble()) }.getOrNull() ?: return null
-        val tol = runCatching { r.convertDisplayDeltaToInternal((18 * density).toDouble(), 0.0).let { hypot(it.x, it.y) } }.getOrNull() ?: return null
-        fun onLine(hits: List<Pair<Long, Array<MapPoint>>>): Long? = hits.firstOrNull { (_, ps) -> (1 until ps.size).any { i -> segDist(tp, ps[i - 1], ps[i]) < tol } }?.first
+        val tol = runCatching { r.convertDisplayDeltaToInternal((22 * density).toDouble(), 0.0).let { hypot(it.x, it.y) } }.getOrNull() ?: return null
+        // ближайший трек в пределах допуска (а не первый попавшийся)
+        fun onLine(hits: List<LineHit>): Long? {
+            var best: Long? = null; var bd = tol
+            for (h in hits) {
+                if (tp.x < h.minX - tol || tp.x > h.maxX + tol || tp.y < h.minY - tol || tp.y > h.maxY + tol) continue
+                val ps = h.pts
+                for (i in 1 until ps.size) { val d = segDist(tp, ps[i - 1], ps[i]); if (d < bd) { bd = d; best = h.id } }
+            }
+            return best
+        }
         (onLine(selHits) ?: onLine(trackHits))?.let { return UserHit.TrackHit(it) }
         simHits.mapNotNull { h -> near(h.lat, h.lon)?.let { it to h } }.minByOrNull { it.first }?.let { (_, h) -> return UserHit.SimHit(h.lat, h.lon, h.name, h.address) }
         return null
@@ -723,7 +747,10 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val path = props["highway"] in PATHS
             // улица/тропа — только когда она видна на карте (крупный масштаб) и у неё есть имя; безымянный проезд — ничего
             // (раньше подставлялась ближайшая названная дорога, а булавка стояла на безымянной)
-            if (o.lineCount > 0 && props["highway"] != null && (zoom < STREET_ZOOM || own == null)) return@use null
+            // имя улицы — свой localizedName или тег name (в 0.33 проверялся только localizedName, а у дорог он часто пустой —
+            // нажатие на улицу ничего не открывало)
+            val named = own != null || props["name_tag"] != null || props["name:uk"] != null || props["name:ru"] != null
+            if (o.lineCount > 0 && props["highway"] != null && (zoom < STREET_ZOOM || !named)) return@use null
             if (o.lineCount > 0 && !path && props["highway"] != null) return@use FeatureHit(MapTarget(name ?: "Улица", Streets.kind(props["highway"]), lat, lon,
                 props = props + ("kind" to "street")), o.lines().ifEmpty { null })
             if (path) {
@@ -778,6 +805,21 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     }
 
     companion object {
+        /** Линии метро для вида «Город» — копия блока из relations.mapcss (там он только для Outdoor). */
+        private const val METRO_CITY = """
+relation[type=route] {
+    relation[route=subway] {
+        line|z11- {
+            per-relation: true;
+            layer: 6;
+            width: eval( zlinear(11, 2pt,2pt,2.5pt,3pt,3.5pt ));
+            offset: eval(relationSlot() * zlinear(11, 1.5pt,1.5pt,2pt,2.5pt,3pt ));
+            color: eval(mapColor(@route_palette, relationTag('colour'), @color_icon_transport));
+            linecap: round;
+        }
+    }
+}
+"""
         /** Итог последней сборки стиля — для «Для разработчиков» (и тоста, если что-то не разобралось). */
         @Volatile var styleReport: String = "—"
         const val LABEL_ZOOM = 13.5

@@ -60,6 +60,7 @@
         </intent>
     </queries>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:allowBackup="true"
@@ -250,6 +251,12 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".alarm.AlertLiveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Air raid alert monitoring for the user's city" />
+        </service>
         <receiver android:name=".alarm.AlarmReceiver" android:exported="false" />
         <receiver android:name=".alarm.WeightReminderReceiver" android:exported="false" />
         <receiver android:name=".alarm.BootReceiver" android:exported="true">

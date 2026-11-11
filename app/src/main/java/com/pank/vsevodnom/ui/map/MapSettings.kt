@@ -247,6 +247,8 @@ private fun FilterPage(onChanged: () -> Unit, onBack: () -> Unit) {
         group(MapStyle.ROUTE_GROUPS)
         Text("Подписи и метро", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
         group(MapStyle.LABEL_GROUPS)
+        Text("Служебное", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+        group(MapStyle.SERVICE_GROUPS)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton("Показать всё", { save(emptySet()) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
             PillButton("Как было", { save(MapStyle.DEFAULT_HIDDEN) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
