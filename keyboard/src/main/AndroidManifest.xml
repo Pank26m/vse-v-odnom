@@ -50,7 +50,6 @@
             android:icon="@mipmap/floris_app_icon"
             android:label="@string/floris_app_name"
             android:launchMode="singleTask"
-            android:taskAffinity="com.pank.vsevodnom.keyboard"
             android:process=":ime"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/FlorisAppTheme.Splash"

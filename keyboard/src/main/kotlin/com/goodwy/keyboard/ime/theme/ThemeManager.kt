@@ -168,6 +168,30 @@ class ThemeManager(context: Context) {
                 prefs.theme.dayThemeId.get()
             }
             ThemeMode.FOLLOW_TIME -> {
+                if (isDayNow()) prefs.theme.dayThemeId.get() else prefs.theme.nightThemeId.get()
+            }
+        }
+    }
+
+    /** «По времени»: день — с dayStartMin до nightStartMin (через полночь тоже работает). */
+    fun isDayNow(): Boolean {
+        val now = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+        val d = prefs.theme.dayStartMin.get(); val n = prefs.theme.nightStartMin.get()
+        return if (d <= n) now in d until n else now >= d || now < n
+    }
+
+    private var lastDay: Boolean? = null
+    /** Вызывается при каждом показе клавиатуры: если в режиме «по времени» сменилось время суток — сменить тему. */
+    fun checkTimeTheme() {
+        if (prefs.theme.mode.get() != ThemeMode.FOLLOW_TIME) { lastDay = null; return }
+        val d = isDayNow()
+        if (d != lastDay) { lastDay = d; updateActiveTheme() }
+    }
+
+    @Suppress("unused")
+    private fun unusedOldFollowTime(): ExtensionComponentName {
+        return when (prefs.theme.mode.get()) {
+            else -> {
                 //if (AndroidVersion.ATLEAST_API26_O) {
                 //    val current = LocalTime.now()
                 //    val sunrise = prefs.theme.sunriseTime.get()

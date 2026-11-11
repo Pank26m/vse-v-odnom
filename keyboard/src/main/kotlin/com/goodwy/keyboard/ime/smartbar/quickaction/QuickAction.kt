@@ -60,6 +60,15 @@ sealed class QuickAction {
         }
     }
 
+    /** Всё в одном: свои действия (пароли, документы, шаблоны, контакт, перевод, пунктуация). */
+    @Serializable
+    @SerialName("vse")
+    data class Vse(val id: String) : QuickAction() {
+        override fun onPointerUp(context: Context) {
+            com.goodwy.keyboard.vse.VseIme.action(context, id)
+        }
+    }
+
     @Serializable
     @SerialName("insert_text")
     data class InsertText(val data: String) : QuickAction() {
@@ -107,6 +116,7 @@ fun QuickAction.computeDisplayName(evaluator: ComputingEvaluator): String {
             else -> R.string.general__invalid_fatal
         })
         is QuickAction.InsertText -> data
+        is QuickAction.Vse -> com.goodwy.keyboard.vse.VseIme.title(id)
     }
 }
 
@@ -143,5 +153,6 @@ fun QuickAction.computeTooltip(evaluator: ComputingEvaluator): String {
             else -> R.string.general__invalid_fatal
         })
         is QuickAction.InsertText -> "Insert text '$data'"
+        is QuickAction.Vse -> com.goodwy.keyboard.vse.VseIme.title(id)
     }
 }

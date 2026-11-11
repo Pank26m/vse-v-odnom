@@ -18,6 +18,11 @@ package com.goodwy.keyboard.app.settings.clipboard
 
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.goodwy.keyboard.clipboardManager
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -123,6 +128,34 @@ fun ClipboardScreen() = FlorisScreen {
                 title = stringRes(R.string.pref__clipboard__clear_primary_clip_deletes_last_item__label),
                 summary = stringRes(R.string.pref__clipboard__clear_primary_clip_deletes_last_item__summary),
                 enabledIf = { prefs.clipboard.historyEnabled isEqualTo true },
+            )
+        }
+        // Всё в одном: кэш буфера — сколько записей и места, удалить всё или всё, кроме 50 последних
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        val cm by ctx.clipboardManager()
+        var tick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val st = androidx.compose.runtime.remember(tick) { runCatching { cm.stats() }.getOrDefault(0 to 0L) }
+        var ask by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+        PreferenceGroupCard(title = "Кэш буфера обмена") {
+            androidx.compose.material3.Text(
+                "Записей: ${st.first} · картинки и видео: ${"%.1f".format(st.second / 1_048_576.0)} МБ. Закреплённые не удаляются.",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            androidx.compose.foundation.layout.Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                androidx.compose.material3.TextButton({ ask = "all" }) { androidx.compose.material3.Text("Удалить всё") }
+                androidx.compose.material3.TextButton({ ask = "keep" }) { androidx.compose.material3.Text("Удалить, кроме 50 последних") }
+            }
+        }
+        ask?.let { a ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { ask = null },
+                title = { androidx.compose.material3.Text(if (a == "all") "Удалить весь буфер?" else "Оставить только 50 последних?") },
+                confirmButton = { androidx.compose.material3.TextButton({
+                    if (a == "all") cm.clearHistory() else cm.keepLast(50)
+                    ask = null
+                    kotlinx.coroutines.MainScope().launch { kotlinx.coroutines.delay(600); tick++ }
+                }) { androidx.compose.material3.Text("Удалить") } },
+                dismissButton = { androidx.compose.material3.TextButton({ ask = null }) { androidx.compose.material3.Text("Отмена") } },
             )
         }
         Spacer(modifier = Modifier.size(82.dp))

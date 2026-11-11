@@ -81,4 +81,6 @@ dependencies {
     implementation("dev.patrickgold.jetpref:jetpref-datastore-model:0.2.0-beta03")
     implementation("dev.patrickgold.jetpref:jetpref-datastore-ui:0.2.0-beta03")
     implementation("dev.patrickgold.jetpref:jetpref-material-ui:0.2.0-beta03")
+    // перевод на телефоне (Google ML Kit, бесплатно; словари ~30 МБ качаются при первом переводе)
+    implementation("com.google.mlkit:translate:17.0.3")
 }

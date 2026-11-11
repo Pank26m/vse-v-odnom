@@ -119,12 +119,27 @@ fun ThemeScreen() = FlorisScreen {
                 entries = enumDisplayEntriesOf(ThemeMode::class),
             )
             if (themeMode == ThemeMode.FOLLOW_TIME) {
-                FlorisInfoCard(
-                    modifier = Modifier.padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
-                    text = """
-                The theme mode "Follow time" is not available in this beta release.
-            """.trimIndent(),
-                    corners = 6.dp
+                // «По времени» (Всё в одном): с какого часа дневная тема и с какого — ночная
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val dayMin by prefs.theme.dayStartMin.observeAsState()
+                val nightMin by prefs.theme.nightStartMin.observeAsState()
+                fun hm(m: Int) = "%02d:%02d".format(m / 60, m % 60)
+                fun pick(cur: Int, set: (Int) -> Unit) {
+                    android.app.TimePickerDialog(ctx, { _, h, mi -> set(h * 60 + mi); themeManager.updateActiveTheme() }, cur / 60, cur % 60, true).show()
+                }
+                PreferenceRow(
+                    icon = Icons.Default.LightMode,
+                    title = "Дневная тема с",
+                    value = hm(dayMin),
+                    onClick = { pick(dayMin) { prefs.theme.dayStartMin.set(it) } },
+                    showEndIcon = false,
+                )
+                PreferenceRow(
+                    icon = Icons.Default.DarkMode,
+                    title = "Ночная тема с",
+                    value = hm(nightMin),
+                    onClick = { pick(nightMin) { prefs.theme.nightStartMin.set(it) } },
+                    showEndIcon = false,
                 )
             }
             DividerRow()

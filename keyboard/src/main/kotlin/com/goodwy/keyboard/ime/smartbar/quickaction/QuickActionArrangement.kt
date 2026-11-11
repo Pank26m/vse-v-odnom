@@ -36,6 +36,7 @@ private val QuickActionJsonConfig = Json(DefaultJsonConfig) {
         polymorphic(QuickAction::class) {
             subclass(QuickAction.InsertKey::class, QuickAction.InsertKey.serializer())
             subclass(QuickAction.InsertText::class, QuickAction.InsertText.serializer())
+            subclass(QuickAction.Vse::class, QuickAction.Vse.serializer())
             defaultDeserializer { QuickAction.InsertKey.serializer() }
         }
     }
@@ -54,7 +55,7 @@ data class QuickActionArrangement(
     companion object {
         val Default = QuickActionArrangement(
             stickyAction = QuickAction.InsertKey(TextKeyData.VOICE_INPUT),
-            dynamicActions = listOf(
+            dynamicActions = com.goodwy.keyboard.vse.VseIme.ACTIONS.map { QuickAction.Vse(it) } + listOf(
                 QuickAction.InsertKey(TextKeyData.UNDO),
                 QuickAction.InsertKey(TextKeyData.REDO),
                 QuickAction.InsertKey(TextKeyData.SETTINGS),
@@ -84,7 +85,10 @@ data class QuickActionArrangement(
         }
 
         override fun deserialize(value: String): QuickActionArrangement {
-            return QuickActionJsonConfig.decodeFromString(value)
+            // Всё в одном: в сохранённой раскладке (в т. ч. из копии Inkwell) новых действий нет — добавляем их в начало
+            val arr = QuickActionJsonConfig.decodeFromString<QuickActionArrangement>(value)
+            val missing = com.goodwy.keyboard.vse.VseIme.ACTIONS.map { QuickAction.Vse(it) }.filter { !arr.contains(it) }
+            return if (missing.isEmpty()) arr else arr.copy(dynamicActions = missing + arr.dynamicActions)
         }
     }
 }

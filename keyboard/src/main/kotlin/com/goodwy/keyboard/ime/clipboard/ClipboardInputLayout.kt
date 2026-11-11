@@ -61,6 +61,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -243,7 +244,11 @@ fun ClipboardInputLayout(
                 val bitmap = remember(id) {
                     runCatching {
                         check(file.exists()) { "Unable to resolve image at ${file.absolutePath}" }
-                        val rawBitmap = BitmapFactory.decodeFile(file.absolutePath)
+                        // уменьшенная копия (~400 px), а не полный кадр: полноразмерные фото тормозили буфер
+                        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(file.absolutePath, o)
+                        var smp = 1; while (o.outWidth / (smp * 2) >= 400) smp *= 2
+                        val rawBitmap = BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = smp })
                         checkNotNull(rawBitmap) { "Unable to decode image at ${file.absolutePath}" }
                         rawBitmap.asImageBitmap()
                     }
@@ -277,7 +282,8 @@ fun ClipboardInputLayout(
                             dataRetriever.setDataSource(file.absolutePath)
                             val width = dataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
                             val height = dataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                            ThumbnailUtils.createVideoThumbnail(file, Size(width!!.toInt(), height!!.toInt()), null)
+                            val w = width!!.toInt(); val h = height!!.toInt(); val k = (400f / maxOf(w, 1)).coerceAtMost(1f)
+                            ThumbnailUtils.createVideoThumbnail(file, Size(maxOf(1, (w * k).toInt()), maxOf(1, (h * k).toInt())), null)
                         } else {
                             @Suppress("DEPRECATION")
                             ThumbnailUtils.createVideoThumbnail(file.absolutePath, MediaStore.Video.Thumbnails.MINI_KIND)
@@ -360,27 +366,38 @@ fun ClipboardInputLayout(
                         }
                     }
                 }
-                if (history.recent.isNotEmpty()) {
+                // Всё в одном: история бесконечная, но показываем по 50 — раньше рисовались все записи сразу и буфер тормозил
+                var shown by remember { mutableIntStateOf(50) }
+                val recentShown = history.recent.take(shown)
+                val otherShown = history.other.take((shown - history.recent.size).coerceAtLeast(0))
+                if (recentShown.isNotEmpty()) {
                     ClipCategoryTitle(
                         text = stringRes(R.string.clipboard__group_recent),
                         style = itemStyle,
                     )
                     FlorisStaggeredVerticalGrid(maxColumnWidth = ItemWidth) {
-                        for (item in history.recent) {
+                        for (item in recentShown) {
                             ClipItemView(item, itemStyle, contentScrollInsteadOfClip = false)
                         }
                     }
                 }
-                if (history.other.isNotEmpty()) {
+                if (otherShown.isNotEmpty()) {
                     ClipCategoryTitle(
                         text = stringRes(R.string.clipboard__group_other),
                         style = itemStyle,
                     )
                     FlorisStaggeredVerticalGrid(maxColumnWidth = ItemWidth) {
-                        for (item in history.other) {
+                        for (item in otherShown) {
                             ClipItemView(item, itemStyle, contentScrollInsteadOfClip = false)
                         }
                     }
+                }
+                val left = history.recent.size + history.other.size - shown
+                if (left > 0) {
+                    androidx.compose.material3.TextButton(
+                        onClick = { shown += 50 },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Ещё ${minOf(50, left)} (осталось $left)", color = itemStyle.foreground.solidColor(context)) }
                 }
             }
             if (popupItem != null) {

@@ -239,7 +239,7 @@ private fun SmartbarMainRow(modifier: Modifier = Modifier) {
                 if (shouldShowInlineSuggestionsUi) {
                     InlineSuggestionsUi(inlineSuggestions)
                 } else {
-                    CandidatesRow()
+                    com.goodwy.keyboard.vse.VseCandidatesOr { CandidatesRow() }
                 }
             }
             androidx.compose.animation.AnimatedVisibility(
@@ -352,7 +352,7 @@ private fun SmartbarMainRow(modifier: Modifier = Modifier) {
                 if (shouldShowInlineSuggestionsUi) {
                     InlineSuggestionsUi(inlineSuggestions)
                 } else {
-                    CandidatesRow()
+                    com.goodwy.keyboard.vse.VseCandidatesOr { CandidatesRow() }
                 }
             }
 

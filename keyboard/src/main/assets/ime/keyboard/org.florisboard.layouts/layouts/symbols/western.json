@@ -2,7 +2,7 @@
   [
     { "code":   64, "label": "@" },
     { "code":   35, "label": "#", "popup": {
-      "main": { "code": 8470, "label": "№" }
+      "main": { "code":   38, "label": "&" }
     } },
     { "code": -801, "label": "currency_slot_1", "popup": {
       "main": { "code": -802, "label": "currency_slot_2" },
@@ -19,7 +19,7 @@
         { "code": 8453, "label": "℅" }
       ]
     } },
-    { "code":   38, "label": "&" },
+    { "code": 8470, "label": "№" },
     { "code":   45, "label": "-", "popup": {
       "main": { "code":   95, "label": "_" },
       "relevant": [

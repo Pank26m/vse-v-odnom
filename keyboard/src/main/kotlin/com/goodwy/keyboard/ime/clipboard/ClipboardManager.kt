@@ -291,11 +291,28 @@ class ClipboardManager(
      */
     fun clearHistory() {
         ioScope.launch {
-            for (item in history().all) {
+            // закреплённые не трогаем (в Inkwell здесь удалялись и их файлы)
+            for (item in history().all.filter { !it.isPinned }) {
                 item.close(appContext)
             }
             clipHistoryDao?.deleteAllUnpinned()
         }
+    }
+
+    /** Всё в одном: удалить всё (кроме закреплённых), оставив [n] последних. */
+    fun keepLast(n: Int) {
+        ioScope.launch {
+            val del = history().all.filter { !it.isPinned }.sortedByDescending { it.creationTimestampMs }.drop(n)
+            for (item in del) item.close(appContext)
+            if (del.isNotEmpty()) clipHistoryDao?.delete(del)
+        }
+    }
+
+    /** Сколько записей в буфере и сколько места занимают сохранённые картинки/видео (байт). */
+    fun stats(): Pair<Int, Long> {
+        val dir = java.io.File(appContext.noBackupFilesDir, "clipboard_files")
+        val bytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        return history().all.size to bytes
     }
 
     /**

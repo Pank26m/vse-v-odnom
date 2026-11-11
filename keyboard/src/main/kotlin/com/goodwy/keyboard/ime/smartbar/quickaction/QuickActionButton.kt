@@ -216,6 +216,14 @@ fun QuickActionButton(
                             fontSize = 16.sp,
                         )
                     }
+
+                    is QuickAction.Vse -> {
+                        Icon(
+                            imageVector = com.goodwy.keyboard.vse.VseIme.icon(action.id),
+                            contentDescription = null,
+                            tint = fgColor,
+                        )
+                    }
                 }
             }
 

@@ -194,6 +194,13 @@
             android:name=".ui.recorder.RecorderService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+        <!-- окно паролей/документов для клавиатуры (без истории, поверх) -->
+        <activity
+            android:name=".ui.vault.KbVaultActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.App" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

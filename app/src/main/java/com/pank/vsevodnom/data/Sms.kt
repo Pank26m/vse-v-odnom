@@ -156,6 +156,8 @@ class SmsReceiver : BroadcastReceiver() {
         val name = SmsRepo.contactName(ctx, address)
         val spam = SmsRepo.isSpam(ctx, address, body, name != null)
         val code = SmsRepo.extractCode(body, fromContact = name != null)
+        // клавиатура покажет кнопку «Вставить код» (5 минут)
+        if (code != null && !spam) com.goodwy.keyboard.vse.VseCodes.put(ctx, code)
         val ask = code == null && !spam && SmsRepo.shouldAsk(ctx, address, name != null)
         val open = PendingIntent.getActivity(ctx, address.hashCode(), Intent(ctx, MainActivity::class.java).putExtra("route", "sms"),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

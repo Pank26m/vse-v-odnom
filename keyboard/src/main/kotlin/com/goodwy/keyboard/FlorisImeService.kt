@@ -276,6 +276,7 @@ class FlorisImeService : LifecycleInputMethodService() {
         super.onCreate()
         FlorisImeServiceReference = WeakReference(this)
         WindowCompat.setDecorFitsSystemWindows(window.window!!, false)
+        com.goodwy.keyboard.vse.VseIme.attach(this)
         subtypeManager.activeSubtypeFlow.collectLatestIn(lifecycleScope) { subtype ->
             val config = Configuration(resources.configuration)
             config.setLocale(subtype.primaryLocale.base)
@@ -319,6 +320,8 @@ class FlorisImeService : LifecycleInputMethodService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        com.goodwy.keyboard.vse.VseIme.detach(this)
+        com.goodwy.keyboard.vse.VseVoice.stop()
         FlorisImeServiceReference = WeakReference(null)
         inputWindowView = null
     }
@@ -332,6 +335,7 @@ class FlorisImeService : LifecycleInputMethodService() {
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        runCatching { themeManager.checkTimeTheme() }
         flogInfo { "restarting=$restarting info=${info?.debugSummarize()}" }
         super.onStartInputView(info, restarting)
         if (info == null) return
@@ -341,6 +345,9 @@ class FlorisImeService : LifecycleInputMethodService() {
             activeState.isSelectionMode = editorInfo.initialSelection.isSelectionMode
             editorInstance.handleStartInputView(editorInfo, isRestart = restarting)
         }
+        keyboardManager.refreshEvaluators()
+        com.goodwy.keyboard.vse.VseIme.onStartInput(this, editorInfo)
+        if (!restarting && com.goodwy.keyboard.vse.VseVoice.listening) com.goodwy.keyboard.vse.VseVoice.stop()
     }
 
     override fun onUpdateSelection(
@@ -361,6 +368,7 @@ class FlorisImeService : LifecycleInputMethodService() {
                 composing = EditorRange.normalized(candidatesStart, candidatesEnd),
             )
         }
+        keyboardManager.refreshEvaluators()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -627,6 +635,7 @@ class FlorisImeService : LifecycleInputMethodService() {
                                 ImeUiMode.TEXT -> TextInputLayout()
                                 ImeUiMode.MEDIA -> MediaInputLayout(bottomPanelMode = bottomPanelMode)
                                 ImeUiMode.CLIPBOARD -> ClipboardInputLayout()
+                                ImeUiMode.VSE -> com.goodwy.keyboard.vse.VsePanel()
                             }
                             if (bottomPanelMode) BottomPanel()
                         }

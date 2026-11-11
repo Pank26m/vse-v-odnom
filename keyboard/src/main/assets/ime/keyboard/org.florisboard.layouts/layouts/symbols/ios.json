@@ -62,8 +62,8 @@
         { "code": -803, "label": "currency_slot_3" }
       ]
     } },
-    { "code":   38, "label": "&", "popup": {
-      "main": { "code":   38, "label": "&" },
+    { "code": 8470, "label": "№", "popup": {
+      "main": { "code": 8470, "label": "№" },
       "relevant": [
         { "code":  167, "label": "§" }
       ]
@@ -116,7 +116,7 @@
         { "code": 8730, "label": "√" },
         { "code":  215, "label": "×" },
         { "code":  247, "label": "÷" },
-        { "code": 8470, "label": "№" }
+        { "code":   38, "label": "&" }
       ]
     } },
     { "code":  169, "label": "©", "popup": {

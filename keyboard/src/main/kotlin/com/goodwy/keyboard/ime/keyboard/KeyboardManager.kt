@@ -184,6 +184,13 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
         }
     }
 
+    /**
+     * Пересчитать доступность кнопок (Копировать, Выделить всё…). Вызывается и снаружи — при входе в новое поле и смене
+     * выделения: состояние клавиатуры могло не измениться (StateFlow не шлёт одинаковое), и кнопки оставались серыми,
+     * пока что-то другое (например, ⋮) не «пинало» пересчёт — баг из Inkwell.
+     */
+    fun refreshEvaluators() { updateActiveEvaluators() }
+
     private fun updateActiveEvaluators(action: () -> Unit = { }) = scope.launch {
         activeEvaluatorGuard.withLock {
             action()
@@ -757,7 +764,8 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
             KeyCode.IME_UI_MODE_TEXT -> activeState.imeUiMode = ImeUiMode.TEXT
             KeyCode.IME_UI_MODE_MEDIA -> activeState.imeUiMode = ImeUiMode.MEDIA
             KeyCode.IME_UI_MODE_CLIPBOARD -> activeState.imeUiMode = ImeUiMode.CLIPBOARD
-            KeyCode.VOICE_INPUT -> FlorisImeService.switchToVoiceInputMethod()
+            // Всё в одном: свой голосовой ввод (распознавание Google на телефоне), без переключения на другую клавиатуру
+            KeyCode.VOICE_INPUT -> com.goodwy.keyboard.vse.VseVoice.toggle(appContext)
             KeyCode.KANA_SWITCHER -> handleKanaSwitch()
             KeyCode.KANA_HIRA -> handleKanaHira()
             KeyCode.KANA_KATA -> handleKanaKata()

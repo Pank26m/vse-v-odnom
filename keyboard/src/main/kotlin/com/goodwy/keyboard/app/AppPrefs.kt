@@ -130,9 +130,10 @@ class AppPrefs : PreferenceModel("florisboard-app-prefs") {
             key = "clipboard__auto_clean_sensitive_after",
             default = 20,
         )
+        // история буфера бесконечная (показ — по 50); новый ключ, чтобы не перебивало старое значение из копии Inkwell
         val limitHistorySize = boolean(
-            key = "clipboard__limit_history_size",
-            default = true,
+            key = "clipboard__limit_history_size_vse",
+            default = false,
         )
         val maxHistorySize = int(
             key = "clipboard__max_history_size",
@@ -244,9 +245,10 @@ class AppPrefs : PreferenceModel("florisboard-app-prefs") {
             key = "emoji__history_recent_update_strategy",
             default = EmojiHistory.UpdateStrategy.AUTO_SORT_PREPEND,
         )
+        // недавние эмодзи — вдвое больше (было 90); новый ключ, чтобы старое значение из копии Inkwell не перебивало
         val historyRecentMaxSize = int(
-            key = "emoji__history_recent_max_size",
-            default = 90,
+            key = "emoji__history_recent_max_size_vse",
+            default = 180,
         )
         val suggestionEnabled = boolean(
             key = "emoji__suggestion_enabled",
@@ -778,6 +780,15 @@ class AppPrefs : PreferenceModel("florisboard-app-prefs") {
             key = "theme__night_theme_id",
             default = extCoreTheme("ios_night"),
             serializer = ExtensionComponentName.Serializer,
+        )
+        // «По времени»: с какой минуты суток дневная тема и с какой — ночная (Всё в одном)
+        val dayStartMin = int(
+            key = "theme__day_start_min",
+            default = 7 * 60,
+        )
+        val nightStartMin = int(
+            key = "theme__night_start_min",
+            default = 21 * 60,
         )
         //val sunriseTime = localTime(
         //    key = "theme__sunrise_time",
