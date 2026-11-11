@@ -73,7 +73,7 @@ object GlFind {
     private fun http(url: String, body: String): String {
         val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
         c.setRequestProperty("User-Agent", "VseVOdnom/0.29 (personal Android app)")
-        c.connectTimeout = 10_000; c.readTimeout = 25_000; c.requestMethod = "POST"; c.doOutput = true
+        c.connectTimeout = 8_000; c.readTimeout = 30_000; c.requestMethod = "POST"; c.doOutput = true
         c.outputStream.use { it.write(body.toByteArray()) }
         return c.inputStream.bufferedReader().use { it.readText() }
     }
@@ -93,34 +93,43 @@ object GlFind {
     }
 
     /**
-     * «Похожие рядом»: тот же тег (ключ=значение) в 3 км, если мало — в 10 км; само место не показываем, ближние первыми.
-     * С интернетом — Overpass (OpenStreetMap, все объекты, включая лавочки и урны), без — по скачанной карте GLMap.
+     * «Похожие рядом»: тот же тег (ключ=значение) — 30 ближайших по прямой, а не всё в радиусе. Ищем кругами
+     * 1 → 3 → 10 → 30 км, пока не наберётся 30; на каждом круге — сначала скачанная карта GLMap (быстро, без сети),
+     * потом Overpass (OpenStreetMap, там и лавочки, и площадки). Не дольше минуты — что нашлось, то и показываем.
+     * onProgress — сколько уже найдено (для плашки «поиск… найдено 7»).
      */
-    suspend fun similar(ctx: Context, key: String, value: String, lat: Double, lon: Double, limit: Int = 30): List<GeoHit> = withContext(Dispatchers.IO) {
+    suspend fun similar(ctx: Context, key: String, value: String, lat: Double, lon: Double, limit: Int = 30,
+                        onProgress: suspend (Int) -> Unit = {}): List<GeoHit> = withContext(Dispatchers.IO) {
         if (key.isBlank() || value.isBlank()) return@withContext emptyList()
         val here = GeoPt(lat, lon, 0)
         val label = MapNames.label(key, value)
-        fun tidy(l: List<GeoHit>, km: Double) = l.filter { Osm.distance(here, GeoPt(it.lat, it.lon, 0)).let { d -> d > 15 && d < km * 1000 } }
-            .sortedBy { Osm.distance(here, GeoPt(it.lat, it.lon, 0)) }
-            .distinctBy { "${it.name}|${(it.lat * 3000).toInt()}|${(it.lon * 3000).toInt()}" }
-        var out = emptyList<GeoHit>()
-        for (km in listOf(3.0, 10.0)) {
-            val online = if (Net.online) runCatching {
-                val els = overpass("[out:json][timeout:20];nwr(around:${(km * 1000).toInt()},$lat,$lon)[\"${esc(key)}\"=\"${esc(value)}\"];out tags center 150;")
-                (0 until els.length()).mapNotNull { i ->
-                    val e = els.getJSONObject(i)
-                    val la = e.optDouble("lat").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lat") ?: return@mapNotNull null
-                    val lo = e.optDouble("lon").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lon") ?: return@mapNotNull null
-                    val t = e.optJSONObject("tags")
-                    val nm = t?.optString("name:ru")?.ifBlank { null } ?: t?.optString("name")?.ifBlank { null } ?: label
-                    val addr = listOfNotNull(t?.optString("addr:street")?.ifBlank { null }, t?.optString("addr:housenumber")?.ifBlank { null }).joinToString(", ")
-                    GeoHit(nm, listOf(label, addr).filter { it.isNotBlank() }.distinct().joinToString(" · "), la, lo, "$key:$value")
+        val found = LinkedHashMap<String, GeoHit>()
+        fun d(h: GeoHit) = Osm.distance(here, GeoPt(h.lat, h.lon, 0))
+        fun add(l: List<GeoHit>) { for (h in l) if (d(h) > 15) found.putIfAbsent("${h.name}|${(h.lat * 3000).toInt()}|${(h.lon * 3000).toInt()}", h) }
+        fun best() = found.values.sortedBy { d(it) }.take(limit)
+        kotlinx.coroutines.withTimeoutOrNull(60_000) {
+            for (km in listOf(1.0, 3.0, 10.0, 30.0)) {
+                add(offlineSimilar(ctx, key, value, lat, lon, km, label)); onProgress(found.size)
+                if (Net.online) runCatching {
+                    kotlinx.coroutines.runInterruptible {
+                        val els = overpass("[out:json][timeout:25];nwr(around:${(km * 1000).toInt()},$lat,$lon)[\"${esc(key)}\"=\"${esc(value)}\"];out tags center 300;")
+                        add((0 until els.length()).mapNotNull { i ->
+                            val e = els.getJSONObject(i)
+                            val la = e.optDouble("lat").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lat") ?: return@mapNotNull null
+                            val lo = e.optDouble("lon").takeIf { !it.isNaN() } ?: e.optJSONObject("center")?.optDouble("lon") ?: return@mapNotNull null
+                            val t = e.optJSONObject("tags")
+                            val nm = t?.optString("name:ru")?.ifBlank { null } ?: t?.optString("name")?.ifBlank { null } ?: label
+                            val addr = listOfNotNull(t?.optString("addr:street")?.ifBlank { null }, t?.optString("addr:housenumber")?.ifBlank { null }).joinToString(", ")
+                            GeoHit(nm, listOf(label, addr).filter { it.isNotBlank() }.distinct().joinToString(" · "), la, lo, "$key:$value")
+                        })
+                    }
                 }
-            }.getOrNull() else null
-            out = tidy(online ?: offlineSimilar(ctx, key, value, lat, lon, km, label), km)
-            if (out.size >= 6) break
+                onProgress(found.size)
+                // круг дал 30 и больше — дальние уже не ближе: стоп
+                if (found.values.count { d(it) <= km * 1000 } >= limit) break
+            }
         }
-        out.take(limit)
+        best()
     }
 
     /** Без интернета: поиск по скачанным картам GLMap; имена — из тегов, без GetDisplayInfo. */

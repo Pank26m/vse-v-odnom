@@ -32,6 +32,7 @@ import kotlin.math.pow
  * метки (векторный слой со своим MapCSS), булавка, остановки и «я» — картинки.
  */
 internal class GlEngine(private val ctx: Context, private val density: Float) : MapEngine {
+
     private val mapView = GLMapView(ctx)
     private val r: GLMapViewRenderer get() = mapView.renderer
     override val view get() = mapView
@@ -78,16 +79,18 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         // служебные опции стиля GLMap: при значении по умолчанию false их надо задать явно.
         // HideExtraData=1 — иначе включается extra.mapcss (служебные «невидимые» стили: зелёные страны и леса,
         // чёрные линии по дорогам, красные подписи ЛЭП) — так сломалась карта в 0.31.
-        m["HideExtraData"] = "1"; m["DownloadedMaps"] = "1"; m["SelectedRelations"] = "1"
+        // DownloadedMaps/SelectedRelations НЕ включаем: их блоки ссылаются на переменные @DownloadedMaps/@SelectedRelations,
+        // которые задаёт само приложение Guru, у нас их нет (в 0.32 были включены — подозрение, что из-за них стиль не разбирался)
+        m["HideExtraData"] = "1"
         return m
     }
 
     /** Ресурсы стиля: наши сервисные значки, свои опции в relations.mapcss, остальное — стандартный стиль GLMap. */
     private fun resource(name: String): ByteArray? {
-        if (name == "hide_user.mapcss") return MapStyle.hideCss(curHidden).toByteArray()
         val raw = asset("DefaultStyle.bundle/$name") ?: asset(name) ?: return null
         if (name == "relations.mapcss") return patchRelations(String(raw)).toByteArray()
-        if (name == "Style.mapcss" && patched) return (String(raw) + "\n@import \"hide_user.mapcss\";\n").toByteArray()
+        // правила скрытия — прямо в конец Style.mapcss (последние правила перекрывают стандартные), без отдельного @import
+        if (name == "Style.mapcss" && level > 0) return (String(raw) + "\n\n// скрытое пользователем\n" + MapStyle.hideCss(curHidden, pois = level > 1)).toByteArray()
         return raw
     }
 
@@ -98,7 +101,7 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     private fun patchRelations(src: String): String {
         var s = src
         val hid = curHidden
-        if (patched && "metro" in hid) {
+        if (level > 0 && "metro" in hid) {
             val sel = s.indexOf("relation[route=subway]")
             val start = if (sel >= 0) s.lastIndexOf("@if SubStyle != Car", sel) else -1
             val end = if (sel >= 0) s.indexOf("@endif", sel) else -1
@@ -114,8 +117,8 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     }
 
 
-    /** Подключены ли наши правила скрытия (hide_user.mapcss, метро в relations). */
-    private var patched = true
+    /** Наши правила скрытия: 2 — подписи, метро и значки; 1 — без значков; 0 — чистый стандартный стиль. */
+    private var level = 2
     private var curHidden: Set<String> = emptySet()
     private var relief: ReliefTileSource? = null
     private var extraOverlays: List<GLMapTileSource> = emptyList()
@@ -151,18 +154,22 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             r.drawElevationLines = o.contours
             r.drawSlopes = false
         }
-        fun parse() = runCatching {
+        val errs = ArrayList<String>()
+        fun parse(): Boolean = runCatching {
             GLMapStyleParser { name -> resource(name) }.use { p ->
                 // false: опции, которых нет в списке, — выключены (с true все группы «Объектов на карте» были включены всегда)
                 p.setOptions(styleOptions(o), false)
-                p.parseFromResources()?.use { st -> r.setStyle(st); true } ?: false
+                val st = p.parseFromResources()
+                if (st == null) { errs += "ур.$level: " + (runCatching { p.error?.toString() }.getOrNull() ?: "без описания"); false }
+                else st.use { r.setStyle(it); true }
             }
-        }.getOrDefault(false)
-        // свои правила скрытия подписей/метро — только для выключенных групп; если стиль с ними не разобрался — без них (карта важнее)
+        }.getOrElse { errs += "ур.$level: ${it.message}"; false }
+        // свои правила скрытия — только для выключенных групп; если стиль с ними не разобрался — проще (карта важнее)
         curHidden = o.hidden
-        patched = true
-        var ok = parse()
-        if (!ok) { patched = false; ok = parse() }
+        var ok = false
+        for (lv in 2 downTo 0) { level = lv; if (parse()) { ok = true; break } }
+        styleReport = if (ok && errs.isEmpty()) "стиль разобран полностью" else if (ok) "стиль разобран упрощённо (уровень $level): ${errs.joinToString("; ")}" else "стиль НЕ разобран: ${errs.joinToString("; ")}"
+        if (errs.isNotEmpty()) main.post { runCatching { android.widget.Toast.makeText(ctx, "Карта: " + styleReport, android.widget.Toast.LENGTH_LONG).show() } }
         // онлайн-карта (OSM, спутник, .ms) вместо векторной; первый слой — основа, остальные — поверх
         val want = o.online?.id
         if (want != base) {
@@ -230,7 +237,10 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         runCatching { r.setMapOrigin(x, y); if (under != null) r.mapCenter = under }
     }
 
+    /** До какого момента идёт наша анимация камеры (наклон, перелёт) — пока идёт, прямая установка угла ею перебивается. */
+    private var animUntil = 0L
     private fun anim(sec: Double, block: (GLMapAnimation) -> Unit) = runCatching {
+        animUntil = maxOf(animUntil, android.os.SystemClock.uptimeMillis() + (sec * 1000).toLong())
         r.animate { a -> a.setDuration(sec); a.setTransition(GLMapAnimation.EaseInOut); block(a) }
     }.getOrNull()
 
@@ -284,13 +294,35 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         }
         override fun onLongPress(fingers: Int, x: Float, y: Float) {
             if (fingers != 1 || dragged) return
+            // как в Guru: долгое нажатие на остановку, метку или точку трека — её можно тащить пальцем
+            if (l.onDragStart(x, y)) {
+                dragging = true
+                mapView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                return
+            }
             val g = runCatching { MapGeoPoint(r.convertDisplayToInternal(x.toDouble(), y.toDouble())) }.getOrNull() ?: return
             l.onLongTap(g.lat, g.lon)
         }
         override fun onPitch(angle: Float) { super.onPitch(angle); l.onGesture() }
     }
     @SuppressLint("ClickableViewAccessibility")
+    /** Тащим точку пальцем: карта не двигается, события идут в onDrag/onDragEnd. */
+    private var dragging = false
+    private fun geoAt(x: Float, y: Float) = runCatching { MapGeoPoint(r.convertDisplayToInternal(x.toDouble(), y.toDouble())) }.getOrNull()
     private val touch = android.view.View.OnTouchListener { v, e ->
+        if (dragging) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_MOVE -> geoAt(e.x, e.y)?.let { l.onDrag(it.lat, it.lon) }
+                MotionEvent.ACTION_UP -> { dragging = false; down = false; geoAt(e.x, e.y)?.let { l.onDragEnd(it.lat, it.lon) } }
+                MotionEvent.ACTION_CANCEL -> { dragging = false; down = false; l.onDragEnd(Double.NaN, Double.NaN) }
+            }
+            if (!dragging) {
+                // детектору жестов — отмена, чтобы он не считал это долгое нажатие сдвигом карты
+                val c = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
+                gestures.onTouch(v, c); c.recycle()
+            }
+            return@OnTouchListener true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { down = true; dragged = false; downX = e.x; downY = e.y }
             MotionEvent.ACTION_POINTER_DOWN -> { dragged = true; l.onGesture() }
@@ -396,12 +428,19 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
         // по компасу: карта поворачивается за телефоном
         // в 3D (наклон) прямую установку угла перебивала незаконченная анимация наклона — поворот «тормозил»;
         // там поворачиваем короткой анимацией, она заменяет предыдущую
+        // В 0.32 в 3D каждый отсчёт компаса запускал новую анимацию EaseInOut — она каждый раз заново «разгонялась»
+        // с нуля, и карта отставала. Теперь: анимаций нет — угол ставится сразу (как в 2D); идёт анимация наклона —
+        // короткий линейный доворот, без разгона.
         if (follow == 2 && course == null && !down) runCatching {
-            if (r.mapPitch > 3f) anim(0.08) { r.mapAngle = heading } else r.mapAngle = heading
+            if (android.os.SystemClock.uptimeMillis() >= animUntil) r.mapAngle = heading
+            else r.animate { a -> a.setDuration(0.05); a.setTransition(GLMapAnimation.Linear); r.mapAngle = heading }
         }
     }
 
     override fun location(): Location? = last
+    override fun screenOf(lat: Double, lon: Double): Pair<Float, Float>? = runCatching {
+        r.convertInternalToDisplay(mp(lat, lon)).let { it.x to it.y }
+    }.getOrNull()
 
     override fun setFollow(mode: Int, zoom: Double?) {
         follow = mode
@@ -594,13 +633,16 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
     override fun setRuler(items: List<Pair<GeoPt, String>>) {
         if (items.isEmpty()) { pRuler.put(null, ""); return }
         pRuler.put(fc(items.map { (p, t) -> feat(p.lat, p.lon, "\"t\":${q(t)}") }),
-            "node{text:eval(tag('t'));text-color:#3E6FA8;font-size:12.5;font-weight:bold;font-stroke-width:3pt;font-stroke-color:#FFFFFF;text-priority:30;}")
+            // прозрачный значок размером с кружок остановки: подпись движок ставит под значком — не внутри точки.
+            // Шрифт вдвое меньше прежнего (12,5 → 8; меньше уже не читается)
+            "node{icon-image:\"ruler-gap.svg\";text:eval(tag('t'));text-color:#3E6FA8;font-size:8;font-weight:bold;font-stroke-width:2pt;font-stroke-color:#FFFFFF;text-priority:30;}")
     }
-    /** Подписи меток — только вблизи (масштаб ~500 м и крупнее), иначе на мелком масштабе они «живут своей жизнью». */
+    /** Подписи меток — только вблизи (линейка масштаба ~1 км и крупнее), иначе на мелком масштабе они «живут своей жизнью». */
     private var labelsOn = false
     private fun labelsByZoom() {
         val z = zoom
-        val want = z >= LABEL_ZOOM
+        // как линейка масштаба на экране (84 dp): подписи, когда на ней 1 км или меньше (в Киеве это с зума ~12)
+        val want = z >= LABEL_ZOOM || metersPerPixel() * density * 84 < 2000
         if (want != labelsOn) { labelsOn = want; markerKey = ""; if (placeHits.isNotEmpty()) setPlaces(placeHits, false) }
         reliefByZoom(z)
     }
@@ -679,11 +721,14 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
             val kind = (if (key != null && v != null && key != "building") MapNames.label(key, v, props["shelter_type"]) else null) ?: cat ?: MapNames.omt(props["class"], props["subclass"])
             val g = runCatching { MapGeoPoint(o.point()) }.getOrNull()
             val path = props["highway"] in PATHS
-            if (o.lineCount > 0 && !path && props["highway"] != null) return@use FeatureHit(MapTarget(name ?: "Улица без названия", Streets.kind(props["highway"]), lat, lon,
+            // улица/тропа — только когда она видна на карте (крупный масштаб) и у неё есть имя; безымянный проезд — ничего
+            // (раньше подставлялась ближайшая названная дорога, а булавка стояла на безымянной)
+            if (o.lineCount > 0 && props["highway"] != null && (zoom < STREET_ZOOM || own == null)) return@use null
+            if (o.lineCount > 0 && !path && props["highway"] != null) return@use FeatureHit(MapTarget(name ?: "Улица", Streets.kind(props["highway"]), lat, lon,
                 props = props + ("kind" to "street")), o.lines().ifEmpty { null })
             if (path) {
                 val ln = o.lines()
-                val nm = name ?: "Тропа без названия"
+                val nm = name ?: "Тропа"
                 return@use FeatureHit(MapTarget(nm, if (path) "Тропа · ${MapNames.omt(null, props["highway"]).lowercase()}" else kind, lat, lon,
                     props = props + ("kind" to "route")), ln.ifEmpty { null })
             }
@@ -712,18 +757,32 @@ internal class GlEngine(private val ctx: Context, private val density: Float) : 
                 rels.forEach { runCatching { it.dispose() } }
             }
         }
-        // улица / дорога / тропинка под пальцем
-        Streets.nearestOffline(lat, lon, (metersPerPixel() * 22 * density).coerceIn(8.0, 400.0))?.let { st ->
-            val path = st.highway in PATHS
-            val nm = st.name ?: if (path) "Тропа без названия" else "Улица без названия"
-            return FeatureHit(MapTarget(nm, if (path) "Тропа · ${Streets.kind(st.highway).lowercase()}" else Streets.kind(st.highway), lat, lon,
-                props = st.tags + ("kind" to if (path) "route" else "street") + (st.tags["name"]?.let { mapOf("name_tag" to it) } ?: emptyMap())), st.lines.ifEmpty { null })
-        }
         return null
     }
 
+    /** Радиус поиска улицы под пальцем (м) — считается на главном потоке, сам поиск — в фоне (streetAt). */
+    override fun streetRadius(): Double? = if (zoom < STREET_ZOOM) null else (metersPerPixel() * 22 * density).coerceIn(8.0, 120.0)
+
+    /**
+     * Улица / дорога / тропинка под пальцем — только на крупном масштабе и только с именем.
+     * Ближайшая дорога безымянная (двор, проезд) — ничего не открываем, а не соседнюю улицу.
+     * Поиск GLSearch — в фоне: раньше шёл на главном потоке, и каждое нажатие по карте подвешивало её.
+     */
+    override suspend fun streetAt(lat: Double, lon: Double, m: Double): FeatureHit? = withContext(Dispatchers.Default) {
+        Streets.nearestOffline(lat, lon, m)?.takeIf { it.name != null }?.let { st ->
+            val path = st.highway in PATHS
+            val nm = st.name ?: "Улица"
+            FeatureHit(MapTarget(nm, if (path) "Тропа · ${Streets.kind(st.highway).lowercase()}" else Streets.kind(st.highway), lat, lon,
+                props = st.tags + ("kind" to if (path) "route" else "street") + (st.tags["name"]?.let { mapOf("name_tag" to it) } ?: emptyMap())), st.lines.ifEmpty { null })
+        }
+    }
+
     companion object {
-        const val LABEL_ZOOM = 14.0
+        /** Итог последней сборки стиля — для «Для разработчиков» (и тоста, если что-то не разобралось). */
+        @Volatile var styleReport: String = "—"
+        const val LABEL_ZOOM = 13.5
+        /** С какого масштаба нажатие на дорогу открывает сведения об улице (подписи улиц уже видны). */
+        const val STREET_ZOOM = 14.0
         const val RELIEF_FADE = 7.5
         const val RELIEF_OFF = 9.0
         val PRIMARY = listOf("amenity", "shop", "tourism", "leisure", "historic", "office", "craft", "healthcare", "emergency", "natural", "railway",

@@ -9,6 +9,7 @@ import java.io.InputStream
 import java.time.Instant
 import java.util.Locale
 import java.util.zip.ZipInputStream
+import kotlin.math.abs
 
 /**
  * Импорт и экспорт меток и треков: GPX и KML/KMZ (так отдают Guru Maps, Organic Maps, Google Мои карты).
@@ -43,7 +44,7 @@ object GeoFiles {
     private fun gpx(input: InputStream, root: Node) {
         val p = Xml.newPullParser(); p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false); p.setInput(input, null)
         var lat = 0.0; var lon = 0.0; var name = ""; var desc = ""; var t: String? = null; var ele = Double.NaN
-        var inWpt = false; var inTrk = false; var trkName = ""; val pts = ArrayList<GeoPt>()
+        var inWpt = false; var inTrk = false; var trkName = ""; val pts = ArrayList<GeoPt>(); val segs = ArrayList<List<GeoPt>>()
         val text = StringBuilder()
         while (p.eventType != XmlPullParser.END_DOCUMENT) {
             when (p.eventType) {
@@ -51,7 +52,8 @@ object GeoFiles {
                     text.setLength(0)
                     when (p.name) {
                         "wpt" -> { inWpt = true; name = ""; desc = ""; lat = p.getAttributeValue(null, "lat").toDouble(); lon = p.getAttributeValue(null, "lon").toDouble() }
-                        "trk", "rte" -> { inTrk = true; trkName = ""; pts.clear() }
+                        "trk", "rte" -> { inTrk = true; trkName = ""; pts.clear(); segs.clear() }
+                        "trkseg" -> { if (pts.size >= 2) segs += pts.toList(); pts.clear() }
                         "trkpt", "rtept" -> { lat = p.getAttributeValue(null, "lat").toDouble(); lon = p.getAttributeValue(null, "lon").toDouble(); t = null; ele = Double.NaN }
                     }
                 }
@@ -63,9 +65,15 @@ object GeoFiles {
                         "desc", "cmt" -> if (inWpt && desc.isEmpty()) desc = s
                         "time" -> t = s
                         "ele" -> ele = s.toDoubleOrNull() ?: Double.NaN
-                        "wpt" -> { root.places += Place(name = name.ifBlank { "Метка" }, lat = lat, lon = lon, note = desc); inWpt = false }
+                        "wpt" -> { if (valid(GeoPt(lat, lon, 0))) root.places += Place(name = name.ifBlank { "Метка" }, lat = lat, lon = lon, note = desc); inWpt = false }
                         "trkpt", "rtept" -> pts += GeoPt(lat, lon, time(t), ele)
-                        "trk", "rte" -> { if (pts.size >= 2) root.tracks += trkName.ifBlank { "Трек" } to pts.toList(); inTrk = false }
+                        "trkseg" -> { if (pts.size >= 2) segs += pts.toList(); pts.clear() }
+                        "trk", "rte" -> {
+                            if (pts.size >= 2) segs += pts.toList()
+                            val line = joinParts(segs)
+                            if (line.size >= 2) root.tracks += trkName.ifBlank { "Трек" } to line
+                            pts.clear(); segs.clear(); inTrk = false
+                        }
                     }
                     text.setLength(0)
                 }
@@ -78,10 +86,19 @@ object GeoFiles {
         val a = c.split(','); if (a.size < 2) null else runCatching { GeoPt(a[1].toDouble(), a[0].toDouble(), 0, a.getOrNull(2)?.toDoubleOrNull() ?: Double.NaN) }.getOrNull()
     }
 
+    /**
+     * KML (Guru, Google): у метки может быть несколько геометрий сразу — LineString и gx:Track с одним и тем же треком,
+     * MultiGeometry с точками старта/финиша. Раньше всё склеивалось в одну линию: прямая от финиша назад к старту,
+     * лишние точки, сбитый порядок километров. Теперь каждая геометрия отдельно: берём gx:Track (в нём время),
+     * иначе LineString-и; одинаковые копии отбрасываем; точки внутри метки с линией — не часть линии.
+     */
     private fun kml(input: InputStream, root: Node) {
         val p = Xml.newPullParser(); p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false); p.setInput(input, null)
         val stack = ArrayList<Node>().apply { add(root) }
-        var inPm = false; var pmName = ""; var pmDesc = ""; var point: GeoPt? = null; val line = ArrayList<GeoPt>(); val gxWhen = ArrayList<Long>()
+        var inPm = false; var pmName = ""; var pmDesc = ""; var point: GeoPt? = null
+        val lines = ArrayList<List<GeoPt>>(); val gxLines = ArrayList<List<GeoPt>>()
+        val gx = ArrayList<GeoPt>(); val gxWhen = ArrayList<Long>()
+        var geom: String? = null
         var pendingFolder = false
         val text = StringBuilder()
         while (p.eventType != XmlPullParser.END_DOCUMENT) {
@@ -91,7 +108,9 @@ object GeoFiles {
                     text.setLength(0)
                     when (tag) {
                         "Folder" -> { val n = Node("Папка"); stack.last().folders += n; stack += n; pendingFolder = true }
-                        "Placemark" -> { inPm = true; pmName = ""; pmDesc = ""; point = null; line.clear(); gxWhen.clear() }
+                        "Placemark" -> { inPm = true; pmName = ""; pmDesc = ""; point = null; lines.clear(); gxLines.clear() }
+                        "Point", "LineString", "LinearRing" -> geom = tag
+                        "Track" -> { geom = "Track"; gx.clear(); gxWhen.clear() }
                     }
                 }
                 XmlPullParser.TEXT, XmlPullParser.CDSECT -> text.append(p.text)
@@ -100,13 +119,20 @@ object GeoFiles {
                     when (tag) {
                         "name" -> if (inPm) { if (pmName.isEmpty()) pmName = s } else if (pendingFolder && stack.size > 1) { stack.last().name = s.ifBlank { "Папка" }; pendingFolder = false }
                         "description" -> if (inPm && pmDesc.isEmpty()) pmDesc = s.replace(Regex("<[^>]+>"), " ").trim()
-                        "coordinates" -> if (inPm) { val c = coords(s); if (c.size == 1 && line.isEmpty()) point = c[0] else { point = null; line += c } }
+                        "coordinates" -> if (inPm) {
+                            val c = coords(s)
+                            if (geom == "Point" || (geom == null && c.size == 1)) { if (point == null) point = c.firstOrNull() }
+                            else if (c.size >= 2) lines += c
+                        }
                         "when" -> if (inPm) gxWhen += time(s)
-                        "coord" -> if (inPm) s.split(Regex("\\s+")).takeIf { it.size >= 2 }?.let { a -> runCatching { line += GeoPt(a[1].toDouble(), a[0].toDouble(), gxWhen.getOrElse(line.size) { 0 }, a.getOrNull(2)?.toDoubleOrNull() ?: Double.NaN) } }
+                        "coord" -> if (inPm) s.split(Regex("\\s+")).takeIf { it.size >= 2 }?.let { a -> runCatching { gx += GeoPt(a[1].toDouble(), a[0].toDouble(), gxWhen.getOrElse(gx.size) { 0 }, a.getOrNull(2)?.toDoubleOrNull() ?: Double.NaN) } }
+                        "Track" -> { if (gx.size >= 2) gxLines += gx.toList(); gx.clear(); geom = null }
+                        "Point", "LineString", "LinearRing" -> geom = null
                         "Placemark" -> {
                             val node = stack.last()
-                            if (line.size >= 2) node.tracks += pmName.ifBlank { "Трек" } to line.toList()
-                            else point?.let { node.places += Place(name = pmName.ifBlank { "Метка" }, lat = it.lat, lon = it.lon, note = pmDesc) }
+                            val line = joinParts(if (gxLines.isNotEmpty()) gxLines else lines)
+                            if (line.size >= 2) node.tracks += pmName.ifBlank { "Трек" } to line
+                            else point?.let { if (valid(it)) node.places += Place(name = pmName.ifBlank { "Метка" }, lat = it.lat, lon = it.lon, note = pmDesc) }
                             inPm = false
                         }
                         "Folder" -> { if (stack.size > 1) stack.removeAt(stack.size - 1); pendingFolder = false }
@@ -116,6 +142,59 @@ object GeoFiles {
             }
             p.next()
         }
+    }
+
+    private fun valid(g: GeoPt) = g.lat.isFinite() && g.lon.isFinite() && g.lat in -89.9..89.9 && g.lon in -180.0..180.0 && !(abs(g.lat) < 1e-6 && abs(g.lon) < 1e-6)
+
+    /** Похожи ли две части (одна и та же линия, записанная дважды): одинаковые концы в пределах 50 м. */
+    private fun same(a: List<GeoPt>, b: List<GeoPt>): Boolean =
+        Osm.distance(a.first(), b.first()) < 50 && Osm.distance(a.last(), b.last()) < 50
+
+    /**
+     * Части одной метки → одна линия: дубли выкидываются, части идут друг за другом (следующая — та, чей конец ближе),
+     * затем чистка: неверные координаты, одиночные «выбросы» далеко в сторону (точка у Норвегии на треке по Азорам).
+     */
+    internal fun joinParts(parts: List<List<GeoPt>>): List<GeoPt> {
+        val ps = ArrayList<List<GeoPt>>()
+        for (raw in parts) { val c = raw.filter(::valid); if (c.size >= 2 && ps.none { same(it, c) }) ps += c }
+        if (ps.isEmpty()) return emptyList()
+        val out = ArrayList<GeoPt>(ps.removeAt(0))
+        while (ps.isNotEmpty()) {
+            val end = out.last()
+            var best = 0; var rev = false; var bd = Double.MAX_VALUE
+            ps.forEachIndexed { i, c ->
+                val d1 = Osm.distance(end, c.first()); val d2 = Osm.distance(end, c.last())
+                if (d1 < bd) { bd = d1; best = i; rev = false }
+                if (d2 < bd) { bd = d2; best = i; rev = true }
+            }
+            val c = ps.removeAt(best)
+            out += if (rev) c.asReversed() else c
+        }
+        return clean(out)
+    }
+
+    /** Убрать выбросы: точка, от которой до обоих соседей далеко (> 5 км), а соседи рядом друг с другом. Плюс подряд одинаковые. */
+    internal fun clean(src: List<GeoPt>): List<GeoPt> {
+        val pts = src.filter(::valid)
+        if (pts.size < 3) return pts
+        val out = ArrayList<GeoPt>(pts.size)
+        for (i in pts.indices) {
+            val g = pts[i]
+            if (i in 1 until pts.size - 1) {
+                val a = pts[i - 1]; val b = pts[i + 1]
+                val da = Osm.distance(a, g); val db = Osm.distance(g, b); val ab = Osm.distance(a, b)
+                if (da > 5000 && db > 5000 && ab < minOf(da, db) / 4) continue
+            } else if (i == 0 || i == pts.size - 1) {
+                // крайняя точка далеко от единственного соседа и от всего трека — тоже выброс
+                val n = if (i == 0) pts[1] else pts[pts.size - 2]
+                val n2 = if (i == 0) pts[2] else pts[pts.size - 3]
+                val d = Osm.distance(g, n)
+                if (d > 50_000 && Osm.distance(n, n2) < d / 20) continue
+            }
+            if (out.isNotEmpty() && out.last().lat == g.lat && out.last().lon == g.lon) continue
+            out += g
+        }
+        return out
     }
 
     /** Записать дерево в базу: папка-файл в корне (или в выбранной папке). Возвращает число объектов. */

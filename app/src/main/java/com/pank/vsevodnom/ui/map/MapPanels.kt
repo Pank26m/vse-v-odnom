@@ -422,6 +422,10 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
         MenuRow(Icons.Rounded.ContentCopy, "Копировать координаты") { copy(ctx, MapPrefs.coords(ctx, t.lat, t.lon)); more = false }
         if (t.place != null) {
             MenuRow(Icons.Rounded.Folder, "Папка и цвет", sub = folderPath(t.place.folderId, folders)) { editing = true; expanded = true; more = false }
+            MenuRow(Icons.Rounded.Inventory2, "В архив", sub = "не удаляется — убирается с карты и из списка; вернуть — Коллекции → ⋮ → Архив") {
+                more = false; val pl = t.place; AppScope.io.launch { MapArchive.place(ctx, pl) }
+                Toast.makeText(ctx, "Метка в архиве", Toast.LENGTH_SHORT).show(); onClose()
+            }
             MenuRow(Icons.Rounded.Hotel, if (StayLinks.get(ctx, t.place.id, "booking") != null) "Ссылка Booking…" else "Подключить Booking") { linkEdit = "booking"; more = false }
             MenuRow(Icons.Rounded.Cottage, if (StayLinks.get(ctx, t.place.id, "airbnb") != null) "Ссылка Airbnb…" else "Подключить Airbnb") { linkEdit = "airbnb"; more = false }
         }
@@ -830,6 +834,10 @@ internal fun TrackCard(t: Track, folders: List<MapFolder>, onClose: () -> Unit, 
         MenuRow(Icons.Rounded.IosShare, "Экспорт GPX") { more = false; shareFile(ctx, t.name + ".gpx", GeoFiles.gpxOf(emptyList(), listOf(t)), "application/gpx+xml") }
         MenuRow(Icons.Rounded.IosShare, "Экспорт KML (Google Earth)") { more = false; shareFile(ctx, t.name + ".kml", GeoFiles.kmlOf(t.name, emptyList(), emptyList(), listOf(t), null), "application/vnd.google-earth.kml+xml") }
         pts.firstOrNull()?.let { a -> MenuRow(Icons.Rounded.Navigation, "Waze к началу трека") { more = false; waze(ctx, a.lat, a.lon) } }
+        MenuRow(Icons.Rounded.Inventory2, "В архив", sub = "не удаляется — убирается с карты и из списка; вернуть — Коллекции → ⋮ → Архив") {
+            more = false; AppScope.io.launch { AppDb.get(ctx).map().track(t.id)?.let { MapArchive.track(ctx, it) } }
+            Toast.makeText(ctx, "Трек в архиве", Toast.LENGTH_SHORT).show(); onClose()
+        }
         MenuRow(Icons.Rounded.DeleteOutline, "Удалить трек", tint = Pal.RoseInk) { more = false; askDelete = true }
     }
     if (plan) PlanDialog(if (trackPlan(t) != null) "Перенести" else "Запланировать", t.name, onDismiss = { plan = false }) { at ->
@@ -885,8 +893,6 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
         AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
             SwitchRow("Тени рельефа", "горы и холмы объёмнее", hill) { hill = it; set("hillshade", it) }
             SwitchRow("Линии высот", "горизонтали с подписями высот", contours) { contours = it; set("contours", it) }
-            Text("3D-рельеф включён всегда — наклони карту двумя пальцами. Без интернета он работает там, где скачана «Топография». 3D-домов в движке GLMap нет (как и в Guru Maps).",
-                style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(12.dp, 4.dp, 12.dp, 10.dp))
         }
         SectionLabel("Вид карты")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -899,7 +905,6 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
                 }
             }
         }
-        TextButton(onSettings) { Text("Загрузка карт — страны и области ›") }
         SectionLabel("Онлайн-карты")
         AppCard(Modifier.fillMaxWidth(), padding = 4.dp) {
             sources.forEach { s ->
@@ -927,7 +932,6 @@ internal fun LayersPanel(onDismiss: () -> Unit, onChanged: () -> Unit, onSetting
             }
         }
         PillButton("Добавить карту из файла .ms", { import.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth(), bg = Pal.Card, fg = Pal.Ink)
-        Text("Онлайн-карта рисуется вместо векторной (метки, треки и маршрут — поверх). Тайлы сохраняются в кэш: Настройки → Кэш карт.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
     }
 }
 

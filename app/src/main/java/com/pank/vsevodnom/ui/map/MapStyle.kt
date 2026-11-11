@@ -64,7 +64,37 @@ object MapStyle {
         "l_countries" to "node, area { [place=country], [place=state], [place=region], [place=province] { text: none; } }",
         "metro" to "node, area { [station=subway], [railway=subway_entrance] { icon-image: none; text: none; } }\nline { [railway=subway] { width: none; dashes-width: none; } }",
     )
-    fun hideCss(hidden: Set<String>): String = HIDE_RULES.filterKeys { it in hidden }.values.joinToString("\n", postfix = "\n")
+    /**
+     * Значки групп «Объектов на карте» — те же теги, что в points.mapcss внутри «@if Опция». Скрытая группа выключается
+     * опцией стиля, а ещё и явным правилом в конце стиля: если опция почему-то не сработала, значок всё равно пропадёт.
+     * «Все магазины» ([shop]) и «Названия зданий» явным правилом не трогаем — они шире своих групп.
+     */
+    private val POI_TAGS = mapOf(
+        "health" to "amenity=hospital building=hospital amenity=clinic amenity=doctors amenity=veterinary amenity=pharmacy amenity=dentist healthcare=laboratory",
+        "food" to "amenity=fast_food amenity=cafe amenity=restaurant",
+        "bars" to "amenity=bar amenity=pub",
+        "mall" to "shop=supermarket shop=mall amenity=marketplace shop=department_store shop=convenience",
+        "beauty" to "shop=hairdresser shop=beauty shop=tattoo shop=massage amenity=public_bath leisure=sauna",
+        "bank" to "amenity=atm amenity=bank amenity=bureau_de_change",
+        "post" to "amenity=post_office amenity=parcel_locker",
+        "city" to "amenity=townhall office=government office=diplomatic amenity=police",
+        "edu" to "amenity=university amenity=college amenity=school amenity=kindergarten amenity=library",
+        "culture" to "amenity=arts_centre amenity=community_centre tourism=museum historic=monument historic=memorial amenity=place_of_worship amenity=fountain",
+        "fun" to "amenity=nightclub amenity=cinema amenity=theatre tourism=zoo tourism=theme_park leisure=water_park",
+        "hotel" to "tourism=hotel tourism=hostel tourism=motel tourism=guest_house tourism=chalet tourism=alpine_hut tourism=camp_site tourism=caravan_site",
+        "sport" to "leisure=stadium amenity=swimming_pool leisure=swimming_pool leisure=sports_centre leisure=fitness_centre",
+        "transit" to "amenity=bus_station highway=bus_stop railway=tram_stop",
+        "rail" to "railway=station railway=halt building=train_station",
+    )
+    private fun poiRule(tags: String) = "node, area { " + tags.split(' ').joinToString(", ") { "[$it]" } + " { icon-image: none; text: none; } }"
+
+    /** Правила скрытия: подписи/метро + значки скрытых групп. pois=false — без значков (запасной вариант, если стиль не разобрался). */
+    fun hideCss(hidden: Set<String>, pois: Boolean = true): String {
+        val out = HIDE_RULES.filterKeys { it in hidden }.values.toMutableList()
+        if (pois) POI_TAGS.forEach { (k, t) -> if (k in hidden) out += poiRule(t) }
+        if (pois && "shop" in hidden && "mall" in hidden) out += poiRule("shop")
+        return out.joinToString("\n", postfix = "\n")
+    }
 
     /** По умолчанию маршруты из OSM скрыты (владельцу почти всегда не нужны). */
     val DEFAULT_HIDDEN = setOf("hike", "bike")

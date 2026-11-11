@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
+import androidx.compose.material.icons.automirrored.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -90,6 +92,8 @@ fun MoneyScreen(onBack: (() -> Unit)? = null) {
     var editCat by remember { mutableStateOf<Category?>(null) }
     var menu by remember { mutableStateOf(false) }
     var importOpen by remember { mutableStateOf(false) }
+    var rates by remember { mutableStateOf(false) }
+    if (rates) { androidx.activity.compose.BackHandler { rates = false }; com.pank.vsevodnom.ui.markets.MarketsScreen { rates = false }; return }
 
     val total = accounts.sumOf { it.initial } + all.sumOf { delta(it) }
     val from = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
@@ -107,8 +111,10 @@ fun MoneyScreen(onBack: (() -> Unit)? = null) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        ScreenScaffold("Финансы", onBack, actions = {
-            Box {
+        ScreenScaffold(if (tab == 3) "Калькулятор" else "Финансы", onBack, actions = {
+            // курсы валют, крипты и индексов — значком здесь (из «Всех» убраны)
+            RoundIconButton(Icons.AutoMirrored.Rounded.TrendingUp, "Курсы", { rates = true })
+            if (tab != 3) Box {
                 RoundIconButton(Icons.Rounded.MoreVert, "Ещё", { menu = true })
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem({ Text("Новая категория") }, { menu = false; editCat = Category(name = "", income = income, color = PALETTE[5][3].toArgb()) })
@@ -117,6 +123,9 @@ fun MoneyScreen(onBack: (() -> Unit)? = null) {
                 }
             }
         }) {
+          Box(Modifier.weight(1f)) {
+           if (tab == 3) com.pank.vsevodnom.ui.calc.MathCalculator()
+           else Column(Modifier.fillMaxSize()) {
             // свободные деньги
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { hide = !hide; prefs.edit().putBoolean("hide", hide).apply() }) {
@@ -130,8 +139,7 @@ fun MoneyScreen(onBack: (() -> Unit)? = null) {
                         modifier = Modifier.clickable { month = YearMonth.now() }.padding(horizontal = 8.dp))
                     IconButton({ month = month.plusMonths(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Позже") }
                 }
-                Segmented(listOf("Категории", "Операции", "Статистика"), tab, { tab = it }, Modifier.fillMaxWidth(), track = Pal.Mint)
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(4.dp))
             }
             when (tab) {
                 0 -> CategoriesTab(cats, inMonth, byId, income, { income = it }, spent, earned, onAdd = { c -> edit = newTxn(c, c.income) }, onEditCat = { editCat = it },
@@ -139,9 +147,23 @@ fun MoneyScreen(onBack: (() -> Unit)? = null) {
                 1 -> OperationsTab(all, inMonth, from, accounts, byId, onEdit = { edit = it })
                 else -> StatsTab(cats, inMonth, byId, month, income, { income = it }, spent, earned)
             }
+           }
+          }
+            // свой нижний бар финансов (над общим): Категории (главная) · Операции · Статистика · Калькулятор
+            Row(Modifier.fillMaxWidth().background(Pal.Card).padding(vertical = 6.dp)) {
+                listOf(Icons.Rounded.Category to "Категории", Icons.AutoMirrored.Rounded.ReceiptLong to "Операции", Icons.Rounded.PieChart to "Статистика", Icons.Rounded.Calculate to "Калькулятор")
+                    .forEachIndexed { i, (ic, t) ->
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { tab = i }.padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.clip(RoundedCornerShape(12.dp)).background(if (tab == i) Pal.Mint else Color.Transparent).padding(horizontal = 14.dp, vertical = 3.dp)) {
+                                Icon(ic, null, tint = if (tab == i) Pal.MintInk else Pal.Muted)
+                            }
+                            Text(t, style = MaterialTheme.typography.labelSmall, color = if (tab == i) Pal.Ink else Pal.Muted)
+                        }
+                    }
+            }
         }
-        // добавить — квадратная кнопка внизу справа
-        Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(58.dp).clip(RoundedCornerShape(18.dp)).background(Pal.Ink)
+        // добавить — квадратная кнопка внизу справа (над баром финансов)
+        if (tab != 3) Box(Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 82.dp).size(58.dp).clip(RoundedCornerShape(18.dp)).background(Pal.Ink)
             .clickable { edit = newTxn(cats.firstOrNull { it.income == income && it.parentId == null && !it.archived }, income) }, contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.Add, "Добавить", tint = Color.White)
         }

@@ -362,7 +362,7 @@ fun CalcScreen(onBack: () -> Unit) {
 private val FUN_KEYS = setOf("sin", "cos", "tan", "cot", "asin", "acos", "atan", "ln", "log")
 
 @Composable
-private fun MathCalculator() {
+internal fun MathCalculator() {
     val ctx = LocalContext.current
     val ed = remember { MathEditor() }
     var history by remember { mutableStateOf(History.load(ctx)) }

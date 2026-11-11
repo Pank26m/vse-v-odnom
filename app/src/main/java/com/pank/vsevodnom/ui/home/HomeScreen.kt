@@ -542,7 +542,7 @@ private fun WeightDialog(onDismiss: () -> Unit) {
 
 /** Разделы, которые уже есть в нижнем баре или внутри ToDo, — в «Всех» не дублируем. */
 /** Что не показывать во «Все»: есть в нижнем баре, в ToDo или в «Утилитах». */
-private val IN_BAR = setOf("todo", "money", "calendar", "weather", "map", "power", "alerts", "cart", "recorder", "passwords", "piggy", "cards", "pdf", "codes", "downloads")
+private val IN_BAR = setOf("todo", "money", "calendar", "weather", "map", "power", "alerts", "cart", "recorder", "passwords", "piggy", "cards", "pdf", "codes", "downloads", "calc", "markets")
 
 /** Все разделы плитками. */
 @Composable

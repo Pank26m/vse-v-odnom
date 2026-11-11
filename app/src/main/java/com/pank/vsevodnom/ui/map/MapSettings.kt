@@ -34,7 +34,6 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
         null -> FullScreen("Настройки карты", onDismiss) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MenuRow(Icons.Rounded.CloudDownload, "Загрузка карт", sub = "библиотека стран: карта, навигация, топография; обновления") { page = "downloads" }
-                MenuRow(Icons.Rounded.Layers, "Слои и вид карты", sub = "авто / пешком / вело, рельеф, онлайн-карты") { page = "source" }
                 MenuRow(Icons.Rounded.FilterList, "Объекты на карте", sub = "какие значки показывать, маршруты OSM") { page = "filter" }
                 MenuRow(Icons.Rounded.Navigation, "Навигация", sub = "способ, голос, автомасштаб, запись трека") { page = "nav" }
                 MenuRow(Icons.Rounded.Storage, "Кэш карт", sub = "онлайн-тайлы и рельеф на телефоне") { page = "cache" }
@@ -46,7 +45,6 @@ internal fun MapSettingsScreen(onDismiss: () -> Unit, onChanged: () -> Unit, sta
                     style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(top = 8.dp))
             }
         }
-        "source" -> LayersPanel(onDismiss = { page = null }, onChanged = onChanged, onSettings = { page = "downloads" })
         "downloads" -> GlDownloadsPage(onBack = { if (start != null) onDismiss() else page = null })
         "cache" -> CachePage { page = null }
         "nav" -> NavPage { page = null }
@@ -208,6 +206,7 @@ private fun DevPage(onChanged: () -> Unit, onBack: () -> Unit) {
             Text("GLMap: ${if (GlMap.ready) "работает" else GlMap.error ?: "не запущен"}", style = MaterialTheme.typography.bodySmall)
             Text("Сервер: ${GlMap.server ?: "—"}", style = MaterialTheme.typography.bodySmall)
             Text("Скачано карт: ${GlMap.downloaded().size}", style = MaterialTheme.typography.bodySmall)
+            Text("Стиль: ${GlEngine.styleReport}", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -235,14 +234,19 @@ private fun FilterPage(onChanged: () -> Unit, onBack: () -> Unit) {
             }
         }
     }
+    val online = remember { MapStyle.opts(ctx).online }
     Page("Объекты на карте", onBack) {
+        // онлайн-карта — готовые картинки: значки и подписи в них «впечатаны», скрыть их нельзя
+        if (online != null) AppCard(Modifier.fillMaxWidth()) {
+            Text("Сейчас включена онлайн-карта «${online.name}». Это готовые картинки с сервера — значки и подписи на них скрыть нельзя. " +
+                "Скрытие работает на обычной (векторной) карте: кнопка слоёв на карте → без онлайн-карты.",
+                style = MaterialTheme.typography.bodySmall, color = Pal.RoseInk)
+        }
         group(MapStyle.GROUPS)
         Text("Маршруты OpenStreetMap", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
         group(MapStyle.ROUTE_GROUPS)
         Text("Подписи и метро", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
         group(MapStyle.LABEL_GROUPS)
-        Text("Пешие маршруты видны в виде «Пешком», веломаршруты — в виде «Вело» (Слои). Твои треки скрываются в Коллекциях.",
-            style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton("Показать всё", { save(emptySet()) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
             PillButton("Как было", { save(MapStyle.DEFAULT_HIDDEN) }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)

@@ -66,6 +66,12 @@ internal interface MapEngine {
     fun userObjectAt(x: Float, y: Float): UserHit?
     /** Объект карты под пальцем (заведение, тропа, улица…) и линии для подсветки. */
     fun featureAt(x: Float, y: Float, lat: Double, lon: Double): FeatureHit?
+    /** Радиус поиска улицы под пальцем, м (null — масштаб мелкий, улицы не открываем). Главный поток. */
+    fun streetRadius(): Double?
+    /** Улица с именем под пальцем — поиск в фоне. */
+    suspend fun streetAt(lat: Double, lon: Double, m: Double): FeatureHit?
+    /** Где точка на экране (пиксели) — для перетаскивания. */
+    fun screenOf(lat: Double, lon: Double): Pair<Float, Float>?
 
     fun onStart() {}
     fun onStop() {}
@@ -78,6 +84,10 @@ internal interface MapEngine {
         fun onGesture()
         fun onTap(x: Float, y: Float, lat: Double, lon: Double)
         fun onLongTap(lat: Double, lon: Double)
+        /** Долгое нажатие: true — под пальцем то, что можно тащить (остановка, метка, точка трека), дальше — onDrag/onDragEnd. */
+        fun onDragStart(x: Float, y: Float): Boolean = false
+        fun onDrag(lat: Double, lon: Double) {}
+        fun onDragEnd(lat: Double, lon: Double) {}
         /** Ведение за мной снято жестом или сменилось. */
         fun onFollow(mode: Int)
     }

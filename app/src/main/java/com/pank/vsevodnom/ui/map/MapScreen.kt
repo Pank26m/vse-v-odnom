@@ -99,6 +99,7 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var settingsStart by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf<MapTarget?>(null) }
     var selTrack by remember { mutableStateOf<Track?>(null) }
+    var drag by remember { mutableStateOf<Drag?>(null) }
     var pickStop by remember { mutableStateOf<Int?>(null) }          // выбор точки маршрута на карте: индекс или −1 — новая остановка
     var searchFor by remember { mutableStateOf<Int?>(null) }        // поиск для точки маршрута: индекс или −1 — новая остановка
     var trackColor by remember { mutableStateOf("") }      // раскраска выбранного трека: alt | speed | slope
@@ -125,6 +126,8 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     var navFreeAt by remember { mutableLongStateOf(0L) }       // навигация: когда карту тронули рукой
     var similar by remember { mutableStateOf<Pair<String, List<GeoHit>>?>(null) }
     var simIdx by remember { mutableIntStateOf(0) }
+    var simSearch by remember { mutableStateOf<Pair<String, Int>?>(null) }   // идёт поиск похожих: что ищем, сколько нашлось
+    var simJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     LaunchedEffect(MapUi.reselect) { if (MapUi.reselect > 0) { clean = false; frameMenu = false } }
 
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -206,6 +209,47 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
             override fun onGesture() { if (Nav.session != null) navFreeAt = System.currentTimeMillis() }
             override fun onFollow(mode: Int) { locMode = mode }
             override fun onLongTap(lat: Double, lon: Double) = open(MapTarget("Точка на карте", "", lat, lon))
+            // перетаскивание (как в Guru): остановка маршрута, своя метка, точка открытого трека
+            override fun onDragStart(x: Float, y: Float): Boolean {
+                val lim = 30 * density
+                var best: Drag? = null; var bd = lim
+                fun near(lat: Double, lon: Double): Float = eng.screenOf(lat, lon)?.let { (sx, sy) -> kotlin.math.hypot(sx - x, sy - y) } ?: Float.MAX_VALUE
+                if (RoutePlan.active) RoutePlan.points.forEachIndexed { i, sp -> if (sp != null) { val d = near(sp.lat, sp.lon); if (d < bd) { bd = d; best = Drag.Stop(i) } } }
+                val vf = visibleFolders(folders)
+                if (showAll) places.filter { it.visible && (it.folderId == null || it.folderId in vf) }.forEach { pl ->
+                    val d = near(pl.lat, pl.lon); if (d < bd) { bd = d; best = Drag.Mark(pl.id) }
+                }
+                selTrack?.let { t ->
+                    val pts = Osm.decode(t.points)
+                    pts.forEachIndexed { i, g -> val d = near(g.lat, g.lon); if (d < bd) { bd = d; best = Drag.Vertex(t.id, i) } }
+                }
+                drag = best
+                return best != null
+            }
+            override fun onDrag(lat: Double, lon: Double) { if (drag != null) pin(lat, lon) }
+            override fun onDragEnd(lat: Double, lon: Double) {
+                val d = drag ?: return
+                drag = null
+                pin(target?.takeIf { it.place == null }?.lat, target?.takeIf { it.place == null }?.lon)
+                if (lat.isNaN()) return
+                when (d) {
+                    is Drag.Stop -> RoutePlan.points.getOrNull(d.i)?.let { sp ->
+                        RoutePlan.points[d.i] = MapPrefs.Spot(if (sp.name.startsWith("Точка") || sp.name.contains("трека")) sp.name else "Точка на карте", lat, lon); RoutePlan.rev++
+                    }
+                    is Drag.Mark -> AppScope.io.launch {
+                        val pl = AppDb.get(ctx).map().placesNow().firstOrNull { it.id == d.id } ?: return@launch
+                        AppDb.get(ctx).map().upsertPlace(pl.copy(lat = lat, lon = lon))
+                    }
+                    is Drag.Vertex -> AppScope.io.launch {
+                        val t = AppDb.get(ctx).map().track(d.track) ?: return@launch
+                        val pts = Osm.decode(t.points).toMutableList()
+                        if (d.i !in pts.indices) return@launch
+                        pts[d.i] = pts[d.i].copy(lat = lat, lon = lon, alt = Double.NaN)
+                        var len = 0.0; for (k in 1 until pts.size) len += Osm.distance(pts[k - 1], pts[k])
+                        AppDb.get(ctx).map().upsertTrack(t.copy(points = Osm.encode(pts), distanceM = len))
+                    }
+                }
+            }
             override fun onTap(x: Float, y: Float, lat: Double, lon: Double) {
                 when (val u = eng.userObjectAt(x, y)) {
                     is UserHit.PlaceHit -> { AppScope.io.launch {
@@ -225,14 +269,11 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 }
                 if (target != null || selTrack != null) { closeAll(); return }
                 val f = eng.featureAt(x, y, lat, lon)
+                // объекта нет — может, улица с именем (поиск в фоне, карта не подвисает); иначе ничего
+                // (Nominatim раньше подставлял ближайшую названную улицу — убран)
                 if (f == null) {
-                    // в данных GLMap под пальцем ничего — спросим Nominatim, что за улица (при интернете)
-                    if (Net.online && !MapPrefs.offlineOnly(ctx)) scope.launch {
-                        val st = Streets.nearestOnline(lat, lon) ?: return@launch
-                        val path = st.highway in GlEngine.PATHS
-                        openFeature(FeatureHit(MapTarget(st.name ?: if (path) "Тропа без названия" else "Улица без названия", Streets.kind(st.highway), lat, lon,
-                            props = st.tags + ("kind" to if (path) "route" else "street") + (if (st.osmUrl.isNotBlank()) mapOf("osm_url" to st.osmUrl) else emptyMap())), st.lines.ifEmpty { null }))
-                    }
+                    val m = eng.streetRadius() ?: return
+                    scope.launch { eng.streetAt(lat, lon, m)?.let { if (target == null && selTrack == null) openFeature(it) } }
                     return
                 }
                 openFeature(f)
@@ -315,8 +356,8 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
     }
     LaunchedEffect(gen, tracks, visF, showAll, RoutePlan.editTrack, RoutePlan.active) {
         // правленый трек прячем — на его месте новый маршрут планировщика
-        // (запись GPS/импорт сами не перезаписываются — их не прячем)
-        val hide = RoutePlan.editTrack?.takeIf { RoutePlan.active && routeWay(it) != null }?.id
+        // (и запись/импорт тоже: владелец просил не показывать старую линию за новой)
+        val hide = RoutePlan.editTrack?.takeIf { RoutePlan.active }?.id
         val list = if (!showAll) emptyList() else tracks.filter { it.visible && (it.folderId == null || it.folderId in visF) && it.id != hide }
         val lines = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             list.mapNotNull { t -> Osm.decode(t.points).takeIf { it.size >= 2 }?.let { OvLine(t.id, it, colorOr(t.color, TRACK_COLOR)) } }
@@ -592,6 +633,15 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 RoutePlan.route?.let { r -> val way = listOfNotNull(myLoc) + RoutePlan.points.drop(1).filterNotNull().map { GeoPt(it.lat, it.lon, 0) }
                     startNav(r, RoutePlan.dest?.name ?: "", way, RoutePlan.mode); RoutePlan.close() }
             }, onPickMap = { i -> pickStop = i }, onSearch = { i -> searchFor = i; sheet = MapSheet.SEARCH })
+            // плашка поиска похожих: «Ищу … · найдено 7», отмена — крестик
+            simSearch?.let { (what, n) ->
+                Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 6.dp).fillMaxWidth().shadow(6.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(Pal.Card)
+                    .padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Pal.SkyInk)
+                    Text("Ищу «${what.lowercase()}» рядом… найдено $n", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+                    IconButton({ simJob?.cancel(); simSearch = null }) { Icon(Icons.Rounded.Close, "Отменить поиск", tint = Pal.Muted) }
+                }
+            }
             similar?.let { (title, hits) -> if (target != null) {
                 fun go(i: Int) { simIdx = (i + hits.size) % hits.size; val h = hits[simIdx]; flyAbove(h.lat, h.lon, 16.0); open(MapTarget(h.name, h.address, h.lat, h.lon, props = GlFind.propsOf(h.kind))) }
                 Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 6.dp).fillMaxWidth().shadow(6.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(Pal.Card)
@@ -607,14 +657,18 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                     onRoute = { kind, sp -> RoutePlan.open(ctx); RoutePlan.collapsed = false; when (kind) { "from" -> RoutePlan.setFrom(sp); "stop" -> RoutePlan.addStop(sp); else -> RoutePlan.setTo(sp) }; closeAll() },
                     onSaved = { pl -> open(MapTarget(pl.name, "Моя метка", pl.lat, pl.lon, pl, if (t.place == null) mapOf("edit" to "1") else emptyMap())) },
                     onSimilar = { tt ->
-                        scope.launch {
+                        simJob?.cancel()
+                        simJob = scope.launch {
                             // вид места: из свойств объекта карты, иначе — ближайший объект OSM (для меток и мест из поиска Google)
                             val kv = tt.props["osm_key"]?.let { k -> tt.props["osm_value"]?.let { k to it } }
                                 ?: GlFind.KEYS.firstOrNull { tt.props[it] != null && it != "building" }?.let { it to tt.props[it]!! }
                                 ?: GlFind.kindNear(tt.lat, tt.lon, tt.place?.name ?: tt.name)
                             if (kv == null) { Toast.makeText(ctx, if (!Net.online) "Не знаю, что это за место — без интернета похожие не найти" else "Не удалось понять, что это за место", Toast.LENGTH_LONG).show(); return@launch }
-                            Toast.makeText(ctx, "Ищу: ${MapNames.label(kv.first, kv.second).lowercase()} рядом…", Toast.LENGTH_SHORT).show()
-                            val hits = GlFind.similar(ctx, kv.first, kv.second, tt.lat, tt.lon)
+                            val what = MapNames.label(kv.first, kv.second)
+                            simSearch = what to 0
+                            val hits = try {
+                                GlFind.similar(ctx, kv.first, kv.second, tt.lat, tt.lon) { n -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { simSearch = what to n } }
+                            } finally { simSearch = null }
                             if (hits.isEmpty()) { Toast.makeText(ctx, if (!Net.online && !GlFind.offlineAvailable()) "Без интернета похожие ищутся по скачанной карте (Загрузка карт)" else "Похожих рядом не нашлось", Toast.LENGTH_LONG).show(); return@launch }
                             eng.setSimilar(hits)
                             similar = MapNames.label(kv.first, kv.second) to hits; simIdx = 0
@@ -853,3 +907,9 @@ private fun NavBottom(s: Nav.Session, onStop: () -> Unit) {
     }
 }
 
+/** Что тащим пальцем по карте. */
+internal sealed class Drag {
+    data class Stop(val i: Int) : Drag()
+    data class Mark(val id: Long) : Drag()
+    data class Vertex(val track: Long, val i: Int) : Drag()
+}

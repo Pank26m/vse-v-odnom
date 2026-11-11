@@ -67,11 +67,14 @@ object GlRoute {
         runCatching {
             val c = r.trackCoordinates
             if (c != null && c.size >= 4) {
-                val pts = (0 until c.size / 2).map { geo(MapPoint(c[it * 2].toDouble(), c[it * 2 + 1].toDouble())) }
+                // нули между участками маршрута — во внутренних координатах GLMap это левый нижний угол мира (Антарктида):
+                // из-за них при «Остановках» линия уходила через всю планету. Нули и выбросы выбрасываем.
+                val idx = (0 until c.size / 2).filter { c[it * 2] != 0 || c[it * 2 + 1] != 0 }
+                val pts = GeoFiles.clean(idx.map { geo(MapPoint(c[it * 2].toDouble(), c[it * 2 + 1].toDouble())) })
                 if (near(pts)) return pts
-                val pts2 = (0 until c.size / 2).map { GeoPt(c[it * 2].toDouble() / 1e6, c[it * 2 + 1].toDouble() / 1e6, 0) }
+                val pts2 = GeoFiles.clean(idx.map { GeoPt(c[it * 2].toDouble() / 1e6, c[it * 2 + 1].toDouble() / 1e6, 0) })
                 if (near(pts2)) return pts2
-                val pts3 = (0 until c.size / 2).map { GeoPt(c[it * 2 + 1].toDouble() / 1e6, c[it * 2].toDouble() / 1e6, 0) }
+                val pts3 = GeoFiles.clean(idx.map { GeoPt(c[it * 2 + 1].toDouble() / 1e6, c[it * 2].toDouble() / 1e6, 0) })
                 if (near(pts3)) return pts3
             }
         }
@@ -81,11 +84,11 @@ object GlRoute {
             r.maneuvers.forEach { m ->
                 m.line?.use { l ->
                     val n = l.pointCount
-                    for (i in 0 until n) { l.getPointAtIndex(i, tmp); val g = geo(tmp); if (out.isEmpty() || Osm.distance(out.last(), g) > 0.5) out += g }
+                    for (i in 0 until n) { l.getPointAtIndex(i, tmp); if (tmp.x == 0.0 && tmp.y == 0.0) continue; val g = geo(tmp); if (out.isEmpty() || Osm.distance(out.last(), g) > 0.5) out += g }
                 }
             }
         }
-        return out
+        return GeoFiles.clean(out)
     }
 
     private fun cmd(type: Int): Int? = when (type) {

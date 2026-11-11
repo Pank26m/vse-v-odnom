@@ -20,8 +20,6 @@ object OnlineMaps {
     val BUILT_IN = listOf(
         Source("osm", "OpenStreetMap", listOf(Layer(listOf("https://tile.openstreetmap.org/{z}/{x}/{y}.png"), maxZoom = 19)), "© OpenStreetMap", true),
         Source("topo", "OpenTopoMap (рельеф)", listOf(Layer(listOf("a", "b", "c").map { "https://$it.tile.opentopomap.org/{z}/{x}/{y}.png" }, maxZoom = 17)), "© OpenTopoMap, OpenStreetMap", true),
-        Source("esri", "Спутник (Esri)", listOf(Layer(listOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"), maxZoom = 19)), "© Esri", true),
-        Source("cyclosm", "CyclOSM (вело)", listOf(Layer(listOf("a", "b", "c").map { "https://$it.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png" }, maxZoom = 20)), "© CyclOSM, OpenStreetMap", true),
     )
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("map", Context.MODE_PRIVATE)

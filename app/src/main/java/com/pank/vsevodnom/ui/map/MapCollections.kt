@@ -50,6 +50,8 @@ internal fun CollectionsScreen(
     var editTrack by remember { mutableStateOf<Track?>(null) }
     var importing by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
+    var hiddenOnly by remember { mutableStateOf(false) }   // «Показать скрытые вручную»
+    val archiveId = remember(folders) { MapArchive.id(ctx)?.takeIf { a -> folders.any { it.id == a } } }
     val byId = folders.associateBy { it.id }
 
     fun descendants(id: Long): Set<Long> { val out = HashSet<Long>(); fun go(x: Long) { folders.filter { it.parentId == x }.forEach { if (out.add(it.id)) go(it.id) } }; go(id); return out }
@@ -71,14 +73,26 @@ internal fun CollectionsScreen(
         }
     }
 
-    val title = cur?.let { byId[it]?.name } ?: "Коллекции"
-    FullScreen(title, onDismiss = { if (selected.isNotEmpty()) selected = emptySet() else if (cur != null) cur = byId[cur]?.parentId else onDismiss() }, actions = {
-        var byDate by remember { mutableStateOf(MapPrefs.bool(ctx, "coll_by_date", false)) }
-        IconButton({ byDate = !byDate; MapPrefs.setBool(ctx, "coll_by_date", byDate) }) {
-            Icon(if (byDate) Icons.Rounded.Schedule else Icons.Rounded.SortByAlpha, if (byDate) "Сначала новые" else "По алфавиту", tint = Pal.Muted) }
-        IconButton({ onShowAll(!showAll) }) { Icon(if (showAll) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, if (showAll) "Скрыть всё на карте" else "Показать всё на карте", tint = if (showAll) Pal.SkyInk else Pal.Muted) }
-        IconButton({ newFolder = true }) { Icon(Icons.Rounded.CreateNewFolder, "Новая папка") }
-        IconButton({ import.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.FileOpen, "Импорт GPX/KML") }
+    val title = if (hiddenOnly) "Скрытые вручную" else cur?.let { byId[it]?.name } ?: "Коллекции"
+    var byDate by remember { mutableStateOf(MapPrefs.bool(ctx, "coll_by_date", false)) }
+    FullScreen(title, onDismiss = { if (selected.isNotEmpty()) selected = emptySet() else if (hiddenOnly) hiddenOnly = false else if (cur != null) cur = byId[cur]?.parentId else onDismiss() }, actions = {
+        // всё в одном меню ⋮ (раньше — четыре значка в шапке)
+        var menu by remember { mutableStateOf(false) }
+        Box {
+            IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Меню") }
+            DropdownMenu(menu, { menu = false }) {
+                DropdownMenuItem({ Text(if (showAll) "Скрыть всё на карте" else "Показать всё на карте") }, { menu = false; onShowAll(!showAll) },
+                    leadingIcon = { Icon(if (showAll) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null) })
+                DropdownMenuItem({ Text("Показать скрытые вручную") }, { menu = false; hiddenOnly = true; cur = null; query = "" }, leadingIcon = { Icon(Icons.Rounded.VisibilityOff, null) })
+                DropdownMenuItem({ Text("Архив") }, { menu = false; hiddenOnly = false; query = ""
+                    AppScope.io.launch { val a = MapArchive.ensure(ctx); withContext(Dispatchers.Main) { cur = a } } }, leadingIcon = { Icon(Icons.Rounded.Inventory2, null) })
+                HorizontalDivider()
+                DropdownMenuItem({ Text("Новая папка") }, { menu = false; newFolder = true }, leadingIcon = { Icon(Icons.Rounded.CreateNewFolder, null) })
+                DropdownMenuItem({ Text("Импорт GPX / KML / KMZ") }, { menu = false; import.launch(arrayOf("*/*")) }, leadingIcon = { Icon(Icons.Rounded.FileOpen, null) })
+                DropdownMenuItem({ Text(if (byDate) "Сортировка: по алфавиту" else "Сортировка: сначала новые") }, { menu = false; byDate = !byDate; MapPrefs.setBool(ctx, "coll_by_date", byDate) },
+                    leadingIcon = { Icon(if (byDate) Icons.Rounded.SortByAlpha else Icons.Rounded.Schedule, null) })
+            }
+        }
     }) {
         if (cur != null) Text(folderPath(cur, folders), style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(horizontal = 20.dp))
         importing?.let { Row(Modifier.padding(16.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp); Text("  $it", style = MaterialTheme.typography.bodySmall) } }
@@ -87,6 +101,16 @@ internal fun CollectionsScreen(
             Chip("Переместить", false, { moving = true })
             Chip("Показать", false, { val s = selected; AppScope.io.launch { show(dao, s, true) }; selected = emptySet() })
             Chip("Скрыть", false, { val s = selected; AppScope.io.launch { show(dao, s, false) }; selected = emptySet() })
+            if (cur != archiveId || archiveId == null) Chip("В архив", false, {
+                val s = selected
+                AppScope.io.launch {
+                    val a = MapArchive.ensure(ctx)
+                    dao.movePlaces(s.filter { it[0] == 'p' }.map { it.drop(1).toLong() }, a)
+                    dao.moveTracks(s.filter { it[0] == 't' }.map { it.drop(1).toLong() }, a)
+                    dao.moveFolders(s.filter { it[0] == 'f' }.map { it.drop(1).toLong() }.filter { it != a }, a)
+                }
+                selected = emptySet()
+            })
             Chip("Удалить", false, {
                 val s = selected
                 AppScope.io.launch {
@@ -99,12 +123,26 @@ internal fun CollectionsScreen(
                 selected = emptySet()
             })
         }
-        if (cur == null) AppTextField(query, { query = it }, "Найти в коллекциях", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        if (cur == null && !hiddenOnly) AppTextField(query, { query = it }, "Найти в коллекциях", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        if (cur != null && cur == archiveId) Text("Архив: не удалено, просто убрано с карты и из списка. Вернуть — долгое нажатие → «Переместить».",
+            style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp))
         val q = query.trim().lowercase()
-        val subFolders = if (q.isNotEmpty()) folders.filter { it.name.lowercase().contains(q) } else folders.filter { it.parentId == cur }.sortedWith(compareBy({ it.sort }, { it.name.lowercase() }))
-        val byDate = MapPrefs.bool(ctx, "coll_by_date", false)
-        val ps = if (q.isNotEmpty()) places.filter { it.name.lowercase().contains(q) } else places.filter { it.folderId == cur }.let { l -> if (byDate) l.sortedByDescending { it.createdAt } else l.sortedBy { it.name.lowercase() } }
-        val ts = if (q.isNotEmpty()) tracks.filter { it.name.lowercase().contains(q) } else tracks.filter { it.folderId == cur }
+        val inArchive = archiveId?.let { a -> descendants(a) + a }.orEmpty()
+        val subFolders = when {
+            hiddenOnly -> emptyList()
+            q.isNotEmpty() -> folders.filter { it.name.lowercase().contains(q) && it.id !in inArchive }
+            else -> folders.filter { it.parentId == cur && (cur != null || it.id != archiveId) }.sortedWith(compareBy({ it.sort }, { it.name.lowercase() }))
+        }
+        val ps = when {
+            hiddenOnly -> places.filter { !it.visible && it.folderId !in inArchive }
+            q.isNotEmpty() -> places.filter { it.name.lowercase().contains(q) && it.folderId !in inArchive }
+            else -> places.filter { it.folderId == cur }
+        }.let { l -> if (byDate) l.sortedByDescending { it.createdAt } else l.sortedBy { it.name.lowercase() } }
+        val ts = when {
+            hiddenOnly -> tracks.filter { !it.visible && it.folderId !in inArchive }
+            q.isNotEmpty() -> tracks.filter { it.name.lowercase().contains(q) && it.folderId !in inArchive }
+            else -> tracks.filter { it.folderId == cur }
+        }
         // быстрый выбор для чистки: всё здесь, только метки/треки, по цвету, по значку
         if (ps.isNotEmpty() || ts.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -189,7 +227,8 @@ internal fun CollectionsScreen(
                     IconButton({ editTrack = t }) { Icon(Icons.Rounded.Edit, "Изменить", tint = Pal.Muted) }
                 }
             }
-            if (cur == null && (places.isNotEmpty() || tracks.isNotEmpty())) item {
+            if (hiddenOnly && ps.isEmpty() && ts.isEmpty()) item { EmptyHint("Скрытых вручную меток и треков нет", Modifier.padding(top = 20.dp)) }
+            if (cur == null && !hiddenOnly && (places.isNotEmpty() || tracks.isNotEmpty())) item {
                 Text("Всего: ${places.size} меток, ${tracks.size} треков, ${folders.size} папок. Долгое нажатие — выбрать несколько и переместить.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
             }
         }
@@ -256,4 +295,22 @@ private fun FolderEditor(f: MapFolder, onDismiss: () -> Unit, onExport: (() -> U
                 onDismiss()
             }) { Text("Удалить папку", color = Pal.RoseInk) } else TextButton(onDismiss) { Text("Отмена") }
         })
+}
+
+/**
+ * Архив коллекций — служебная папка (id в prefs map/archive_folder): метки и треки не удаляются, а убираются с карты
+ * и из общего списка. Сама папка скрыта (visible=false) — значит и всё в ней на карте не рисуется.
+ */
+internal object MapArchive {
+    private const val KEY = "archive_folder"
+    fun id(ctx: android.content.Context): Long? = MapPrefs.p(ctx).getLong(KEY, 0L).takeIf { it > 0 }
+    suspend fun ensure(ctx: android.content.Context): Long {
+        val dao = AppDb.get(ctx).map()
+        id(ctx)?.let { id -> if (dao.foldersNow().any { it.id == id }) return id }
+        val id = dao.upsertFolder(MapFolder(parentId = null, name = "Архив", visible = false, sort = Int.MAX_VALUE))
+        MapPrefs.p(ctx).edit().putLong(KEY, id).apply()
+        return id
+    }
+    suspend fun place(ctx: android.content.Context, p: Place) { val a = ensure(ctx); AppDb.get(ctx).map().upsertPlace(p.copy(folderId = a)) }
+    suspend fun track(ctx: android.content.Context, t: Track) { val a = ensure(ctx); AppDb.get(ctx).map().upsertTrack(t.copy(folderId = a)) }
 }
