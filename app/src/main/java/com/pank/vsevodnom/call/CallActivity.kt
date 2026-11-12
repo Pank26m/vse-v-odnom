@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,7 +51,9 @@ fun CallScreen(onEnd: () -> Unit) {
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
     var keypad by remember { mutableStateOf(false) }
     var dtmf by remember { mutableStateOf("") }
-    val num = c?.let { CallState.number(it) } ?: ""
+    val num0 = c?.let { CallState.number(it) } ?: ""
+    LaunchedEffect(num0) { if (num0.isNotBlank() && num0 != CallState.lastNumber) { CallState.lastNumber = num0; CallState.lastName = CallState.name(ctx, num0) } }
+    val num = num0.ifBlank { if (c == null) CallState.lastNumber else "" }
     val who = remember(num) { CallState.name(ctx, num) }
     val st = c?.state ?: Call.STATE_DISCONNECTED
     val audio = CallState.audio
@@ -59,6 +62,17 @@ fun CallScreen(onEnd: () -> Unit) {
     val hasBt = (audio?.supportedRouteMask ?: 0) and CallAudioState.ROUTE_BLUETOOTH != 0
     val held = st == Call.STATE_HOLDING
     val connectTime = c?.details?.connectTimeMillis ?: 0L
+    // запись разговора (запасной запуск — служба звонков тоже запускает; повтор безопасен)
+    LaunchedEffect(st) { if (st == Call.STATE_ACTIVE) c?.let { CallState.startRec(ctx, it) } }
+    // экран гаснет у уха: датчик приближения, пока разговор и не громкая связь / Bluetooth
+    val nearEar = (st == Call.STATE_ACTIVE || st == Call.STATE_DIALING || st == Call.STATE_CONNECTING || st == Call.STATE_HOLDING) && !speaker && audio?.route != CallAudioState.ROUTE_BLUETOOTH && !keypad
+    DisposableEffect(nearEar) {
+        val pm = ctx.getSystemService(android.os.PowerManager::class.java)
+        val wl = if (nearEar && pm.isWakeLockLevelSupported(android.os.PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK))
+            pm.newWakeLock(android.os.PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "vse:proximity").apply { setReferenceCounted(false); acquire(4 * 3600_000L) } else null
+        onDispose { wl?.let { runCatching { it.release(android.os.PowerManager.RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY) } } }
+    }
+    var volume by remember { mutableStateOf(false) }
     val status = when (st) {
         Call.STATE_RINGING -> "Входящий звонок"
         Call.STATE_DIALING, Call.STATE_CONNECTING -> "Набираю…"
@@ -76,6 +90,9 @@ fun CallScreen(onEnd: () -> Unit) {
         Text(who ?: num.ifBlank { "Скрытый номер" }, style = MaterialTheme.typography.headlineMedium, color = Color.White, textAlign = TextAlign.Center)
         if (who != null) Text(num, style = MaterialTheme.typography.bodyLarge, color = Color.White.copy(alpha = 0.7f))
         Text(status, style = MaterialTheme.typography.titleMedium, color = if (held) Color(0xFFF2BE45) else Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 8.dp))
+        if (CallRec.active) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(Red)); Text("  запись", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
+        }
         // второй звонок: переключение
         CallState.calls.filter { it !== c }.forEach { o ->
             Row(Modifier.padding(top = 12.dp).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.1f)).clickable {
@@ -93,7 +110,7 @@ fun CallScreen(onEnd: () -> Unit) {
         } else if (st != Call.STATE_RINGING) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Toggle(if (muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, "Микрофон", muted) { CallState.mute(!muted) }
-                Toggle(Icons.Rounded.VolumeUp, "Динамик", speaker) { CallState.speaker(!speaker) }
+                Toggle(Icons.Rounded.VolumeUp, "Динамик", speaker, onLong = { volume = true }) { CallState.speaker(!speaker) }
                 Toggle(Icons.Rounded.Pause, "Удержать", held) { if (held) c?.unhold() else c?.hold() }
             }
             Spacer(Modifier.height(18.dp))
@@ -114,12 +131,32 @@ fun CallScreen(onEnd: () -> Unit) {
         }
         Spacer(Modifier.height(24.dp))
     }
+    if (volume) VolumeDialog { volume = false }
 }
 
+/** Громкость разговора (долгое нажатие на «Динамик»): ползунок потока голосового вызова. */
 @Composable
-private fun Toggle(icon: ImageVector, label: String, on: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+private fun VolumeDialog(onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val am = remember { ctx.getSystemService(android.media.AudioManager::class.java) }
+    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_VOICE_CALL)
+    val min = am.getStreamMinVolume(android.media.AudioManager.STREAM_VOICE_CALL)
+    var v by remember { mutableFloatStateOf(am.getStreamVolume(android.media.AudioManager.STREAM_VOICE_CALL).toFloat()) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Громкость разговора") }, text = {
+        Column {
+            Slider(v, { v = it; runCatching { am.setStreamVolume(android.media.AudioManager.STREAM_VOICE_CALL, it.toInt(), 0) } },
+                valueRange = min.toFloat()..max.toFloat(), steps = (max - min - 1).coerceAtLeast(0))
+            Text("${v.toInt()} из $max", style = MaterialTheme.typography.bodySmall)
+        }
+    }, confirmButton = { TextButton(onDismiss) { Text("Готово") } })
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun Toggle(icon: ImageVector, label: String, on: Boolean, enabled: Boolean = true, onLong: (() -> Unit)? = null, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(92.dp)) {
-        Box(Modifier.size(64.dp).clip(CircleShape).background(if (on) Color.White else Color.White.copy(alpha = if (enabled) 0.14f else 0.05f)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(64.dp).clip(CircleShape).background(if (on) Color.White else Color.White.copy(alpha = if (enabled) 0.14f else 0.05f))
+            .combinedClickable(enabled = enabled, onLongClick = onLong, onClick = onClick), contentAlignment = Alignment.Center) {
             Icon(icon, label, tint = if (on) Color(0xFF2E3350) else Color.White.copy(alpha = if (enabled) 1f else 0.3f))
         }
         Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp), textAlign = TextAlign.Center, maxLines = 2)

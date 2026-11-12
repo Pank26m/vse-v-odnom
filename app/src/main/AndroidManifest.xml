@@ -268,6 +268,12 @@
             <intent-filter><action android:name="android.telecom.InCallService" /></intent-filter>
         </service>
         <receiver android:name=".call.CallActionReceiver" android:exported="false" />
+        <service android:name=".call.CallRecService" android:exported="false" android:foregroundServiceType="microphone" />
+        <service android:name=".call.CallRecAccess" android:exported="false" android:label="@string/callrec_access_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/callrec_access" />
+        </service>
         <receiver android:name=".data.EventReminderReceiver" android:exported="false" />
         <receiver android:name=".data.HabitReminderReceiver" android:exported="false" />
         <receiver android:name=".data.PowerReminderReceiver" android:exported="false" />

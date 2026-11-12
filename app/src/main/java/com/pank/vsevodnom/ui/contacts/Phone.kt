@@ -286,7 +286,8 @@ private fun RecentsTab(st: PhoneState, onBack: () -> Unit, onOpen: (Contact) -> 
                 val who = st.byNumber(c.number)
                 val (icon, tint) = callTypeIcon(c.type)
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card)
-                    .combinedClickable(onClick = { if (c.number.isNotBlank()) ContactsRepo.call(ctx, c.number) }, onLongClick = { numberMenu = g })
+                    // нажатие — сведения (карточка контакта или меню номера); звонок — только значком справа
+                    .combinedClickable(onClick = { if (who != null) onOpen(who) else numberMenu = g }, onLongClick = { numberMenu = g })
                     .padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (who != null) Box(Modifier.clickable { onOpen(who) }) { Avatar(who.name, 42, who.photo) } else UnknownAvatar(42)
                     Spacer(Modifier.width(12.dp))
@@ -302,8 +303,10 @@ private fun RecentsTab(st: PhoneState, onBack: () -> Unit, onOpen: (Contact) -> 
                                 style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
                         }
                     }
-                    who?.let { w -> st.msgrs[w.id]?.minByOrNull { it.ordinal }?.let { MsgrIcon(it, 18); Spacer(Modifier.width(8.dp)) } }
-                    Icon(Icons.Rounded.Call, "Позвонить", tint = Pal.MintInk)
+                    who?.let { w -> st.msgrs[w.id]?.minByOrNull { it.ordinal }?.let { MsgrIcon(it, 18); Spacer(Modifier.width(4.dp)) } }
+                    if (c.number.isNotBlank()) Box(Modifier.size(44.dp).clip(CircleShape).background(Pal.Mint).clickable { callOnce(ctx, c.number) }, contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Call, "Позвонить", tint = Pal.MintInk)
+                    }
                 }
             }
         }
@@ -311,6 +314,15 @@ private fun RecentsTab(st: PhoneState, onBack: () -> Unit, onOpen: (Contact) -> 
     numberMenu?.let { g -> NumberMenu(g.first.number, st, g.all.map { it.id }, onDismiss = { numberMenu = null }, onOpen = onOpen, onNewContact = onNewContact) }
     if (settings) ScreenerDialog { settings = false }
     if (speed) SpeedDialDialog(st) { speed = false }
+}
+
+/** Звонок с защитой от повторного нажатия: пока идёт (или только что начался) звонок — второй не начинаем. */
+private var lastCallAt = 0L
+fun callOnce(ctx: android.content.Context, number: String) {
+    val now = System.currentTimeMillis()
+    if (com.pank.vsevodnom.call.CallState.calls.isNotEmpty() || now - lastCallAt < 3000) return
+    lastCallAt = now
+    ContactsRepo.call(ctx, number)
 }
 
 /** itemsIndexed без лишнего импорта. */

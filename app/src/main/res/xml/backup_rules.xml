@@ -11,6 +11,7 @@
     <exclude domain="file" path=".mbgl-offline.db" />
     <exclude domain="file" path="map/" />
     <exclude domain="file" path="gcache/" />
+    <exclude domain="file" path="callrec/" />
     <exclude domain="external" path="maps/" />
     <!-- GLMap: кэш тайлов и рельефа, онлайн-карты, рельеф мира, мир -->
     <exclude domain="file" path="tileCache.db" />

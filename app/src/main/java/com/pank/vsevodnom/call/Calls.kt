@@ -39,6 +39,20 @@ object CallState {
 
     fun number(c: Call): String = c.details?.handle?.schemeSpecificPart ?: ""
 
+    /** Последний собеседник: после сброса звонок исчезает из списка, а экран ещё секунду виден —
+     *  раньше в эту секунду писалось «Скрытый номер». */
+    var lastNumber by mutableStateOf("")
+    var lastName by mutableStateOf<String?>(null)
+    private val incoming = HashMap<Call, Boolean>()
+    fun remember(ctx: Context, c: Call) {
+        incoming[c] = c.state == Call.STATE_RINGING || c.details?.callDirection == Call.Details.DIRECTION_INCOMING
+        val n = number(c); if (n.isNotBlank()) { lastNumber = n; lastName = name(ctx, n) }
+    }
+    fun startRec(ctx: Context, c: Call) {
+        val n = number(c)
+        CallRec.start(ctx, n, name(ctx, n), incoming[c] ?: (c.details?.callDirection == Call.Details.DIRECTION_INCOMING))
+    }
+
     fun name(ctx: Context, number: String): String? = runCatching {
         if (number.isBlank()) return null
         ctx.contentResolver.query(Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number)), arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)
@@ -84,7 +98,11 @@ object CallState {
 
 class CallService : InCallService() {
     private val cb = object : Call.Callback() {
-        override fun onStateChanged(call: Call, state: Int) { CallState.tick++; if (state == Call.STATE_ACTIVE || state == Call.STATE_DISCONNECTED) notifyCall() }
+        override fun onStateChanged(call: Call, state: Int) {
+            CallState.tick++
+            if (state == Call.STATE_ACTIVE) { notifyCall(); CallState.startRec(this@CallService, call) }
+            if (state == Call.STATE_DISCONNECTED) notifyCall()
+        }
         override fun onDetailsChanged(call: Call, details: Call.Details) { CallState.tick++ }
     }
 
@@ -93,6 +111,7 @@ class CallService : InCallService() {
 
     override fun onCallAdded(call: Call) {
         call.registerCallback(cb)
+        CallState.remember(this, call)
         CallState.calls.add(call); CallState.tick++
         notifyCall()
         runCatching { startActivity(Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
@@ -102,15 +121,17 @@ class CallService : InCallService() {
         call.unregisterCallback(cb)
         CallState.calls.remove(call); CallState.tick++
         if (CallState.peerQuiet) CallState.quietPeer(this, false)
-        if (CallState.calls.isEmpty()) getSystemService(NotificationManager::class.java).cancel(NID) else notifyCall()
+        if (CallState.calls.isEmpty()) { getSystemService(NotificationManager::class.java).cancel(NID); com.pank.vsevodnom.call.CallRec.stop(this) } else notifyCall()
     }
 
     override fun onCallAudioStateChanged(audioState: CallAudioState?) { CallState.audio = audioState }
 
-    /** Уведомление звонка: при входящем — на весь экран (даже на заблокированном), с кнопками «Ответить» / «Сбросить». */
+    /** Уведомление звонка — только для входящего: на весь экран (даже на заблокированном), «Ответить» / «Сбросить».
+     *  Во время разговора уведомления нет (просьба владельца): вернуться к звонку — через приложение. */
     private fun notifyCall() {
         val c = CallState.current ?: return
         val nm = getSystemService(NotificationManager::class.java)
+        if (c.state != Call.STATE_RINGING) { nm.cancel(NID); return }
         nm.createNotificationChannel(NotificationChannel(CH, "Звонки", NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) })
         val open = PendingIntent.getActivity(this, 70, Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         fun act(a: String, rc: Int) = PendingIntent.getBroadcast(this, rc, Intent(this, CallActionReceiver::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)

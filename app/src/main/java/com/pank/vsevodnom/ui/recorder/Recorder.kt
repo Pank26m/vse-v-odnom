@@ -172,7 +172,13 @@ fun RecorderScreen(onBack: () -> Unit) {
         else micPerm.launch(Manifest.permission.RECORD_AUDIO)
     }
 
+    var tab by remember { mutableIntStateOf(0) }
     ScreenScaffold("Диктофон", onBack) {
+        Row(Modifier.padding(16.dp, 0.dp, 16.dp, 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("Записи", tab == 0, { tab = 0 })
+            Chip("Разговоры", tab == 1, { stopPlay(); tab = 1 })
+        }
+        if (tab == 1) { CallRecordsTab(); return@ScreenScaffold }
         AppCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Pal.Rose, radius = 16.dp) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (RecState.recording) fmtDur(now - RecState.startedAt) else "Готов к записи", style = MaterialTheme.typography.displayMedium)
