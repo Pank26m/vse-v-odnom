@@ -71,6 +71,7 @@ fun PlayerBar(modifier: Modifier = Modifier) {
             IconButton({ Player.prev() }) { Icon(Icons.Rounded.SkipPrevious, "Назад", tint = Color.White) }
             IconButton({ Player.toggle() }) { Icon(if (Player.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (Player.playing) "Пауза" else "Играть", tint = Color.White, modifier = Modifier.size(32.dp)) }
             IconButton({ Player.next() }) { Icon(Icons.Rounded.SkipNext, "Дальше", tint = Color.White) }
+            IconButton({ PlayerUi.expanded = false; Player.stop() }) { Icon(Icons.Rounded.Close, "Закрыть плеер", tint = Color.White.copy(alpha = 0.7f)) }
         }
     }
 }

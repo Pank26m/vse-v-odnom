@@ -1,5 +1,6 @@
 package com.pank.vsevodnom.ui.games
 
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -451,7 +452,19 @@ fun DurakScreen(onBack: () -> Unit) {
         return g.playDefense(c, t).also { if (it) tick++ }
     }
 
-    ScreenScaffold("Дурак", onBack, actions = { RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Tune, "Настройки", { opts = true }) }) {
+    // звуки: тасовка в начале партии, шлепок на каждую карту на столе, «сгрести» — когда стол убирают (взял/бито)
+    LaunchedEffect(gen) { GameSfx.shuffle() }
+    val onTable = g.attack.size + g.defense.count { it != null }
+    var prevTable by remember(gen) { mutableIntStateOf(0) }
+    var wasTaking by remember(gen) { mutableStateOf(false) }
+    LaunchedEffect(onTable, g.taking) {
+        if (onTable > prevTable) GameSfx.place() else if (onTable == 0 && prevTable > 0) GameSfx.take()
+        prevTable = onTable; wasTaking = g.taking
+    }
+    ScreenScaffold("Дурак", onBack, actions = {
+        RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Refresh, "Заново", { gen++ })
+        RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Tune, "Настройки", { opts = true })
+    }) {
         Column(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // соперники и колода
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -521,7 +534,6 @@ fun DurakScreen(onBack: () -> Unit) {
                         PillButton(if (g.taking) "Пас" else "Бито", { g.pass(me); tick++ }, Modifier.weight(1f))
                     if (iDefend && unbeaten.isNotEmpty() && !g.taking)
                         PillButton("Беру", { g.taking = true; g.message = "Ты берёшь"; tick++ }, Modifier.weight(1f), bg = Pal.Rose, fg = Pal.RoseInk)
-                    PillButton("Заново", { gen++ }, Modifier.weight(0.6f), bg = Pal.Card, fg = Pal.Ink)
                 }
             }
             // рука веером

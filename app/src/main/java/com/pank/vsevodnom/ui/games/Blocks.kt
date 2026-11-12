@@ -64,7 +64,10 @@ class BlocksGame(private val rnd: Random = Random) {
     init { refill(); spawn() }
 
     private fun refill() { while (next.size < 4) { if (bag.isEmpty()) bag.addAll((0..6).shuffled(rnd)); next += bag.removeAt(0) } }
+    /** Номер текущей фигуры: жест вниз действует только на ту, с которой начался (баг 0.42 — следующая падала сразу). */
+    var pieceNo = 0; private set
     private fun spawn(k: Int = next.removeAt(0)) {
+        pieceNo++
         refill(); kind = k; rot = 0; px = 3; py = if (k == 0) -1 else 0; holdUsed = false
         if (!fits(kind, rot, px, py)) over = true
     }
@@ -137,72 +140,67 @@ fun BlocksScreen(onBack: () -> Unit) {
     val bg = Color(0xFF0E1324)
     Box(Modifier.fillMaxSize().background(bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(8.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("←", color = Color.White, fontSize = 26.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onBack() }.padding(12.dp, 2.dp))
-                Text("Блоки", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.weight(1f))
-                if (started && !over) Text(if (paused) "▶" else "❚❚", color = Color.White, fontSize = 20.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { paused = !paused }.padding(14.dp, 4.dp))
+            // верхняя полоса: назад, счёт, уровень, линии, рекорд, пауза
+            key(tick) {
+                Row(Modifier.fillMaxWidth().padding(6.dp, 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("←", color = Color.White, fontSize = 24.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onBack() }.padding(10.dp, 2.dp))
+                    @Composable fun Stat(t: String, v: String, m: Modifier) = Column(m.clip(RoundedCornerShape(10.dp)).background(Color(0x14FFFFFF)).padding(6.dp, 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(t, color = Color(0xFF8E97B5), fontSize = 10.sp, maxLines = 1); Text(v, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+                    Stat("Очки", "${g.score}", Modifier.weight(1.3f)); Stat("Ур.", "${g.level}", Modifier.weight(0.8f)); Stat("Линии", "${g.lines}", Modifier.weight(1f)); Stat("Рекорд", "${maxOf(best, g.score)}", Modifier.weight(1.3f))
+                    if (started && !over) Text(if (paused) "▶" else "❚❚", color = Color.White, fontSize = 18.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { paused = !paused }.padding(10.dp, 4.dp))
+                }
+                // запас и следующие фигуры — тонкой строкой
+                Row(Modifier.fillMaxWidth().padding(10.dp, 0.dp, 10.dp, 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.width(70.dp).height(38.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x14FFFFFF)).clickable { act { g.swapHold() } }, contentAlignment = Alignment.Center) {
+                        if (g.hold >= 0) Canvas(Modifier.size(56.dp, 32.dp)) { preview(g.hold) } else Text("запас", color = Color(0xFF59607A), fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("дальше", color = Color(0xFF8E97B5), fontSize = 11.sp)
+                    g.next.take(3).forEachIndexed { i, k -> Canvas(Modifier.size(if (i == 0) 52.dp else 40.dp, if (i == 0) 32.dp else 26.dp)) { preview(k) } }
+                }
             }
-            Row(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                // поле: тап — поворот, тянуть влево/вправо — сдвиг по клеткам, вниз — ускорить, резкий взмах вниз — бросить
-                BoxWithConstraints(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-                    val cell = minOf(maxWidth / BlocksGame.W, maxHeight / BlocksGame.H)
-                    Canvas(Modifier.size(cell * BlocksGame.W, cell * BlocksGame.H).clip(RoundedCornerShape(8.dp)).background(Color(0xFF070A14))
-                        .pointerInput(g, started, paused) {
-                            awaitEachGesture {
-                                val d = awaitFirstDown(); val c = size.width / BlocksGame.W.toFloat()
-                                var ax = 0f; var ay = 0f; var moved = false; val t0 = System.currentTimeMillis(); var totalY = 0f
-                                while (true) {
-                                    val ev = awaitPointerEvent(); val ch = ev.changes.firstOrNull { it.id == d.id } ?: break
-                                    if (!ch.pressed) break
-                                    val dl = ch.position - ch.previousPosition; ch.consume()
-                                    ax += dl.x; ay += dl.y; totalY += dl.y
-                                    while (ax > c * 0.9f) { act { g.move(1) }; ax -= c * 0.9f; moved = true }
-                                    while (ax < -c * 0.9f) { act { g.move(-1) }; ax += c * 0.9f; moved = true }
-                                    while (ay > c) { act { g.down(soft = true) }; ay -= c; moved = true }
-                                }
-                                val dtm = System.currentTimeMillis() - t0
-                                when {
-                                    totalY > c * 3 && dtm < 220 -> act { g.drop() }   // взмах вниз — бросок
-                                    !moved && dtm < 300 -> act { g.rotate() }           // тап — поворот
-                                }
+            // поле — на всю оставшуюся высоту: тап — поворот, тянуть влево/вправо — сдвиг, вниз — ускорить, резкий взмах вниз — бросить
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), contentAlignment = Alignment.TopCenter) {
+                val cell = minOf(maxWidth / BlocksGame.W, maxHeight / BlocksGame.H)
+                Canvas(Modifier.size(cell * BlocksGame.W, cell * BlocksGame.H).clip(RoundedCornerShape(8.dp)).background(Color(0xFF070A14))
+                    .pointerInput(g, started, paused) {
+                        awaitEachGesture {
+                            val d = awaitFirstDown(); val c = size.width / BlocksGame.W.toFloat()
+                            val piece = g.pieceNo
+                            var ax = 0f; var ay = 0f; var moved = false; val t0 = System.currentTimeMillis(); var totalY = 0f
+                            while (true) {
+                                val ev = awaitPointerEvent(); val ch = ev.changes.firstOrNull { it.id == d.id } ?: break
+                                if (!ch.pressed) break
+                                val dl = ch.position - ch.previousPosition; ch.consume()
+                                // фигура легла посреди жеста — остаток жеста новую не трогает
+                                if (g.pieceNo != piece) { moved = true; continue }
+                                ax += dl.x; ay += dl.y; totalY += dl.y
+                                while (ax > c * 0.9f) { act { g.move(1) }; ax -= c * 0.9f; moved = true }
+                                while (ax < -c * 0.9f) { act { g.move(-1) }; ax += c * 0.9f; moved = true }
+                                while (ay > c && g.pieceNo == piece) { act { g.down(soft = true) }; ay -= c; moved = true }
                             }
-                        }) {
-                        @Suppress("UNUSED_EXPRESSION") tick
-                        val cs = size.width / BlocksGame.W
-                        // сетка
-                        for (x in 1 until BlocksGame.W) drawLine(Color(0x14FFFFFF), Offset(x * cs, 0f), Offset(x * cs, size.height), 1f)
-                        for (y in 1 until BlocksGame.H) drawLine(Color(0x14FFFFFF), Offset(0f, y * cs), Offset(size.width, y * cs), 1f)
-                        val flash = System.currentTimeMillis() - g.clearedAt < 250
-                        for (y in 0 until BlocksGame.H) for (x in 0 until BlocksGame.W) { val v = g.grid[y * BlocksGame.W + x]; if (v != 0) block(x * cs, y * cs, cs, BlocksGame.COLORS[v - 1]) }
-                        if (flash) g.cleared.forEach { y -> drawRect(Color.White.copy(alpha = 0.35f), Offset(0f, y * cs), Size(size.width, cs)) }
-                        if (!g.over) {
-                            // тень — где фигура ляжет
-                            val gy = g.ghostY()
-                            g.cells(y = gy).forEach { (x, y) -> if (y >= 0) drawRoundRect(BlocksGame.COLORS[g.kind].copy(alpha = 0.35f), Offset(x * cs + 2, y * cs + 2), Size(cs - 4, cs - 4), CornerRadius(cs * 0.15f), style = Stroke(2f)) }
-                            g.cells().forEach { (x, y) -> if (y >= 0) block(x * cs, y * cs, cs, BlocksGame.COLORS[g.kind]) }
+                            val dtm = System.currentTimeMillis() - t0
+                            when {
+                                g.pieceNo != piece -> {}
+                                totalY > c * 3 && dtm < 220 -> act { g.drop() }   // взмах вниз — бросок
+                                !moved && dtm < 300 -> act { g.rotate() }           // тап — поворот
+                            }
                         }
+                    }) {
+                    @Suppress("UNUSED_EXPRESSION") tick
+                    val cs = size.width / BlocksGame.W
+                    for (x in 1 until BlocksGame.W) drawLine(Color(0x14FFFFFF), Offset(x * cs, 0f), Offset(x * cs, size.height), 1f)
+                    for (y in 1 until BlocksGame.H) drawLine(Color(0x14FFFFFF), Offset(0f, y * cs), Offset(size.width, y * cs), 1f)
+                    val flash = System.currentTimeMillis() - g.clearedAt < 250
+                    for (y in 0 until BlocksGame.H) for (x in 0 until BlocksGame.W) { val v = g.grid[y * BlocksGame.W + x]; if (v != 0) block(x * cs, y * cs, cs, BlocksGame.COLORS[v - 1]) }
+                    if (flash) g.cleared.forEach { y -> drawRect(Color.White.copy(alpha = 0.35f), Offset(0f, y * cs), Size(size.width, cs)) }
+                    if (!g.over) {
+                        val gy = g.ghostY()
+                        g.cells(y = gy).forEach { (x, y) -> if (y >= 0) drawRoundRect(BlocksGame.COLORS[g.kind].copy(alpha = 0.35f), Offset(x * cs + 2, y * cs + 2), Size(cs - 4, cs - 4), CornerRadius(cs * 0.15f), style = Stroke(2f)) }
+                        g.cells().forEach { (x, y) -> if (y >= 0) block(x * cs, y * cs, cs, BlocksGame.COLORS[g.kind]) }
                     }
                 }
-                // справа: счёт, уровень, запас и следующие
-                Column(Modifier.width(86.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    @Composable fun Stat(t: String, v: String) = Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0x14FFFFFF)).padding(8.dp)) {
-                        Text(t, color = Color(0xFF8E97B5), fontSize = 11.sp); Text(v, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    }
-                    key(tick) {
-                        Stat("Очки", "${g.score}"); Stat("Уровень", "${g.level}"); Stat("Линии", "${g.lines}"); Stat("Рекорд", "${maxOf(best, g.score)}")
-                        Text("Запас", color = Color(0xFF8E97B5), fontSize = 11.sp)
-                        Box(Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(10.dp)).background(Color(0x14FFFFFF)).clickable { act { g.swapHold() } }, contentAlignment = Alignment.Center) {
-                            if (g.hold >= 0) Canvas(Modifier.size(64.dp, 40.dp)) { preview(g.hold) } else Text("тап", color = Color(0xFF59607A), fontSize = 12.sp)
-                        }
-                        Text("Дальше", color = Color(0xFF8E97B5), fontSize = 11.sp)
-                        g.next.take(3).forEach { k -> Canvas(Modifier.fillMaxWidth().height(40.dp)) { preview(k) } }
-                    }
-                }
-            }
-            // кнопки: влево, поворот, вправо, бросить
-            Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("◀" to { act { g.move(-1) } }, "⟳" to { act { g.rotate() } }, "▶" to { act { g.move(1) } }, "▼" to { act { g.down(soft = true) } }, "⤓" to { act { g.drop() } })
-                    .forEach { (t, f) -> Box(Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x1FFFFFFF)).clickable { f() }, contentAlignment = Alignment.Center) { Text(t, color = Color.White, fontSize = 22.sp) } }
             }
         }
         if (!started) GameOverlay("Блоки", "Тап по полю — повернуть. Тяни влево/вправо — двигать, вниз — ускорить, резкий взмах вниз — бросить. «Запас» — отложить фигуру.", "Старт") { started = true }

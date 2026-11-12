@@ -118,30 +118,44 @@ object Player {
 /** Фоновое воспроизведение: уведомление с кнопками и управление с гарнитуры/экрана блокировки. */
 class MusicService : Service() {
     private var session: MediaSession? = null
+    private var art: android.graphics.Bitmap? = null
+    private var artFor = -1L
     override fun onBind(i: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) { "toggle" -> Player.toggle(); "next" -> Player.next(); "prev" -> Player.prev(); "stop" -> { Player.stop(); stopSelf(); return START_NOT_STICKY } }
+        when (intent?.action) { "toggle" -> Player.toggle(); "next" -> Player.next(); "prev" -> Player.prev(); "stop" -> { Player.stop(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return START_NOT_STICKY } }
         val s = Player.current ?: run { stopSelf(); return START_NOT_STICKY }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("music", "Музыка", NotificationManager.IMPORTANCE_LOW))
         val ses = session ?: MediaSession(this, "music").also { m ->
             m.setCallback(object : MediaSession.Callback() {
-                override fun onPlay() = Player.toggle(); override fun onPause() = Player.toggle()
+                override fun onPlay() { if (!Player.playing) Player.toggle() }
+                override fun onPause() { if (Player.playing) Player.toggle() }
                 override fun onSkipToNext() = Player.next(); override fun onSkipToPrevious() = Player.prev()
+                override fun onSeekTo(pos: Long) { Player.seek(pos.toInt()); startService(Intent(this@MusicService, MusicService::class.java)) }
+                override fun onStop() { Player.stop() }
+                override fun onCustomAction(action: String, extras: android.os.Bundle?) { if (action == "close") Player.stop() }
             })
             m.isActive = true; session = m
         }
-        ses.setPlaybackState(PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS)
+        // карточка в шторке (Android 13+ рисует её по сессии): обложка, длительность, перемотка, ✕ — закрыть плеер
+        ses.setPlaybackState(PlaybackState.Builder()
+            .setActions(PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_SKIP_TO_NEXT or
+                PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_STOP)
+            .addCustomAction(PlaybackState.CustomAction.Builder("close", "Закрыть", android.R.drawable.ic_menu_close_clear_cancel).build())
             .setState(if (Player.playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED, Player.position().toLong(), 1f).build())
-        ses.setMetadata(android.media.MediaMetadata.Builder().putString(android.media.MediaMetadata.METADATA_KEY_TITLE, s.title).putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, s.artist).build())
+        if (artFor != s.id) { artFor = s.id; art = runCatching { if (Build.VERSION.SDK_INT >= 29) contentResolver.loadThumbnail(s.uri, android.util.Size(512, 512), null) else null }.getOrNull() }
+        ses.setMetadata(android.media.MediaMetadata.Builder().putString(android.media.MediaMetadata.METADATA_KEY_TITLE, s.title).putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, s.artist)
+            .putString(android.media.MediaMetadata.METADATA_KEY_ALBUM, s.album).putLong(android.media.MediaMetadata.METADATA_KEY_DURATION, Player.duration().toLong().takeIf { it > 0 } ?: s.durationMs)
+            .apply { art?.let { putBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART, it) } }.build())
         fun pi(a: String, rc: Int) = PendingIntent.getService(this, rc, Intent(this, MusicService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open = PendingIntent.getActivity(this, 40, Intent(this, MainActivity::class.java).putExtra("route", "music"), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = Notification.Builder(this, "music").setSmallIcon(R.drawable.ic_notify).setContentTitle(s.title).setContentText(s.artist).setContentIntent(open)
-            .setDeleteIntent(pi("stop", 5)).setOngoing(Player.playing)
+            .setDeleteIntent(pi("stop", 5)).setOngoing(Player.playing).setLargeIcon(art).setColorized(true).setVisibility(Notification.VISIBILITY_PUBLIC)
             .addAction(Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_previous), "Назад", pi("prev", 1)).build())
             .addAction(Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, if (Player.playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play), if (Player.playing) "Пауза" else "Играть", pi("toggle", 2)).build())
             .addAction(Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_next), "Дальше", pi("next", 3)).build())
+            .addAction(Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel), "Закрыть", pi("stop", 4)).build())
             .setStyle(Notification.MediaStyle().setMediaSession(ses.sessionToken).setShowActionsInCompactView(0, 1, 2)).build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(55, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) else startForeground(55, n)
         if (!Player.playing) stopForeground(STOP_FOREGROUND_DETACH)

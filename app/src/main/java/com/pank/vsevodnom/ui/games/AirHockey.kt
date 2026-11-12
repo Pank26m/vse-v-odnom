@@ -45,13 +45,24 @@ class HockeyGame(val level: Int = 1) {
     /** Искры: x, y, vx, vy, жизнь, цвет. */
     val sparks = ArrayList<FloatArray>()
     var lastHit = 0L
+    /** Сила последних ударов для звука (экран забирает и обнуляет). */
+    var hits = 0f
+    var rails = 0
 
-    private fun reset(toMe: Boolean) { px = W / 2; py = if (toMe) H * 0.62f else H * 0.38f; vx = 0f; vy = 0f; pause = 0.8f; bx = W / 2; by = H * 0.15f }
+    private fun reset(toMe: Boolean) {
+        px = W / 2; py = if (toMe) H * 0.62f else H * 0.38f; vx = 0f; vy = 0f; pause = 0.8f; bx = W / 2; by = H * 0.15f
+        // если моя бита стоит на месте вбрасывания — шайбу ставим рядом, а не внутрь биты
+        if (hypot(px - mx, py - my) < PUCK_R + BAT_R) py = (my - (PUCK_R + BAT_R) * 1.05f).coerceAtLeast(H / 2 + PUCK_R)
+    }
+
+    // куда палец ведёт мою биту: сама бита доходит туда по шагам физики, а не прыжком —
+    // иначе быстрым движением (и первым касанием) она «перепрыгивала» шайбу и проходила насквозь
+    private var tmx = mx; private var tmy = my
 
     fun moveMine(x: Float, y: Float, dt: Float) {
         val nx = x.coerceIn(BAT_R, W - BAT_R); val ny = y.coerceIn(H / 2 + BAT_R, H - BAT_R)
         if (dt > 0) { mvx = (nx - mx) / dt; mvy = (ny - my) / dt }
-        mx = nx; my = ny
+        tmx = nx; tmy = ny
     }
 
     private fun spark(x: Float, y: Float, color: Int) {
@@ -108,25 +119,36 @@ class HockeyGame(val level: Int = 1) {
             vx += bvx * 0.35f; vy += bvy * 0.35f
             val sp = hypot(vx, vy); val max = 4.2f; if (sp > max) { vx = vx / sp * max; vy = vy / sp * max }
             val now = System.currentTimeMillis()
-            if (now - lastHit > 120) { spark(px, py, if (mine) 0xFF3B30 else 0x2ED158); lastHit = now }
+            if (now - lastHit > 120) { spark(px, py, if (mine) 0xFF3B30 else 0x2ED158); lastHit = now; hits += hypot(bvx, bvy) / 3f + 0.2f }
+            pause = 0f   // задел шайбу во время вбрасывания — игра пошла
         }
     }
 
     /** Шаг физики; возвращает 1 — гол мне в пользу, −1 — гол боту, 0 — нет. */
     fun step(dt0: Float): Int {
         sparks.forEach { it[0] += it[2] * dt0; it[1] += it[3] * dt0; it[4] -= dt0 }; sparks.removeAll { it[4] <= 0 }
-        if (pause > 0) { pause -= dt0; return 0 }
-        val n = 4; val dt = dt0 / n
+        // мелкие шаги: за шаг бита сдвигается меньше радиуса шайбы — пролететь насквозь нельзя
+        val dist = hypot(tmx - mx, tmy - my)
+        val n = maxOf(4, kotlin.math.ceil(dist / (PUCK_R * 0.6f)).toInt()).coerceAtMost(48); val dt = dt0 / n
+        val sx = (tmx - mx) / n; val sy = (tmy - my) / n
+        if (pause > 0) {
+            // вбрасывание: шайба стоит, но столкновения с битами работают (раньше бита проходила сквозь)
+            pause -= dt0
+            repeat(n) { mx += sx; my += sy; collide(mx, my, mvx, mvy, true); collide(bx, by, bvx, bvy, false) }
+            return 0
+        }
         var goal = 0
         repeat(n) {
+            mx += sx; my += sy
             botThink(dt)
             px += vx * dt; py += vy * dt
             vx *= (1 - 0.25f * dt); vy *= (1 - 0.25f * dt)
-            if (px < PUCK_R) { px = PUCK_R; vx = abs(vx) * 0.92f; spark(px, py, 0x2F8BFF) }
-            if (px > W - PUCK_R) { px = W - PUCK_R; vx = -abs(vx) * 0.92f; spark(px, py, 0xFFC400) }
+            if (px < PUCK_R) { px = PUCK_R; if (abs(vx) > 0.3f) rails++; vx = abs(vx) * 0.92f; spark(px, py, 0x2F8BFF) }
+            if (px > W - PUCK_R) { px = W - PUCK_R; if (abs(vx) > 0.3f) rails++; vx = -abs(vx) * 0.92f; spark(px, py, 0xFFC400) }
             val inGoal = abs(px - W / 2) < GOAL / 2
-            if (py < PUCK_R) { if (inGoal) { goal = 1; return@repeat } else { py = PUCK_R; vy = abs(vy) * 0.92f } }
-            if (py > H - PUCK_R) { if (inGoal) { goal = -1; return@repeat } else { py = H - PUCK_R; vy = -abs(vy) * 0.92f } }
+            if (goal != 0) return@repeat
+            if (py < PUCK_R) { if (inGoal) { goal = 1; return@repeat } else { py = PUCK_R; if (abs(vy) > 0.3f) rails++; vy = abs(vy) * 0.92f } }
+            if (py > H - PUCK_R) { if (inGoal) { goal = -1; return@repeat } else { py = H - PUCK_R; if (abs(vy) > 0.3f) rails++; vy = -abs(vy) * 0.92f } }
             collide(mx, my, mvx, mvy, true); collide(bx, by, bvx, bvy, false)
             // бита не выдавливает шайбу за борт: держим её на поле
             if (px < PUCK_R) { px = PUCK_R; vx = abs(vx) }
@@ -160,7 +182,10 @@ fun AirHockeyScreen(onBack: () -> Unit) {
     val over = g.me >= HockeyGame.WIN || g.bot >= HockeyGame.WIN
     GameLoop(started && !paused && !over) { dt ->
         touch?.let { t -> g.moveMine((t.x - origin.x) / scale, (t.y - origin.y) / scale, dt) }
-        g.step(dt.coerceAtMost(0.033f)); tick++
+        val goal = g.step(dt.coerceAtMost(0.033f)); tick++
+        if (g.hits > 0f) { GameSfx.puck(g.hits); g.hits = 0f }
+        if (g.rails > 0) { GameSfx.rail(); g.rails = 0 }
+        if (goal != 0) GameSfx.goal()
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {

@@ -68,6 +68,9 @@ fun SnakeScreen(onBack: () -> Unit) {
         acc += dt
         if (acc >= g.period) { acc = 0f; g.step(); tick++; if (g.over && Hi.submit(ctx, "snake", g.score)) best = g.score }
     }
+    // хруст — каждый раз, когда счёт вырос (яблоко или бонус)
+    var lastScore by remember(g) { mutableIntStateOf(0) }
+    LaunchedEffect(tick) { if (g.score > lastScore) GameSfx.crunch(); lastScore = g.score }
     ScreenScaffold("Змейка", onBack) {
         ScoreBar(g.score, best)
         Box(Modifier.fillMaxSize().padding(12.dp)) {

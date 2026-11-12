@@ -194,10 +194,12 @@ fun BattleshipScreen(onBack: () -> Unit) {
     var now by remember { mutableLongStateOf(0L) }
     LaunchedEffect(fx.size) { while (fx.isNotEmpty()) { withFrameMillis { now = it }; fx.removeAll { now - it.at > (if (it.sunk) 2600 else 1100) } } }
     val over = started && (foe.allSunk() || mine.allSunk())
-    val placed = mine.ships.map { it.size }
-    val left = Sea.FLEET.toMutableList().also { l -> placed.forEach { l.remove(it) } }
+    // сколько кораблей ещё в доке — считается заново при каждом обращении: поле mine меняется «на месте»,
+    // и посчитанный один раз список устаревал (в 0.42 док был бесконечным, а «В бой» не включалась)
+    fun leftNow(): List<Int> = Sea.FLEET.toMutableList().also { l -> mine.ships.forEach { l.remove(it.size) } }
 
     fun boom(foeBoard: Boolean, sea: Sea, i: Int, res: Int) {
+        when (res) { Sea.MISS -> GameSfx.splash(); Sea.HIT -> GameSfx.boom(); Sea.SUNK -> GameSfx.bigBoom() }
         if (res == Sea.MISS || res == 0) return
         val s = sea.ship[i]
         val cells = if (res == Sea.SUNK && s >= 0) sea.ships[s] else listOf(i)
@@ -230,6 +232,7 @@ fun BattleshipScreen(onBack: () -> Unit) {
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(msg, style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Serif, color = INK)
             key(ver) {
+                val left = leftNow()
                 if (tab == 0) {
                     Text("Противник · осталось кораблей: ${foe.aliveShips()}", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Serif, color = INK)
                     Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
@@ -281,7 +284,7 @@ fun BattleshipScreen(onBack: () -> Unit) {
                             val root0 = down.position + wrapRect.topLeft
                             val onCell = cellAt(root0)
                             val fromShip = onCell?.let { mine.ship[it] }?.takeIf { it >= 0 }
-                            val fromDock = if (fromShip == null) dockRects.entries.firstOrNull { it.value.contains(root0) && it.key in left }?.key else null
+                            val fromDock = if (fromShip == null) dockRects.entries.firstOrNull { it.value.contains(root0) && it.key in leftNow() }?.key else null
                             if (fromShip == null && fromDock == null) return@awaitEachGesture
                             val slop = awaitTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
                             if (slop == null) {

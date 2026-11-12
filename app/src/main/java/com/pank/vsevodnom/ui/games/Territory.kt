@@ -84,6 +84,10 @@ class TerritoryGame(
     private var quiet = 0
     private var capturedThisTurn = false
 
+    /** Радиус шестиугольника в долях карты (0…1). Объявлен ДО init: иначе инициализатор (0.05) затирал посчитанное
+     *  в generate() значение — на больших картах клетки рисовались огромными и налезали друг на друга (баг 0.42). */
+    var hexSize = 0.05f; private set
+
     init { generate() }
 
     // ---------------- генерация ----------------
@@ -205,8 +209,6 @@ class TerritoryGame(
             starts.take(players).forEachIndexed { i, h -> h.owner = i; h.v = 2 }
         }
     }
-    /** Радиус шестиугольника в долях карты (0…1). */
-    var hexSize = 0.05f; private set
 
     fun at(x: Float, y: Float, maxD: Float): Node? = cells.minByOrNull { (it.x - x) * (it.x - x) + (it.y - y) * (it.y - y) }?.takeIf { (it.x - x) * (it.x - x) + (it.y - y) * (it.y - y) < maxD * maxD }
     fun owned(p: Int) = cells.filter { it.owner == p }
@@ -423,7 +425,7 @@ private fun TerritoryPlay(st: TerrSetup, onBack: () -> Unit) {
                 .pointerInput(g) {
                     detectTransformGestures { centroid, dPan, dZoom, _ ->
                         val c = Offset(size.width / 2f, size.height / 2f)
-                        val nz = (zoom * dZoom).coerceIn(1f, 7f)
+                        val nz = (zoom * dZoom).coerceIn(1f, 14f)
                         // точка под пальцами остаётся на месте
                         val b = c + (centroid - c - pan) / zoom
                         pan = centroid - c - (b - c) * nz + dPan
@@ -454,7 +456,7 @@ private fun TerritoryPlay(st: TerrSetup, onBack: () -> Unit) {
                 drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF04060C), Color(0xFF0A1428), Color(0xFF05070D))))
                 stars.forEach { (x, y, b) -> drawCircle(Color.White.copy(alpha = 0.15f + 0.5f * b * b), 0.6f + 1.3f * b * b, Offset(x * size.width, y * size.height)) }
                 val (sc0, _) = base()
-                val r = g.hexSize * sc0 * zoom * 0.78f
+                val r = g.hexSize * sc0 * zoom * 0.62f   // клетки мельче, между ними видны мосты; ближе — щипком
                 val s = sel
                 val visible: (Node) -> Boolean = if (!st.dark) { _ -> true } else { hx -> hx.owner == 0 || g.nbrs(hx).any { it.owner == 0 } }
                 fun glowLine(a: Offset, b: Offset, col: Color, w: Float) {

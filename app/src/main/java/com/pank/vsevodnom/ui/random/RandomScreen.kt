@@ -241,7 +241,7 @@ private fun EightBall() {
         busy = true
         scope.launch {
             reveal.snapTo(0f)
-            Sfx.play("ball") { Sfx.ball(7, 0.06) }
+            com.pank.vsevodnom.ui.games.GameSfx.mystic()   // таинственный звон вместо бульканья
             repeat(6) { shake.animateTo(if (it % 2 == 0) 22f else -22f, tween(60)) }
             shake.animateTo(0f, tween(60))
             answer = ANSWERS[rnd.nextInt(ANSWERS.size)]

@@ -22,6 +22,19 @@ class SfxTest {
         }
     }
 
+    /** Звуки игр (0.43): карты, хруст, вода/взрывы, шайба, шар — все считаются, не тихие и не пустые. */
+    @Test fun gameSoundsAreBuilt() {
+        val all = com.pank.vsevodnom.ui.games.GameSfx.renderAll()
+        assertTrue(all.size >= 12, "все звуки: ${all.keys}")
+        val out = System.getenv("SFX_OUT")
+        all.forEach { (k, pcm) ->
+            assertTrue(loud(pcm) > 10000, "$k звучит")   // слабый удар шайбы нарочно тише
+            assertTrue(pcm.size > Sfx.SR / 20, "$k не пустой")
+            assertTrue(pcm.size < Sfx.SR * 4, "$k не длиннее 4 с")
+            if (out != null) writeWav(java.io.File(out, "game_$k.wav"), pcm)
+        }
+    }
+
     private fun writeWav(f: java.io.File, pcm: ShortArray) {
         val bb = java.nio.ByteBuffer.allocate(44 + pcm.size * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         bb.put("RIFF".toByteArray()).putInt(36 + pcm.size * 2).put("WAVEfmt ".toByteArray()).putInt(16).putShort(1).putShort(1)
