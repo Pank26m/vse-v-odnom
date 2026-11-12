@@ -96,6 +96,48 @@ internal fun TomorrowButton(onClick: () -> Unit) {
     }
 }
 
+/** Завтра — прямо в сводке под «Мои успехи»: заметная черта «Завтра, 13 ноября» и список дел. */
+@Composable
+internal fun TomorrowInline(weather: WeatherData?) {
+    val ctx = LocalContext.current
+    val db = remember { AppDb.get(ctx) }
+    val d = LocalDate.now().plusDays(1)
+    val tasks by db.todo().tasks().collectAsState(initial = emptyList())
+    val habits by db.todo().habits().collectAsState(initial = emptyList())
+    val birthdays by db.todo().birthdays().collectAsState(initial = emptyList())
+    var agenda by remember { mutableStateOf<List<com.pank.vsevodnom.data.schedule.Agenda>>(emptyList()) }
+    LaunchedEffect(Unit) { agenda = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.pank.vsevodnom.data.schedule.CalendarRepo.agendaSync(ctx, d, d) } }
+    val dueTasks = tasks.filter { !it.done && it.dueDay == d.toEpochDay() }.sortedByDescending { it.priority }
+    val dueHabits = habits.filter { !it.archived && Todo.isDue(it, d) }
+    val bd = birthdays.filter { it.day == d.dayOfMonth && it.month == d.monthValue }
+    val hol = remember(d) { Holidays.on(d, ctx) }
+    Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(2.dp).background(Pal.Ink.copy(alpha = 0.25f)))
+        Text("  Завтра, " + d.format(DateTimeFormatter.ofPattern("d MMMM", java.util.Locale("ru"))) + "  ", style = MaterialTheme.typography.titleSmall, color = Pal.Ink)
+        Box(Modifier.weight(1f).height(2.dp).background(Pal.Ink.copy(alpha = 0.25f)))
+    }
+    weather?.days?.firstOrNull { it.date == d }?.let { w ->
+        Text("${wmo(w.code).first} · ↑${com.pank.vsevodnom.ui.weather.fmtT(w.tMax)} ↓${com.pank.vsevodnom.ui.weather.fmtT(w.tMin)}" + (if (w.rainProb > 0) " · дождь ${w.rainProb}%" else ""),
+            style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(horizontal = 4.dp))
+    }
+    val rows = ArrayList<Pair<String, String>>()
+    hol.forEach { rows += "🎉" to it.name }
+    bd.forEach { rows += "🎂" to it.name }
+    agenda.forEach { a ->
+        rows += when (a) {
+            is com.pank.vsevodnom.data.schedule.Agenda.Pair -> "${a.l.start}" to a.title
+            is com.pank.vsevodnom.data.schedule.Agenda.Own -> (if (a.e.allDay) "день" else a.sortKey.toLocalTime().toString()) to a.e.title
+            is com.pank.vsevodnom.data.schedule.Agenda.Sys -> (if (a.allDay) "день" else a.sortKey.toLocalTime().toString()) to a.title
+        }
+    }
+    dueTasks.forEach { rows += (if (it.priority >= 3) "‼" else "•") to it.title }
+    dueHabits.forEach { rows += it.icon.ifBlank { "✓" } to it.title }
+    if (rows.isEmpty()) Text("Ничего не запланировано", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted, modifier = Modifier.padding(4.dp))
+    else Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pal.Card).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        rows.forEach { (k, t) -> Row { Text(k, style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.width(52.dp)); Text(t, style = MaterialTheme.typography.bodyMedium) } }
+    }
+}
+
 /** Сводка на завтра: погода, пары и события, задачи, привычки, даты, праздники. */
 @Composable
 internal fun TomorrowScreen(weather: WeatherData?, onDismiss: () -> Unit) {

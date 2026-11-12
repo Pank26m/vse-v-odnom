@@ -711,11 +711,12 @@ private fun BigAction(icon: ImageVector, text: String, bg: Color, fg: Color, mod
 // ---------------- Редактор ----------------
 
 @Composable
-private fun ContactEditor(id: Long?, number: String, onDone: () -> Unit) {
+private fun ContactEditor(id: Long?, number: String, name: String = "", onSaved: (String) -> Unit = {}, onDone: () -> Unit) {
     val ctx = LocalContext.current
     var d by remember { mutableStateOf<ContactEdit.Data?>(null) }
     LaunchedEffect(id) {
-        d = if (id == null) ContactEdit.Data(phones = listOf(ContactEdit.Num(ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE, number)))
+        d = if (id == null) ContactEdit.Data(given = name.substringBefore(' ').trim(), family = name.substringAfter(' ', "").trim(),
+                phones = listOf(ContactEdit.Num(ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE, number)))
             else withContext(Dispatchers.IO) { ContactEdit.load(ctx, id) }
     }
     var saving by remember { mutableStateOf(false) }
@@ -730,6 +731,7 @@ private fun ContactEditor(id: Long?, number: String, onDone: () -> Unit) {
             saving = true
             AppScope.io.launch {
                 val ok = ContactEdit.save(ctx, x)
+                if (ok) onSaved(listOf(x.given, x.family).filter { it.isNotBlank() }.joinToString(" "))
                 withContext(Dispatchers.Main) { saving = false; if (ok) onDone() else Toast.makeText(ctx, "Не удалось сохранить (нет доступа к контактам?)", Toast.LENGTH_LONG).show() }
             }
         }, bg = Pal.Ink, tint = Color.White)
@@ -773,5 +775,128 @@ private fun ContactEditor(id: Long?, number: String, onDone: () -> Unit) {
             AppTextField(cur.birthday, { d = cur.copy(birthday = it.filter { c -> c.isDigit() || c == '-' }.take(10)) }, "День рождения (ГГГГ-ММ-ДД)")
             AppTextField(cur.note, { d = cur.copy(note = it) }, "Заметка", singleLine = false)
         }
+    }
+}
+
+
+// ---------------- Связь дат с контактами ----------------
+
+/** Связи даты с контактами: строки «lookupKey#id» через перевод строки (старые записи — просто lookupKey).
+ *  Ключ поиска Android меняется после синхронизации, поэтому ищем через lookupContact (он умеет старые ключи), а id — запасной путь. */
+object ContactLinks {
+    fun parse(s: String): List<String> = s.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+    fun join(l: List<String>) = l.distinct().joinToString("\n")
+    fun of(c: Contact) = "${c.lookup}#${c.id}"
+    fun resolveId(ctx: android.content.Context, link: String): Long? {
+        val key = link.substringBefore('#'); val id = link.substringAfter('#', "").toLongOrNull()
+        val uri = if (id != null && key.isNotBlank()) ContactsContract.Contacts.getLookupUri(id, key) else Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_LOOKUP_URI, key)
+        return runCatching { ContactsContract.Contacts.lookupContact(ctx.contentResolver, uri)?.let { android.content.ContentUris.parseId(it) } }.getOrNull()
+    }
+    /** Новый контакт по имени (последний созданный с таким именем). */
+    fun findByName(ctx: android.content.Context, name: String): Contact? =
+        runCatching { ContactsRepo.load(ctx) }.getOrDefault(emptyList()).filter { it.name.equals(name.trim(), true) }.maxByOrNull { it.id }
+}
+
+/** Карточка контакта поверх любого экрана (из «Дат»): позвонить, написать, изменить. */
+@Composable
+fun ContactLinkDialog(link: String, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val st = remember { PhoneState() }
+    var id by remember { mutableStateOf<Long?>(null) }
+    var edit by remember { mutableStateOf(false) }
+    LaunchedEffect(st.version) {
+        withContext(Dispatchers.IO) {
+            val c = runCatching { ContactsRepo.load(ctx) }.getOrDefault(emptyList())
+            val i = ContactLinks.resolveId(ctx, link)
+            val m = PhoneData.messengersAll(ctx)
+            withContext(Dispatchers.Main) { st.contacts = c; st.msgrs = m; id = i }
+        }
+    }
+    // «СМС» в карточке ведёт во вкладку сообщений — закрываем окно и переходим туда
+    LaunchedEffect(com.pank.vsevodnom.ui.sms.SmsNav.open) { if (com.pank.vsevodnom.ui.sms.SmsNav.open != null) { com.pank.vsevodnom.ui.common.AppNav.route = "sms"; onDismiss() } }
+    androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
+            val c = st.contacts?.firstOrNull { it.id == id }
+            when {
+                c != null && edit -> { BackHandler { edit = false }; ContactEditor(c.id, "", onDone = { edit = false; st.version++ }) }
+                c != null -> ContactCard(c, st, onBack = onDismiss, onEdit = { edit = true })
+                st.contacts != null -> Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Контакт не найден — возможно, удалён из телефонной книги.", style = MaterialTheme.typography.bodyLarge)
+                    PillButton("Закрыть", onDismiss, Modifier.fillMaxWidth())
+                }
+                else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            }
+        }
+    }
+}
+
+/** Новый контакт с готовым именем (для даты, у которой человека нет в контактах). onLinked — связь нового контакта. */
+@Composable
+fun NewContactDialog(name: String, onLinked: (String) -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
+            ContactEditor(null, "", name = name, onSaved = { n ->
+                // вызывается в фоне сразу после сохранения
+                ContactLinks.findByName(ctx, n)?.let { c -> onLinked(ContactLinks.of(c)) }   // состояние Compose можно менять из фона
+            }, onDone = onDismiss)
+        }
+    }
+}
+
+/** Выбор нескольких контактов (связать дату — свадьбу, годовщину — с людьми). */
+@Composable
+fun ContactsChooser(title: String, chosen0: Set<Long>, onDismiss: () -> Unit, onDone: (List<Contact>) -> Unit) {
+    val ctx = LocalContext.current
+    var all by remember { mutableStateOf<List<Contact>?>(null) }
+    var granted by remember { mutableStateOf(ContactsRepo.has(ctx, Manifest.permission.READ_CONTACTS)) }
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    LaunchedEffect(granted) { if (granted) all = withContext(Dispatchers.IO) { runCatching { ContactsRepo.load(ctx) }.getOrDefault(emptyList()) } else perm.launch(Manifest.permission.READ_CONTACTS) }
+    var q by remember { mutableStateOf("") }
+    val chosen = remember { mutableStateListOf<Long>().apply { addAll(chosen0) } }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = {
+        Column {
+            AppTextField(q, { q = it }, "Имя или номер")
+            val list = all.orEmpty().filter { q.isBlank() || it.name.contains(q, true) || it.phones.any { p -> p.second.filter(Char::isDigit).contains(q.filter(Char::isDigit).ifBlank { "\u0000" }) } }
+                .sortedByDescending { it.id in chosen }.take(120)
+            if (all == null) CircularProgressIndicator(Modifier.padding(16.dp))
+            LazyColumn(Modifier.heightIn(max = 380.dp).padding(top = 6.dp)) {
+                items(list, key = { it.id }) { c ->
+                    val on = c.id in chosen
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (on) Pal.Lilac else Color.Transparent)
+                        .clickable { if (on) chosen.remove(c.id) else chosen.add(c.id) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(c.name, 36, c.photo)
+                        Text(c.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(start = 10.dp))
+                        if (on) Icon(Icons.Rounded.Check, null, tint = Pal.LilacInk)
+                    }
+                }
+            }
+        }
+    }, confirmButton = { TextButton({ onDone(all.orEmpty().filter { it.id in chosen }) }) { Text(if (chosen.isEmpty()) "Готово" else "Готово (${chosen.size})") } },
+        dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
+}
+
+/** Подпись связанного контакта (имя + фото) по связи. */
+@Composable
+fun LinkedContactRow(link: String, onOpen: () -> Unit, onRemove: (() -> Unit)? = null) {
+    val ctx = LocalContext.current
+    var c by remember(link) { mutableStateOf<Contact?>(null) }
+    var missing by remember(link) { mutableStateOf(false) }
+    LaunchedEffect(link) {
+        withContext(Dispatchers.IO) {
+            val id = ContactLinks.resolveId(ctx, link)
+            val found = id?.let { i -> runCatching { ContactsRepo.load(ctx) }.getOrDefault(emptyList()).firstOrNull { it.id == i } }
+            withContext(Dispatchers.Main) { c = found; missing = found == null }
+        }
+    }
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.Ink.copy(alpha = 0.04f)).clickable(enabled = c != null, onClick = onOpen).padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Avatar(c?.name ?: "?", 36, c?.photo)
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            Text(c?.name ?: if (missing) "Контакт не найден" else "…", style = MaterialTheme.typography.bodyLarge)
+            c?.phones?.firstOrNull()?.let { Text(it.second, style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
+        }
+        c?.phones?.firstOrNull()?.let { p -> IconButton({ ContactsRepo.call(ctx, p.second) }) { Icon(Icons.Rounded.Call, "Позвонить", tint = Pal.MintInk) } }
+        if (onRemove != null) IconButton(onRemove) { Icon(Icons.Rounded.LinkOff, "Отвязать", tint = Pal.Muted) }
     }
 }

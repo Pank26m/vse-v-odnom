@@ -344,7 +344,8 @@ private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: We
     val logs by remember { db.todo().habitLogs(today.toEpochDay(), today.toEpochDay()) }.collectAsState(initial = emptyList())
     var agenda by remember { mutableStateOf<List<Agenda>>(emptyList()) }
     val birthdays by db.todo().birthdays().collectAsState(initial = emptyList())
-    LaunchedEffect(tick) { while (true) { agenda = withContext(Dispatchers.IO) { CalendarRepo.agendaSync(ctx, today, today) }; delay(120_000) } }
+    var reload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick, reload) { while (true) { agenda = withContext(Dispatchers.IO) { CalendarRepo.agendaSync(ctx, today, today) }; delay(120_000) } }
     val weights by db.weight().all().collectAsState(initial = emptyList())
     var weightAsk by remember { mutableStateOf(false) }
     var eventOpen by remember { mutableStateOf<Agenda?>(null) }
@@ -462,7 +463,7 @@ private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: We
         Spacer(Modifier.height(4.dp))
         StepsBar(steps) { open("health") }
         SuccessTile(tasks, logs, todayHabits.size) { review = true }
-        TomorrowButton { tomorrow = true }
+        TomorrowInline(weather)
     }
     if (review) DayReviewScreen { review = false }
     if (tomorrow) TomorrowScreen(weather) { tomorrow = false }
@@ -471,7 +472,7 @@ private fun Summary(open: (String) -> Unit, tick: Int, steps: Long?, weather: We
         when (a) {
             is Agenda.Own -> com.pank.vsevodnom.ui.calendar.EventEditor(a.e, onDismiss = { eventOpen = null })
             is Agenda.Pair -> com.pank.vsevodnom.ui.calendar.LessonDialog(a) { eventOpen = null }
-            is Agenda.Sys -> { LaunchedEffect(a) { runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.content.ContentUris.withAppendedId(android.provider.CalendarContract.Events.CONTENT_URI, a.id))) }; eventOpen = null } }
+            is Agenda.Sys -> com.pank.vsevodnom.ui.calendar.SysEventSheet(a, onChanged = { reload++ }) { eventOpen = null }
         }
     }
 }
@@ -527,7 +528,7 @@ private fun MoodCheckIn() {
     }
 }
 
-/** Оценка дня — в сводке с 22:00 до 4 утра, пока день не оценён (звёзды → «Мои успехи»). */
+/** Оценка дня — в сводке с 20:00 до 4 утра, пока день не оценён (звёзды → «Мои успехи»). */
 @Composable
 private fun DayRateCheckIn() {
     val ctx = LocalContext.current
@@ -535,7 +536,7 @@ private fun DayRateCheckIn() {
     LaunchedEffect(Unit) { while (true) { delay(60_000); tick++ } }
     val day = remember(tick) {
         val now = java.time.LocalDateTime.now()
-        when { now.hour >= 22 -> now.toLocalDate().toEpochDay(); now.hour < 4 -> now.toLocalDate().minusDays(1).toEpochDay(); else -> null }
+        when { now.hour >= 20 -> now.toLocalDate().toEpochDay(); now.hour < 4 -> now.toLocalDate().minusDays(1).toEpochDay(); else -> null }
     } ?: return
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var stars by remember(day) { mutableIntStateOf(DayRating.get(ctx, day)) }

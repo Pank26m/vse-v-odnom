@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -113,14 +115,14 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
             item(key = "tiles") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HubTile("Задачи", Icons.Rounded.TaskAlt, Tints.Sky, "$todayT на сегодня", if (overdue > 0) "$overdue просрочено" else "${open.size} открыто", overdue > 0, Modifier.weight(1f)) { page = "tasks" }
-                        HubTile("Привычки", Icons.Rounded.Loop, Tints.Mint, if (dueH.isEmpty()) "сегодня нет" else "${dueH.size - undoneH.size} из ${dueH.size}", "${habits.size} всего", false, Modifier.weight(1f)) { page = "habits" }
+                        HubTile("Задачи", Icons.Rounded.TaskAlt, Tints.Sky, "$todayT на сегодня", if (overdue > 0) "$overdue просрочено" else "${open.size} открыто", overdue > 0, Modifier.weight(1f), badge = todayT + overdue) { page = "tasks" }
+                        HubTile("Привычки", Icons.Rounded.Loop, Tints.Mint, if (dueH.isEmpty()) "сегодня нет" else "${dueH.size - undoneH.size} из ${dueH.size}", "${habits.size} всего", false, Modifier.weight(1f), badge = undoneH.size) { page = "habits" }
                         HubTile("Заметки", Icons.Rounded.StickyNote2, Tints.Butter, "${notes.count { !it.archived && it.deletedAt == null }}", "блокнот", false, Modifier.weight(1f)) { page = "notes" }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HubTile("Фильмы", Icons.Rounded.Movie, Tints.Lilac, "${media.count { it.status == 2 }} посмотрел", "${media.count { it.status != 2 }} в планах", false, Modifier.weight(1f)) { page = "movies" }
-                        HubTile("Покупки", Icons.Rounded.ShoppingCart, Tints.Peach, if (shopLeft > 0) "купить $shopLeft" else "всё куплено", "${shopIds.size} списков", false, Modifier.weight(1f)) { page = "shop" }
-                        HubTile("Даты", Icons.Rounded.Cake, Tints.Rose, soonDates.firstOrNull()?.name ?: "${dates.size}", soonDates.firstOrNull()?.let { "через ${Duration.between(today.atStartOfDay(), nextOccurrence(it).atStartOfDay()).toDays()} дн." } ?: "дни рождения", false, Modifier.weight(1f)) { page = "dates" }
+                        HubTile("Фильмы", Icons.Rounded.Movie, Tints.Lilac, "${media.count { it.status == 2 }} посмотрел", "${media.count { it.status != 2 }} в планах", false, Modifier.weight(1f), badge = media.count { it.status == 0 }) { page = "movies" }
+                        HubTile("Покупки", Icons.Rounded.ShoppingCart, Tints.Peach, if (shopLeft > 0) "купить $shopLeft" else "всё куплено", "${shopIds.size} списков", false, Modifier.weight(1f), badge = shopLeft) { page = "shop" }
+                        HubTile("Даты", Icons.Rounded.Cake, Tints.Rose, soonDates.firstOrNull()?.name ?: "${dates.size}", soonDates.firstOrNull()?.let { "через ${Duration.between(today.atStartOfDay(), nextOccurrence(it).atStartOfDay()).toDays()} дн." } ?: "дни рождения", false, Modifier.weight(1f), badge = soonDates.size) { page = "dates" }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HubTile("Карточки", Icons.Rounded.Style, Tints.Mint, "колоды", "повторение слов", false, Modifier.weight(1f)) { page = "cards" }
@@ -158,6 +160,21 @@ fun TodoScreen(onBack: (() -> Unit)? = null, start: String? = null) {
                         CheckDivider()
                         CheckCircle(false, CHECK_GREY, CHECK_SIZE) { AppScope.io.launch { AppDb.get(ctx).life().upsertCart(c.copy(bought = true, boughtAt = System.currentTimeMillis())) } }
                     }
+                }
+            }
+            // выполненное сегодня — внизу серым (нажатие на галочку задачи возвращает её)
+            if (d == today) {
+                val dayStart = today.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val doneT = tasks.filter { it.done && (it.doneAt ?: 0) >= dayStart }.sortedByDescending { it.doneAt }
+                val doneH = dueH.filter { it !in undoneH }
+                val doneB = bdaysOn(d).filter { tick >= 0 && BdayDone.isDone(ctx, it.id, d) }
+                val doneC = cart.filter { it.bought && (it.boughtAt ?: 0) >= dayStart }
+                if (doneT.size + doneH.size + doneB.size + doneC.size > 0) {
+                    item(key = "doneHdr$k") { Text("Выполнено сегодня · ${doneT.size + doneH.size + doneB.size + doneC.size}", style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.padding(top = 10.dp, start = 4.dp)) }
+                    items(doneT, key = { "dt$k-${it.id}" }) { t -> Box(Modifier.alpha(0.55f)) { TaskRow(t) { edit = t } } }
+                    items(doneH, key = { "dh$k-${it.id}" }) { h -> GreyDone(h.icon.ifBlank { "✓" } + "  " + h.title) { detail = h } }
+                    items(doneB, key = { "db$k-${it.id}" }) { b -> GreyDone("🎂  " + b.name) { BdayDone.unmark(ctx, b.id, d); doneTick++ } }
+                    items(doneC, key = { "dc$k-${it.id}" }) { c -> GreyDone("Куплено: ${c.title}") { AppScope.io.launch { AppDb.get(ctx).life().upsertCart(c.copy(bought = false, boughtAt = null)) } } }
                 }
             }
             if (d == today && shopLeft > 0) item(key = "shop$k") {
@@ -222,6 +239,17 @@ private fun HabitRowFeed(h: Habit, logs: List<HabitLog>, onDone: () -> Unit, onC
     }
 }
 
+/** Выполненное за сегодня: серая строка с отмеченной галочкой; нажатие на галочку — снять отметку (или открыть). */
+@Composable
+private fun GreyDone(text: String, onCheck: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).alpha(0.55f).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.bodyLarge.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough), color = Pal.Muted, modifier = Modifier.weight(1f), maxLines = 1)
+        CheckDivider()
+        CheckCircle(true, CHECK_GREY, CHECK_SIZE, onCheck)
+    }
+}
+
 @Composable
 private fun Labeled(label: String, tint: Tint, content: @Composable () -> Unit) {
     Column {
@@ -231,9 +259,15 @@ private fun Labeled(label: String, tint: Tint, content: @Composable () -> Unit) 
 }
 
 @Composable
-private fun HubTile(title: String, icon: ImageVector, tint: Tint, big: String, small: String, alert: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun HubTile(title: String, icon: ImageVector, tint: Tint, big: String, small: String, alert: Boolean, modifier: Modifier, badge: Int = 0, onClick: () -> Unit) {
     Column(modifier.height(124.dp).clip(RoundedCornerShape(18.dp)).background(tint.bg).clickable(onClick = onClick).padding(12.dp)) {
-        Icon(icon, null, tint = tint.ink, modifier = Modifier.size(26.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Icon(icon, null, tint = tint.ink, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.weight(1f))
+            // красный счётчик: сколько ждёт (задачи на сегодня+просроченные, привычки, «Хочу», покупки, даты за 7 дней)
+            if (badge > 0) Box(Modifier.heightIn(min = 22.dp).widthIn(min = 22.dp).clip(RoundedCornerShape(11.dp)).background(Color(0xFFE5484D)).padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center) { Text(if (badge > 99) "99+" else "$badge", color = Color.White, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)) }
+        }
         Spacer(Modifier.weight(1f))
         Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
         Text(big, style = MaterialTheme.typography.bodySmall, color = Pal.Ink, maxLines = 1)

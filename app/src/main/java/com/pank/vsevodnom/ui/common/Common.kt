@@ -237,3 +237,7 @@ fun Modifier.dialogBars(): Modifier {
     }
     return this.padding(top = top, bottom = bottom)
 }
+
+
+/** Переход на маршрут из любого места (окна, диалоги): MainActivity следит и вызывает go(). */
+object AppNav { var route by androidx.compose.runtime.mutableStateOf<String?>(null) }

@@ -98,6 +98,8 @@ fun DatesPage(onBack: () -> Unit) {
     var gift by remember { mutableStateOf<Birthday?>(null) }
     var giftAny by remember { mutableStateOf(false) }
     var contacts by remember { mutableStateOf(false) }
+    var openLink by remember { mutableStateOf<String?>(null) }
+    var pickLinks by remember { mutableStateOf<List<String>?>(null) }
     var showPublic by remember { mutableStateOf(prefs.getBoolean("public", true)) }
     val today = LocalDate.now()
     val shown = dates.filter { (color == null || it.tint == color) && (kind == null || it.kind == kind) }.let { l ->
@@ -155,7 +157,11 @@ fun DatesPage(onBack: () -> Unit) {
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(when (days) { 0L -> "сегодня!"; 1L -> "завтра"; else -> "через $days дн." }, style = MaterialTheme.typography.labelLarge, color = if (days <= 7) col else Pal.Muted)
-                                if (b.contactKey.isNotBlank()) Icon(Icons.Rounded.Person, "Из контактов", Modifier.size(14.dp), tint = Pal.Muted)
+                            }
+                            if (b.contactKey.isNotBlank()) {
+                                val links = com.pank.vsevodnom.ui.contacts.ContactLinks.parse(b.contactKey)
+                                Box(Modifier.padding(start = 6.dp).size(36.dp).clip(CircleShape).background(Pal.Mint).clickable { if (links.size == 1) openLink = links[0] else pickLinks = links },
+                                    contentAlignment = Alignment.Center) { Icon(if (links.size > 1) Icons.Rounded.Group else Icons.Rounded.Person, "Контакт", Modifier.size(20.dp), tint = Pal.MintInk) }
                             }
                             // «поздравил» — на ближайшую дату; отметка снимается повторным нажатием
                             var doneMark by remember(b.id, n) { mutableStateOf(BdayDone.isDone(ctx, b.id, n)) }
@@ -202,6 +208,12 @@ fun DatesPage(onBack: () -> Unit) {
     if (giftAny) GiftDialog(null) { giftAny = false }
     gift?.let { b -> GiftDialog(b) { gift = null } }
     if (contacts) ContactsImport(dates) { contacts = false }
+    openLink?.let { com.pank.vsevodnom.ui.contacts.ContactLinkDialog(it) { openLink = null } }
+    pickLinks?.let { links ->
+        AlertDialog(onDismissRequest = { pickLinks = null }, title = { Text("Люди") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { links.forEach { l -> com.pank.vsevodnom.ui.contacts.LinkedContactRow(l, onOpen = { pickLinks = null; openLink = l }) } }
+        }, confirmButton = { TextButton({ pickLinks = null }) { Text("Закрыть") } })
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -212,7 +224,27 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
     var b by remember { mutableStateOf(b0) }
     var year by remember { mutableStateOf(b0.year?.toString() ?: "") }
     var pick by remember { mutableStateOf(false) }
+    var openLink by remember { mutableStateOf<String?>(null) }
+    var choose by remember { mutableStateOf(false) }
+    var newContact by remember { mutableStateOf(false) }
     val col = DATE_COLORS[b.tint % DATE_COLORS.size]
+    openLink?.let { com.pank.vsevodnom.ui.contacts.ContactLinkDialog(it) { openLink = null } }
+    if (newContact) com.pank.vsevodnom.ui.contacts.NewContactDialog(if (b.kind == "birthday") b.name else "", onLinked = { l ->
+        b = b.copy(contactKey = com.pank.vsevodnom.ui.contacts.ContactLinks.join(com.pank.vsevodnom.ui.contacts.ContactLinks.parse(b.contactKey) + l))
+    }) { newContact = false }
+    if (choose) {
+        val cur = com.pank.vsevodnom.ui.contacts.ContactLinks.parse(b.contactKey)
+        var ids by remember { mutableStateOf<Set<Long>?>(null) }
+        LaunchedEffect(Unit) { ids = withContext(Dispatchers.IO) { cur.mapNotNull { com.pank.vsevodnom.ui.contacts.ContactLinks.resolveId(ctx, it) }.toSet() } }
+        ids?.let { set ->
+            com.pank.vsevodnom.ui.contacts.ContactsChooser(if (b.kind == "birthday") "Чей это день рождения?" else "Кто связан с датой?", set, { choose = false }) { picked ->
+                val l = picked.map { com.pank.vsevodnom.ui.contacts.ContactLinks.of(it) }
+                b = b.copy(contactKey = com.pank.vsevodnom.ui.contacts.ContactLinks.join(if (b.kind == "birthday") l.take(1) else l),
+                    name = if (b.name.isBlank() && picked.size == 1) picked[0].name else b.name)
+                choose = false
+            }
+        }
+    }
     Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
             Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -257,6 +289,19 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         DATE_COLORS.forEachIndexed { i, c -> Box(Modifier.size(if (b.tint == i) 38.dp else 32.dp).clip(CircleShape).background(c).clickable { b = b.copy(tint = i) }, contentAlignment = Alignment.Center) {
                             if (b.tint == i) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(18.dp)) } }
+                    }
+                }
+                FormCard(if (b.kind == "birthday") "Контакт" else "Люди") {
+                    val links = com.pank.vsevodnom.ui.contacts.ContactLinks.parse(b.contactKey)
+                    links.forEach { l ->
+                        com.pank.vsevodnom.ui.contacts.LinkedContactRow(l, onOpen = { openLink = l },
+                            onRemove = { b = b.copy(contactKey = com.pank.vsevodnom.ui.contacts.ContactLinks.join(links - l)) })
+                    }
+                    if (links.isEmpty()) Text(if (b.kind == "birthday") "Свяжи с контактом — отсюда можно будет сразу позвонить и поздравить." else "Свяжи с людьми из контактов (свадьба, годовщина — можно несколько).",
+                        style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PillButton(if (links.isEmpty()) "Связать" else "Изменить", { choose = true }, Modifier.weight(1f), bg = Pal.Sky, fg = Pal.SkyInk)
+                        if (links.isEmpty() || b.kind != "birthday") PillButton("Новый контакт", { newContact = true }, Modifier.weight(1f), bg = Pal.Mint, fg = Pal.MintInk)
                     }
                 }
                 FormCard("Заметка") { AppTextField(b.note, { b = b.copy(note = it) }, "Идея подарка, пожелание…", singleLine = false) }
@@ -335,13 +380,15 @@ internal fun GiftDialog(b: Birthday?, onDismiss: () -> Unit) {
 }
 
 /** Контакт с днём рождения из телефонной книги. */
-data class ContactBday(val key: String, val name: String, val day: Int, val month: Int, val year: Int?)
+data class ContactBday(val key: String, val name: String, val day: Int, val month: Int, val year: Int?, val id: Long = 0) {
+    val link get() = "$key#$id"
+}
 
 private fun readContactBirthdays(ctx: Context): List<ContactBday> {
     val out = ArrayList<ContactBday>()
     runCatching {
         ctx.contentResolver.query(ContactsContract.Data.CONTENT_URI,
-            arrayOf(ContactsContract.Data.LOOKUP_KEY, ContactsContract.Data.DISPLAY_NAME, ContactsContract.CommonDataKinds.Event.START_DATE),
+            arrayOf(ContactsContract.Data.LOOKUP_KEY, ContactsContract.Data.DISPLAY_NAME, ContactsContract.CommonDataKinds.Event.START_DATE, ContactsContract.Data.CONTACT_ID),
             "${ContactsContract.Data.MIMETYPE}=? AND ${ContactsContract.CommonDataKinds.Event.TYPE}=?",
             arrayOf(ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY.toString()), null)?.use { c ->
             while (c.moveToNext()) {
@@ -354,11 +401,11 @@ private fun readContactBirthdays(ctx: Context): List<ContactBday> {
                     m2 != null -> Triple(m2.groupValues[3].toIntOrNull(), m2.groupValues[2].toInt(), m2.groupValues[1].toInt())
                     else -> continue
                 }
-                if (mo in 1..12 && da in 1..31) out += ContactBday(key, name, da, mo, y)
+                if (mo in 1..12 && da in 1..31) out += ContactBday(key, name, da, mo, y, c.getLong(3))
             }
         }
     }
-    return out.distinctBy { it.key }.sortedBy { it.name }
+    return out.distinctBy { it.id }.sortedBy { it.name }
 }
 
 /** Синхронизация с контактами: показывает тех, у кого указан день рождения; добавляешь только кого сам отметишь. */
@@ -369,12 +416,13 @@ private fun ContactsImport(existing: List<Birthday>, onDismiss: () -> Unit) {
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     var list by remember { mutableStateOf<List<ContactBday>?>(null) }
     val chosen = remember { mutableStateListOf<String>() }
-    val linked = existing.filter { it.contactKey.isNotBlank() }.associateBy { it.contactKey }
+    // id контактов, которые уже есть в датах. Сверка по ключу поиска (LOOKUP_KEY) подводила: Android меняет его
+    // после синхронизации/склейки контактов → «ещё не добавленными» показывались уже добавленные, и появлялись дубли.
+    var linkedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     LaunchedEffect(granted) {
         if (!granted) return@LaunchedEffect
-        list = withContext(Dispatchers.IO) { readContactBirthdays(ctx) }
-        // у уже связанных обновляем дату, если в контакте её поменяли
-        list?.forEach { c -> linked[c.key]?.let { b -> if (b.day != c.day || b.month != c.month || (c.year != null && b.year != c.year)) AppScope.io.launch { AppDb.get(ctx).todo().upsertBirthday(b.copy(day = c.day, month = c.month, year = c.year ?: b.year)) } } }
+        val (cl, ids) = withContext(Dispatchers.IO) { val cl = readContactBirthdays(ctx); cl to DateContacts.reconcile(ctx, cl) }
+        linkedIds = ids; list = cl
     }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Дни рождения из контактов") },
         text = {
@@ -388,11 +436,11 @@ private fun ContactsImport(existing: List<Birthday>, onDismiss: () -> Unit) {
                     list == null -> CircularProgressIndicator()
                     list!!.isEmpty() -> Text("В контактах пока нет дней рождения. Открой контакт → «Изменить» → «Добавить поле» → «Значимое событие / День рождения». Потом зайди сюда снова.", style = MaterialTheme.typography.bodyMedium)
                     else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(list!!, key = { it.key }) { c ->
-                            val already = c.key in linked
-                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (c.key in chosen) Pal.Lilac else Pal.Ink.copy(alpha = 0.04f))
-                                .clickable(enabled = !already) { if (c.key in chosen) chosen.remove(c.key) else chosen.add(c.key) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                CheckCircle(already || c.key in chosen, ACCENT, 20.dp) { if (!already) { if (c.key in chosen) chosen.remove(c.key) else chosen.add(c.key) } }
+                        items(list!!, key = { it.id }) { c ->
+                            val already = c.id in linkedIds
+                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (c.link in chosen) Pal.Lilac else Pal.Ink.copy(alpha = 0.04f))
+                                .clickable(enabled = !already) { if (c.link in chosen) chosen.remove(c.link) else chosen.add(c.link) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CheckCircle(already || c.link in chosen, ACCENT, 20.dp) { if (!already) { if (c.link in chosen) chosen.remove(c.link) else chosen.add(c.link) } }
                                 Column(Modifier.weight(1f)) {
                                     Text(c.name, style = MaterialTheme.typography.titleSmall)
                                     Text("${c.day} ${Month.of(c.month).getDisplayName(java.time.format.TextStyle.FULL, RU)}" + (c.year?.let { " $it" } ?: "") + if (already) " · уже в датах" else "", style = MaterialTheme.typography.bodySmall)
@@ -405,10 +453,43 @@ private fun ContactsImport(existing: List<Birthday>, onDismiss: () -> Unit) {
         },
         confirmButton = {
             TextButton({
-                val add = list.orEmpty().filter { it.key in chosen }
-                AppScope.io.launch { add.forEachIndexed { i, c -> AppDb.get(ctx).todo().upsertBirthday(Birthday(name = c.name, day = c.day, month = c.month, year = c.year, kind = "birthday", tint = i % 6, contactKey = c.key)) } }
+                val add = list.orEmpty().filter { it.link in chosen && it.id !in linkedIds }
+                AppScope.io.launch { add.forEachIndexed { i, c -> AppDb.get(ctx).todo().upsertBirthday(Birthday(name = c.name, day = c.day, month = c.month, year = c.year, kind = "birthday", tint = i % 6, contactKey = c.link)) } }
                 onDismiss()
             }, enabled = chosen.isNotEmpty()) { Text(if (chosen.isEmpty()) "Добавить" else "Добавить (${chosen.size})") }
         },
         dismissButton = { TextButton(onDismiss) { Text("Закрыть") } })
+}
+
+
+/** Сверка дат с контактами. */
+object DateContacts {
+    /** Связывает даты с контактами по id (через lookupContact — он понимает устаревшие ключи) или по имени и дате,
+     *  обновляет устаревшие ключи и даты, склеивает дубли одного человека. Возвращает id уже связанных контактов. */
+    suspend fun reconcile(ctx: Context, contacts: List<ContactBday>): Set<Long> {
+        val dao = AppDb.get(ctx).todo()
+        val all = dao.birthdaysSync()
+        val byId = contacts.associateBy { it.id }
+        fun norm(n: String) = n.lowercase().replace('ё', 'е').filter { it.isLetterOrDigit() }
+        val ids = HashMap<Long, MutableList<Birthday>>()   // контакт → его даты рождения
+        for (b in all) {
+            if (b.kind != "birthday") continue
+            val links = com.pank.vsevodnom.ui.contacts.ContactLinks.parse(b.contactKey)
+            var id = links.firstNotNullOfOrNull { com.pank.vsevodnom.ui.contacts.ContactLinks.resolveId(ctx, it) }
+            // без связи (или связь потерялась) — по имени и дню рождения
+            if (id == null || id !in byId) contacts.firstOrNull { norm(it.name) == norm(b.name) && it.day == b.day && it.month == b.month }?.let { id = it.id }
+            id?.let { ids.getOrPut(it) { ArrayList() } += b }
+        }
+        for ((id, list) in ids) {
+            val c = byId[id] ?: continue
+            val keep = list.minBy { it.id }
+            // дубли одного человека: оставляем первую запись, заметки сливаем
+            list.filter { it.id != keep.id }.forEach { dao.deleteBirthday(it) }
+            val notes = list.map { it.note.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
+            val upd = keep.copy(day = c.day, month = c.month, year = c.year ?: keep.year, note = notes,
+                contactKey = if (com.pank.vsevodnom.ui.contacts.ContactLinks.parse(keep.contactKey).size > 1) keep.contactKey else c.link)
+            if (upd != keep) dao.upsertBirthday(upd)
+        }
+        return ids.keys
+    }
 }

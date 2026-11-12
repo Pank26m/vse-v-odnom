@@ -117,6 +117,7 @@ class MainActivity : FragmentActivity() {
                     com.pank.vsevodnom.ui.map.MapUi.openTodo?.let { com.pank.vsevodnom.ui.todo.TodoNav.target = it; com.pank.vsevodnom.ui.map.MapUi.openTodo = null; go("todo") }
                 }
                 LaunchedEffect(com.pank.vsevodnom.ui.map.MapUi.request) { if (com.pank.vsevodnom.ui.map.MapUi.request != null && route != "map") go("map") }
+                LaunchedEffect(com.pank.vsevodnom.ui.common.AppNav.route) { com.pank.vsevodnom.ui.common.AppNav.route?.let { com.pank.vsevodnom.ui.common.AppNav.route = null; go(it) } }
                 LaunchedEffect(pendingRoute.value) {
                     pendingRoute.value?.let { go(it); pendingRoute.value = null }
                 }

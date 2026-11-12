@@ -81,6 +81,8 @@ fun CalendarScreen(
     var sysVersion by remember { mutableIntStateOf(0) }
     var confirmClear by remember { mutableStateOf(false) }
     var lessonInfo by remember { mutableStateOf<Agenda.Pair?>(null) }
+    var sysOpen by remember { mutableStateOf<Agenda.Sys?>(null) }
+    var sysReload by remember { mutableIntStateOf(0) }
     val calPrefs = remember { ctx.getSharedPreferences("calendar", android.content.Context.MODE_PRIVATE) }
     var mode by remember { mutableIntStateOf(calPrefs.getInt("mode", 2)) }   // 0 день, 1 неделя, 2 месяц
     fun select(d: LocalDate) { selected = d; month = YearMonth.from(d) }
@@ -95,7 +97,7 @@ fun CalendarScreen(
         dao.events(gridStart.atStartOfDay(zone).toInstant().toEpochMilli(), gridEnd.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli())
     }.collectAsState(initial = emptyList())
     var sys by remember { mutableStateOf<List<Agenda.Sys>>(emptyList()) }
-    LaunchedEffect(gridStart, sysVersion) {
+    LaunchedEffect(gridStart, sysVersion, sysReload) {
         sys = withContext(Dispatchers.IO) { CalendarRepo.systemEvents(ctx, gridStart, gridEnd) }
     }
 
@@ -133,9 +135,7 @@ fun CalendarScreen(
         when (t) {
             is Agenda.Own -> editEvent = t.e
             is Agenda.Pair -> lessonInfo = t
-            is Agenda.Sys -> runCatching {
-                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.content.ContentUris.withAppendedId(android.provider.CalendarContract.Events.CONTENT_URI, t.id)))
-            }
+            is Agenda.Sys -> sysOpen = t
         }
     }
     LaunchedEffect(PendingImport.uri) { PendingImport.uri?.let { PendingImport.uri = null; doImport(it) } }
@@ -225,7 +225,7 @@ fun CalendarScreen(
                                 color = if (date == LocalDate.now()) Pal.LilacInk else Pal.Ink, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
                         }
                         if (list.isEmpty() && dots(date).isEmpty()) item { Text("—", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 4.dp)) }
-                        items(list) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
+                        items(list) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; is Agenda.Sys -> sysOpen = a } }) }
                         dayExtras(date)
                     }
                 }
@@ -241,7 +241,7 @@ fun CalendarScreen(
                         }
                     }
                     item {
-                        DayTimeline(byDay[selected].orEmpty(), selected) { a -> when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }
+                        DayTimeline(byDay[selected].orEmpty(), selected) { a -> when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; is Agenda.Sys -> sysOpen = a } }
                     }
                     dayExtras(selected)
                 }
@@ -257,7 +257,7 @@ fun CalendarScreen(
                 item { Text(dayTitle(selected), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
                 val dayItems = byDay[selected].orEmpty()
                 if (dayItems.isEmpty() && dots(selected).isEmpty()) item { EmptyHint("Ничего не запланировано") }
-                items(dayItems) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; else -> {} } }) }
+                items(dayItems) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; is Agenda.Sys -> sysOpen = a } }) }
                 dayExtras(selected)
             }
         }
@@ -269,6 +269,7 @@ fun CalendarScreen(
     }
     if (namingSubjects) SubjectNamesDialog(aliases) { namingSubjects = false }
     lessonInfo?.let { LessonDialog(it) { lessonInfo = null } }
+    sysOpen?.let { SysEventSheet(it, onChanged = { sysReload++ }) { sysOpen = null } }
     editEvent?.let { e -> EventEditor(e, onDismiss = { editEvent = null }) }
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false },
