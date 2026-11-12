@@ -2,6 +2,11 @@ package com.pank.vsevodnom.ui.games
 
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CropFree
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -31,7 +36,7 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 /** Точка карты: позиция (0…1), владелец (-1 — ничья), сила, аванпост (вмещает до 12). */
-class Node(val id: Int, val x: Float, val y: Float, val outpost: Boolean) {
+class Node(val id: Int, val x: Float, val y: Float, val outpost: Boolean, val q: Int = 0, val r: Int = 0) {
     var owner = -1; var v = 0
     val cap get() = if (outpost) TerritoryGame.MAX else TerritoryGame.NORMAL
 }
@@ -57,7 +62,7 @@ enum class Brain(val title: String, val sub: String) {
  */
 class TerritoryGame(
     val players: Int = 4, seed: Long = System.nanoTime(), val size: Int = 1, val brains: List<Brain> = List(3) { Brain.HUNTER },
-    val symmetric: Boolean = true, val mixed: Boolean = false,
+    val symmetric: Boolean = true, val mixed: Boolean = false, val brain0: Brain = Brain.HUNTER,
 ) {
     companion object {
         const val MAX = 12; const val NORMAL = 8
@@ -82,86 +87,126 @@ class TerritoryGame(
     init { generate() }
 
     // ---------------- генерация ----------------
+    /**
+     * Карта — кусок бесконечной сетки шестиугольников (радиус по размеру: S 4, L 6, XL 9, XXL 12 → до ~400 клеток).
+     * Часть клеток — «пустырь» (их нет). Мосты — только между соседними клетками: в центре — во все стороны,
+     * к краю — реже (90% → ~65%), но у каждой клетки минимум один мост, и вся карта связна.
+     * Симметрия: решения (есть клетка, есть мост, аванпост) одинаковы для всех поворотов карты:
+     * 2 игрока — поворот на 180°, 3 — на 120°, 4 — поворот 180° + зеркало.
+     */
     private fun generate() {
-        val total = listOf(14, 24, 36, 52)[size.coerceIn(0, 3)]
-        val pts = ArrayList<Pair<Float, Float>>()
-        val minD = listOf(0.17f, 0.13f, 0.105f, 0.088f)[size.coerceIn(0, 3)]
-        fun okPt(x: Float, y: Float) = pts.none { (px, py) -> (px - x) * (px - x) + (py - y) * (py - y) < minD * minD }
-        val k = if (symmetric) players else 1
-        if (symmetric) {
-            // одна доля круга, остальные — её повороты: карта, мосты и аванпосты одинаковы для всех
-            val per = total / k
-            var tries = 0
-            val sector = ArrayList<Pair<Float, Float>>()
-            while (sector.size < per && tries < 5000) {
-                tries++
-                val a = rnd.nextFloat() * (2 * Math.PI / k).toFloat(); val r = 0.12f + 0.34f * sqrt(rnd.nextFloat())
-                val cand = (0 until k).map { j -> val aa = a + j * 2 * Math.PI.toFloat() / k; (0.5f + kotlin.math.cos(aa) * r) to (0.5f + kotlin.math.sin(aa) * r) }
-                if (cand.all { (x, y) -> okPt(x, y) } && (k == 1 || dist(cand[0], cand[1]) > minD)) { sector += cand[0]; pts.addAll(cand) }
-            }
-            if (rnd.nextBoolean()) pts += 0.5f to 0.5f   // иногда точка в центре — общая для всех
-        } else {
-            var tries = 0
-            while (pts.size < total && tries < 8000) { tries++; val x = 0.05f + rnd.nextFloat() * 0.9f; val y = 0.05f + rnd.nextFloat() * 0.9f; if (okPt(x, y)) pts += x to y }
-        }
-        val n = pts.size
-        // орбиты: точка и её повороты (для симметрии решений)
-        val orbitOf = IntArray(n) { it }
-        if (symmetric && k > 1) {
-            val per = (n - (if (n % k == 1) 1 else 0)) / k
-            for (i in 0 until per * k) orbitOf[i] = i / k
-            if (n % k == 1) orbitOf[n - 1] = 10_000
-        }
-        val outpost = BooleanArray(n)
-        val orbits = orbitOf.distinct().filter { it != 10_000 }.shuffled(rnd)
-        orbits.take((orbits.size * 0.18f).toInt().coerceAtLeast(1)).forEach { o -> (0 until n).filter { orbitOf[it] == o }.forEach { outpost[it] = true } }
-        if (orbitOf.getOrNull(n - 1) == 10_000) outpost[n - 1] = true
-        pts.forEachIndexed { i, (x, y) -> cells += Node(i, x, y, outpost[i]) }
-        // мосты: граф Габриэля (плоский, без пересечений), часть мостов убираем (симметрично по орбитам), сохраняя связность
+        val R = listOf(4, 6, 9, 12)[size.coerceIn(0, 3)]
+        // кубические координаты: x = q, z = r, y = −q−r
+        fun key(q: Int, r: Int) = (q + 64) * 256 + (r + 64)
         val all = ArrayList<Pair<Int, Int>>()
-        for (a in 0 until n) for (b in a + 1 until n) {
-            val mx = (pts[a].first + pts[b].first) / 2; val my = (pts[a].second + pts[b].second) / 2
-            val r2 = (dist(pts[a], pts[b]) / 2).let { it * it } * 0.999f
-            if ((0 until n).none { c -> c != a && c != b && (pts[c].first - mx).let { it * it } + (pts[c].second - my).let { it * it } < r2 } && dist(pts[a], pts[b]) < minD * 3.2f) all += a to b
+        for (q in -R..R) for (r in -R..R) if (abs(q + r) <= R) all += q to r
+        val k = if (symmetric) players else 1
+        fun imagesRaw(q: Int, r: Int): List<Pair<Int, Int>> {
+            val x = q; val z = r; val y = -q - r
+            val rot180 = -x to -z
+            val rot120 = z to y          // (x,y,z) → (z,x,y): q' = z, r' = y
+            val rot240 = y to x
+            val mirror = x to y          // меняем y и z местами: q' = x, r' = y
+            val mirror180 = -x to -y
+            return when (k) { 2 -> listOf(q to r, rot180); 3 -> listOf(q to r, rot120, rot240); 4 -> listOf(q to r, rot180, mirror, mirror180); else -> listOf(q to r) }
         }
-        edges.addAll(all)
-        fun rebuild() { adj.clear(); cells.forEach { adj[it.id] = ArrayList() }; edges.forEach { (a, b) -> adj[a]!!.add(cells[b]); adj[b]!!.add(cells[a]) } }
-        rebuild()
-        if (!connectedNow()) { edges.clear(); edges.addAll(all) }   // на всякий случай
-        val edgeOrbit = HashMap<Pair<Int, Int>, String>()
-        all.forEach { (a, b) -> edgeOrbit[a to b] = listOf(orbitOf[a], orbitOf[b]).sorted().joinToString(":") + ":" + (if (symmetric) ((b - a + 1000 * k) % k) else a * 1000 + b) }
-        edgeOrbit.values.distinct().shuffled(rnd).forEach { o ->
-            if (rnd.nextFloat() > 0.35f) return@forEach
-            val drop = all.filter { edgeOrbit[it] == o }
-            edges.removeAll(drop.toSet()); rebuild()
-            if (!connectedNow()) { edges.addAll(drop); rebuild() }
+        fun images(q: Int, r: Int): List<Pair<Int, Int>> = imagesRaw(q, r).distinct()
+        val alive = HashSet<Int>(); all.forEach { (q, r) -> alive += key(q, r) }
+        val dirs = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1, 1 to -1, -1 to 1)
+        fun dist(q: Int, r: Int) = (abs(q) + abs(r) + abs(q + r)) / 2
+        fun connectedCells(): Boolean {
+            val start = all.firstOrNull { key(it.first, it.second) in alive } ?: return true
+            val seen = HashSet<Int>(); val st = ArrayDeque(listOf(start))
+            while (st.isNotEmpty()) { val (q, r) = st.removeLast(); if (!seen.add(key(q, r))) continue
+                dirs.forEach { (dq, dr) -> val n = key(q + dq, r + dr); if (n in alive && n !in seen) st.add((q + dq) to (r + dr)) } }
+            return seen.size == alive.size
         }
-        rebuild()
+        // пустыри: ~22% клеток (не в самом центре), орбитами, не разрывая карту
+        val holes = (all.size * 0.22).toInt()
+        var removed = 0
+        for ((q, r) in all.shuffled(rnd)) {
+            if (removed >= holes) break
+            if (dist(q, r) <= 1 || key(q, r) !in alive) continue
+            val orb = images(q, r).map { key(it.first, it.second) }.filter { it in alive }
+            alive.removeAll(orb.toSet())
+            if (connectedCells()) removed += orb.size else alive.addAll(orb)
+        }
+        val cellsQR = all.filter { key(it.first, it.second) in alive }
+        // мосты между соседями
+        val bridges = HashSet<Pair<Int, Int>>()
+        fun ek(a: Int, b: Int) = if (a < b) a to b else b to a
+        fun edgeImages(q1: Int, r1: Int, q2: Int, r2: Int): List<Pair<Int, Int>> {
+            val i1 = imagesRaw(q1, r1); val i2 = imagesRaw(q2, r2)
+            return i1.indices.map { t -> ek(key(i1[t].first, i1[t].second), key(i2[t].first, i2[t].second)) }.distinct()
+        }
+        val decided = HashSet<Pair<Int, Int>>()
+        for ((q, r) in cellsQR) for ((dq, dr) in dirs) {
+            val q2 = q + dq; val r2 = r + dr
+            if (key(q2, r2) !in alive) continue
+            val e = ek(key(q, r), key(q2, r2)); if (e in decided) continue
+            val orb = edgeImages(q, r, q2, r2)
+            decided.addAll(orb)
+            val far = maxOf(dist(q, r), dist(q2, r2)).toFloat() / R
+            val pKeep = if (far <= 0.35f) 1f else 0.92f - 0.3f * ((far - 0.35f) / 0.65f)
+            if (rnd.nextFloat() < pKeep) bridges.addAll(orb)
+        }
+        val qrOf = HashMap<Int, Pair<Int, Int>>(); cellsQR.forEach { qrOf[key(it.first, it.second)] = it }
+        fun nbAlive(c: Int): List<Int> { val (q, r) = qrOf[c]!!; return dirs.map { key(q + it.first, r + it.second) }.filter { it in alive } }
+        // у каждой клетки минимум один мост
+        for (c in qrOf.keys) if (bridges.none { it.first == c || it.second == c }) {
+            val n = nbAlive(c).randomOrNull(rnd) ?: continue
+            val (q, r) = qrOf[c]!!; val (q2, r2) = qrOf[n]!!
+            bridges.addAll(edgeImages(q, r, q2, r2))
+        }
+        // связность по мостам: соединяем куски, пока карта не станет одной
+        while (true) {
+            val comp = HashMap<Int, Int>(); var id = 0
+            for (c in qrOf.keys) if (c !in comp) {
+                val st = ArrayDeque(listOf(c)); comp[c] = id
+                while (st.isNotEmpty()) { val x = st.removeLast(); bridges.filter { it.first == x || it.second == x }.forEach { e -> val o = if (e.first == x) e.second else e.first; if (o !in comp) { comp[o] = id; st.add(o) } } }
+                id++
+            }
+            if (id <= 1) break
+            val pair = qrOf.keys.flatMap { c -> nbAlive(c).filter { comp[it] != comp[c] }.map { c to it } }.randomOrNull(rnd) ?: break
+            val (q, r) = qrOf[pair.first]!!; val (q2, r2) = qrOf[pair.second]!!
+            bridges.addAll(edgeImages(q, r, q2, r2))
+        }
+        // аванпосты: ~7% клеток, орбитами
+        val outpost = HashSet<Int>()
+        val cand = cellsQR.filter { dist(it.first, it.second) >= 2 }.shuffled(rnd)
+        for ((q, r) in cand) { if (outpost.size >= (cellsQR.size * 0.07f).toInt().coerceAtLeast(k)) break
+            if (key(q, r) in outpost) continue; images(q, r).forEach { outpost += key(it.first, it.second) } }
+        // узлы: координаты на экране — центры шестиугольников (остриём вверх), нормировка в 0…1
+        val px = cellsQR.map { (q, r) -> sqrt(3f) * (q + r / 2f) }; val py = cellsQR.map { (_, r) -> 1.5f * r }
+        val minX = px.min() - 1f; val maxX = px.max() + 1f; val minY = py.min() - 1f; val maxY = py.max() + 1f
+        val span = maxOf(maxX - minX, maxY - minY)
+        val idOf = HashMap<Int, Int>()
+        cellsQR.forEachIndexed { i, (q, r) ->
+            idOf[key(q, r)] = i
+            cells += Node(i, (px[i] - minX + (span - (maxX - minX)) / 2) / span, (py[i] - minY + (span - (maxY - minY)) / 2) / span, key(q, r) in outpost, q, r)
+        }
+        hexSize = 1f / span
+        bridges.forEach { (a, b) -> edges += idOf[a]!! to idOf[b]!! }
+        adj.clear(); cells.forEach { adj[it.id] = ArrayList() }; edges.forEach { (a, b) -> adj[a]!!.add(cells[b]); adj[b]!!.add(cells[a]) }
         // старты
         if (mixed) {
-            // «Перемешка»: все точки заняты, вперемешку, по 2 в каждой
-            val order = cells.shuffled(rnd)
-            order.forEachIndexed { i, c -> c.owner = i % players; c.v = 2 }
+            cells.shuffled(rnd).forEachIndexed { i, c -> c.owner = i % players; c.v = 2 }
         } else {
             val starts: List<Node> = if (symmetric && k > 1) {
-                // самая дальняя от центра орбита — по точке на игрока
-                val far = (0 until n).filter { orbitOf[it] != 10_000 && !outpost[it] }.maxByOrNull { dist(pts[it], 0.5f to 0.5f) } ?: 0
-                (0 until n).filter { orbitOf[it] == orbitOf[far] }.map { cells[it] }
+                val jit = cellsQR.associateWith { rnd.nextFloat() }
+                val far = cellsQR.filter { key(it.first, it.second) !in outpost }.sortedByDescending { dist(it.first, it.second) + jit[it]!! }
+                    .firstOrNull { (q, r) -> images(q, r).size == k } ?: cellsQR.first()
+                images(far.first, far.second).mapNotNull { idOf[key(it.first, it.second)]?.let { cells[it] } }
             } else {
                 val l = arrayListOf(cells.filter { !it.outpost }.random(rnd))
-                while (l.size < players) l += cells.filter { it !in l && !it.outpost }.maxBy { c -> l.minOf { dist(c.x to c.y, it.x to it.y) } }
+                while (l.size < players) l += cells.filter { it !in l && !it.outpost }.maxBy { c -> l.minOf { (it.x - c.x) * (it.x - c.x) + (it.y - c.y) * (it.y - c.y) } }
                 l
             }
             starts.take(players).forEachIndexed { i, h -> h.owner = i; h.v = 2 }
         }
     }
-    private fun dist(a: Pair<Float, Float>, b: Pair<Float, Float>) = sqrt((a.first - b.first) * (a.first - b.first) + (a.second - b.second) * (a.second - b.second))
-    private fun connectedNow(): Boolean {
-        if (cells.isEmpty()) return true
-        val seen = HashSet<Int>(); val st = ArrayDeque(listOf(cells[0]))
-        while (st.isNotEmpty()) { val h = st.removeLast(); if (seen.add(h.id)) nbrs(h).forEach { if (it.id !in seen) st.add(it) } }
-        return seen.size == cells.size
-    }
+    /** Радиус шестиугольника в долях карты (0…1). */
+    var hexSize = 0.05f; private set
 
     fun at(x: Float, y: Float, maxD: Float): Node? = cells.minByOrNull { (it.x - x) * (it.x - x) + (it.y - y) * (it.y - y) }?.takeIf { (it.x - x) * (it.x - x) + (it.y - y) * (it.y - y) < maxD * maxD }
     fun owned(p: Int) = cells.filter { it.owner == p }
@@ -195,11 +240,19 @@ class TerritoryGame(
             val pick = when (brain) {
                 Brain.DUMB -> mine.random(rnd)
                 Brain.HUNTER -> border.minBy { h -> h.v - threat(h) / 2 }
-                // мастер/божество: копят «таран» у самой выгодной цели и закрывают опасные места
+                // божество: «таран» — все очки в самую сильную клетку у цели, которую она уже бьёт с шансом ≥50%; аванпосты под угрозой — защитить
+                Brain.GOD -> border.maxBy { h ->
+                    val canHit = nbrs(h).any { it.owner != turn && it.v > 0 && chance(h.v, it.v) >= 0.4 }
+                    val outDanger = if (h.outpost) (nbrs(h).filter { it.owner != turn && it.owner >= 0 }.maxOfOrNull { e -> chance(e.v, h.v) } ?: 0.0) else 0.0
+                    (if (canHit) 10.0 + h.v else 0.0) + outDanger * 12 + (nbrs(h).filter { it.owner != turn && it.v > 0 }.maxOfOrNull { t -> chance(h.v + 1, t.v) - chance(h.v, t.v) } ?: 0.0) + rnd.nextDouble() * 0.001
+                }
+                // мастер: очко туда, где оно больше всего прибавляет шанс удара (или защиты)
                 else -> border.maxBy { h ->
-                    val tgt = nbrs(h).filter { it.owner != turn }.maxOfOrNull { t -> (if (t.outpost) 4.0 else 1.0) * chance(h.v + 1, t.v) - chance(h.v, t.v) } ?: 0.0
-                    val danger = (threat(h) - h.v).coerceAtLeast(0) * (if (h.outpost) 2.0 else 1.0)
-                    tgt * 10 + danger + (if (brain == Brain.GOD && h.v >= 4) 1.5 else 0.0)
+                    val atk = nbrs(h).filter { it.owner != turn && it.v > 0 }.maxOfOrNull { t -> (chance(h.v + 1, t.v) - chance(h.v, t.v)) * (if (t.outpost) 1.5 else 1.0) } ?: 0.0
+                    val def = nbrs(h).filter { it.owner != turn && it.owner >= 0 }.maxOfOrNull { e -> chance(e.v, h.v) - chance(e.v, h.v + 1) } ?: 0.0
+                    // божество ещё и копит «таран»: чем сильнее клетка у слабой цели, тем ценнее очко в неё
+                    val ram = if (brain == Brain.GOD) nbrs(h).filter { it.owner != turn && it.v > 0 }.maxOfOrNull { t -> if (h.v >= t.v) 0.1 * h.v else 0.0 } ?: 0.0 else 0.0
+                    atk + ram + def * (if (brain == Brain.GOD) (if (h.outpost) 1.0 else 0.2) else 0.5) + rnd.nextDouble() * 0.001
                 }
             }
             grow(pick)
@@ -214,7 +267,7 @@ class TerritoryGame(
         if (n == 0) turns++
     }
     private fun checkWin() { val alive = (0 until players).filter { alive(it) }; if (alive.size == 1) winner = alive[0] }
-    fun brainOf(p: Int): Brain = if (p == 0) Brain.HUNTER else brains.getOrElse(p - 1) { Brain.HUNTER }
+    fun brainOf(p: Int): Brain = if (p == 0) brain0 else brains.getOrElse(p - 1) { Brain.HUNTER }
 
     /** Ход бота: одна атака за вызов (чтобы было видно), false — больше атаковать не будет. */
     fun botAttackOnce(): Boolean = botAttackOnceAs(brainOf(turn))
@@ -231,29 +284,25 @@ class TerritoryGame(
         val pick: Pair<Node, Node>? = when (b) {
             Brain.DUMB -> opts.filter { rnd.nextFloat() < 0.55f }.randomOrNull(rnd)?.takeIf { rnd.nextFloat() < 0.8f }
             Brain.HUNTER -> opts.filter { (s, t) -> chance(s.v, t.v) >= minOf(0.5, minP) }.maxByOrNull { (s, t) -> chance(s.v, t.v) + (if (t.v == 0) 1.0 else 0.0) + (if (t.owner == 0) 0.1 else 0.0) }
-            Brain.MASTER -> opts.map { (s, t) ->
+            // мастер: удары с шансом от 50%, сперва пустые клетки и аванпосты; очки — туда, где больше прибавят шанс
+            Brain.MASTER -> opts.filter { (s, t) -> t.v == 0 || chance(s.v, t.v) >= minOf(0.5, minP) }
+                .maxByOrNull { (s, t) -> chance(s.v, t.v) + (if (t.v == 0) 1.0 else 0.0) + (if (t.outpost) 0.2 else 0.0) }
+            // божество: бьёт всё, где шанс не хуже 50%, порядок — пустые, слабейший соперник, аванпосты, самый верный удар;
+            // не оголяет свой аванпост под сильным соседом
+            Brain.GOD -> opts.filter { (s, t) -> t.v == 0 || chance(s.v, t.v) >= minOf(0.5, minP) }.maxByOrNull { (s, t) ->
                 val p = chance(s.v, t.v)
-                val value = (if (t.outpost) 2.5 else 1.0) + (if (t.v == 0) 1.0 else 0.0) + (if (t.owner >= 0 && (sizes[t.owner] ?: 0) <= 2) 1.5 else 0.0)
-                Triple(s, t, p * value - (1 - p) * 0.8)
-            }.filter { (s, t, _) -> chance(s.v, t.v) >= minOf(0.6, minP) || t.v == 0 }.maxByOrNull { it.third }?.let { it.first to it.second }
-            Brain.GOD -> opts.map { (s, t) ->
-                val p = chance(s.v, t.v)
-                // после захвата: новая точка с силой s.v−1 — выдержит ли ответ соседей; исходная остаётся с 1
-                val after = s.v - 1
-                val counter = nbrs(t).filter { it.owner != turn && it.owner >= 0 && it !== t }.maxOfOrNull { chance(it.v, after) } ?: 0.0
                 val behind = nbrs(s).filter { it.owner != turn && it.owner >= 0 }.maxOfOrNull { chance(it.v, 1) } ?: 0.0
-                val leader = sizes.maxByOrNull { it.value }?.key
-                val value = (if (t.outpost) 3.0 else 1.0) + (if (t.v == 0) 1.2 else 0.0) +
-                    (if (t.owner >= 0 && (sizes[t.owner] ?: 0) <= 2) 2.0 else 0.0) + (if (t.owner == leader && leader != turn) 0.6 else 0.0)
-                Triple(s, t, p * value * (1 - 0.5 * counter) - (1 - p) * 1.0 - behind * (if (s.outpost) 1.2 else 0.4))
-            }.filter { (s, t, ev) -> (ev > 0.15 || saturated) && (chance(s.v, t.v) >= minOf(0.55, minP) || t.v == 0) }.maxByOrNull { it.third }?.let { it.first to it.second }
+                p + (if (t.v == 0) 1.0 else 0.0) + (if (t.outpost) 0.3 else 0.0) +
+                    (if (t.owner >= 0 && (sizes[t.owner] ?: 0) <= 3) 0.4 else 0.0) - (if (s.outpost && behind > 0.6) 0.25 else 0.0)
+            }
         }
         pick ?: return false
         attack(pick.first, pick.second); return true
     }
 }
 
-private val P_COLORS = listOf(Color(0xFF8E7CC3) to Color(0xFF4E3E8A), Color(0xFF6CC497) to Color(0xFF2B7A52), Color(0xFFF0A675) to Color(0xFF9C4F1F), Color(0xFFE88AA9) to Color(0xFF9C2E55))
+/** Неоновые цвета игроков: ты — синий, боты — зелёный, жёлтый, красный (вторая — тёмный оттенок для меню). */
+private val P_COLORS = listOf(Color(0xFF2F8BFF) to Color(0xFF1B4F99), Color(0xFF2ED158) to Color(0xFF1B7A35), Color(0xFFFFC400) to Color(0xFF8C6A00), Color(0xFFFF4421) to Color(0xFF992714))
 private val P_NAMES = listOf("Ты", "Мята", "Персик", "Роза")
 
 /** Настройки партии (главный экран «Территорий»). */
@@ -286,7 +335,8 @@ private fun TerritoryMenu(tp: android.content.SharedPreferences, onBack: () -> U
                     Text(title, style = MaterialTheme.typography.titleMedium); content()
                 }
             Card("Размер карты") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("S", "L", "XL", "XXL").forEachIndexed { i, t -> Chip(t, size == i, { size = i }, Modifier.weight(1f)) } }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("S", "L", "XL", "XXL").forEachIndexed { i, t -> Chip(t, size == i, { size = i }, Modifier.weight(1f)) }
+                Text(listOf("около 45 клеток", "около 100 клеток", "около 210 клеток", "около 370 клеток")[size], style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
             }
             Card("Противники") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..3).forEach { n -> Chip("$n", enemies == n, { enemies = n }, Modifier.weight(1f)) } }
@@ -336,110 +386,149 @@ private fun TerritoryPlay(st: TerrSetup, onBack: () -> Unit) {
     var g by remember { mutableStateOf(newGame()) }
     var ver by remember { mutableIntStateOf(0) }
     var sel by remember { mutableStateOf<Node?>(null) }
-    var layout by remember { mutableStateOf(Triple(0f, Offset.Zero, 1f)) }   // масштаб, сдвиг
     var turnSeq by remember { mutableIntStateOf(0) }
+    // приближение: масштаб и сдвиг (двумя пальцами), кнопка — показать всю карту
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    var boxSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+    val stars = remember { val r = Random(5); List(260) { Triple(r.nextFloat(), r.nextFloat(), r.nextFloat()) } }
     LaunchedEffect(g, turnSeq) {
         if (g.winner != null || g.turn == 0) return@LaunchedEffect
-        delay(400)
-        while (g.phase == 0 && g.botAttackOnce() && g.winner == null) { ver++; delay(330) }
-        if (g.winner == null) { g.endAttack(); g.autoGrow(g.brainOf(g.turn)); ver++; delay(350); g.endTurn(); ver++; turnSeq++ }
+        delay(350)
+        while (g.phase == 0 && g.botAttackOnce() && g.winner == null) { ver++; delay(if (g.cells.size > 150) 160 else 300) }
+        if (g.winner == null) { g.endAttack(); g.autoGrow(g.brainOf(g.turn)); ver++; delay(300); g.endTurn(); ver++; turnSeq++ }
     }
     val myTurn = g.turn == 0 && g.winner == null
-    ScreenScaffold("Территории", onBack) {
+    fun base(): Pair<Float, Offset> { val sc0 = minOf(boxSize.width, boxSize.height) * 0.98f; return sc0 to Offset((boxSize.width - sc0) / 2, (boxSize.height - sc0) / 2) }
+    fun toScreen(x: Float, y: Float): Offset { val (sc0, o) = base(); val c = Offset(boxSize.width / 2, boxSize.height / 2); val b = Offset(o.x + x * sc0, o.y + y * sc0); return c + (b - c) * zoom + pan }
+    val bg = Color(0xFF05070D)
+    Column(Modifier.fillMaxSize().background(bg).statusBarsPadding().navigationBarsPadding()) {
+        // верх: неоновая полоса цвета того, кто ходит
         key(ver) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(8.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, "Назад", tint = Color.White) }
                 (0 until g.players).forEach { p ->
                     val n = g.owned(p).size
-                    Row(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (g.turn == p) P_COLORS[p].first.copy(alpha = 0.35f) else Pal.Card).padding(8.dp, 6.dp),
+                    Row(Modifier.weight(1f).padding(horizontal = 3.dp).clip(RoundedCornerShape(10.dp)).background(if (g.turn == p) P_COLORS[p].first.copy(alpha = 0.25f) else Color(0x14FFFFFF)).padding(8.dp, 6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(P_COLORS[p].first))
-                        Text(" ${P_NAMES[p]} $n", style = MaterialTheme.typography.labelMedium, color = if (n == 0) Pal.Muted else Pal.Ink, maxLines = 1)
+                        Box(Modifier.size(9.dp).clip(CircleShape).background(P_COLORS[p].first))
+                        Text(" ${P_NAMES[p]} $n", style = MaterialTheme.typography.labelMedium, color = if (n == 0) Color(0xFF6B7080) else Color.White, maxLines = 1)
                     }
                 }
             }
+            Box(Modifier.fillMaxWidth().height(3.dp).background(P_COLORS[g.turn].first))
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            Canvas(Modifier.fillMaxSize().pointerInput(g) {
-                detectTapGestures { pos ->
-                    if (g.turn != 0 || g.winner != null || layout.first <= 0f) return@detectTapGestures
-                    val (sc, o, _) = layout
-                    val h = g.at((pos.x - o.x) / sc, (pos.y - o.y) / sc, 0.06f) ?: run { sel = null; ver++; return@detectTapGestures }
-                    if (g.phase == 0) {
-                        val s = sel
-                        when {
-                            s != null && g.canAttack(s, h) -> { g.attack(s, h); sel = if (h.owner == 0 && h.v >= 2) h else null }
-                            h.owner == 0 && h.v >= 2 -> sel = h
-                            else -> sel = null
-                        }
-                    } else g.grow(h)
-                    ver++
+        Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged { boxSize = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }) {
+            Canvas(Modifier.fillMaxSize()
+                .pointerInput(g) {
+                    detectTransformGestures { centroid, dPan, dZoom, _ ->
+                        val c = Offset(size.width / 2f, size.height / 2f)
+                        val nz = (zoom * dZoom).coerceIn(1f, 7f)
+                        // точка под пальцами остаётся на месте
+                        val b = c + (centroid - c - pan) / zoom
+                        pan = centroid - c - (b - c) * nz + dPan
+                        zoom = nz
+                        if (zoom <= 1.001f) pan = Offset.Zero
+                    }
                 }
-            }) {
-                ver
-                val sc = minOf(size.width, size.height) * 0.98f
-                val o = Offset((size.width - sc) / 2, (size.height - sc) / 2)
-                layout = Triple(sc, o, 1f)
-                fun pt(n: Node) = Offset(o.x + n.x * sc, o.y + n.y * sc)
+                .pointerInput(g) {
+                    detectTapGestures { pos ->
+                        if (g.turn != 0 || g.winner != null) return@detectTapGestures
+                        val (sc0, o) = base(); val c = Offset(size.width / 2f, size.height / 2f)
+                        val b = c + (pos - c - pan) / zoom
+                        val h = g.at((b.x - o.x) / sc0, (b.y - o.y) / sc0, g.hexSize * 1.1f) ?: run { sel = null; ver++; return@detectTapGestures }
+                        if (st.dark && !(h.owner == 0 || g.nbrs(h).any { it.owner == 0 })) return@detectTapGestures
+                        if (g.phase == 0) {
+                            val s = sel
+                            when {
+                                s != null && g.canAttack(s, h) -> { g.attack(s, h); sel = if (h.owner == 0 && h.v >= 2) h else null }
+                                h.owner == 0 && h.v >= 2 -> sel = h
+                                else -> sel = null
+                            }
+                        } else g.grow(h)
+                        ver++
+                    }
+                }) {
+                @Suppress("UNUSED_EXPRESSION") ver
+                // звёздное небо
+                drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF04060C), Color(0xFF0A1428), Color(0xFF05070D))))
+                stars.forEach { (x, y, b) -> drawCircle(Color.White.copy(alpha = 0.15f + 0.5f * b * b), 0.6f + 1.3f * b * b, Offset(x * size.width, y * size.height)) }
+                val (sc0, _) = base()
+                val r = g.hexSize * sc0 * zoom * 0.78f
                 val s = sel
                 val visible: (Node) -> Boolean = if (!st.dark) { _ -> true } else { hx -> hx.owner == 0 || g.nbrs(hx).any { it.owner == 0 } }
-                val r0 = sc * 0.036f * (if (g.cells.size > 40) 0.85f else 1f)
-                // мосты
-                g.edges.forEach { (a, b) ->
-                    val na = g.cells[a]; val nb = g.cells[b]
-                    if (!visible(na) && !visible(nb)) return@forEach
-                    val hot = s != null && ((na === s && g.canAttack(s, nb)) || (nb === s && g.canAttack(s, na)))
-                    drawLine(if (hot) Color(0xFFE5485D) else Color(0xFFCFCBD9), pt(na), pt(nb), if (hot) r0 * 0.28f else r0 * 0.18f)
+                fun glowLine(a: Offset, b: Offset, col: Color, w: Float) {
+                    drawLine(col.copy(alpha = 0.12f), a, b, w * 4f, StrokeCap.Round); drawLine(col.copy(alpha = 0.3f), a, b, w * 2f, StrokeCap.Round); drawLine(col, a, b, w, StrokeCap.Round)
                 }
-                val paint = android.graphics.Paint().apply { isAntiAlias = true; textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true }
+                // мосты
+                g.edges.forEach { (ia, ib) ->
+                    val na = g.cells[ia]; val nb = g.cells[ib]
+                    if (!visible(na) || !visible(nb)) return@forEach
+                    val pa = toScreen(na.x, na.y); val pb = toScreen(nb.x, nb.y)
+                    if (pa.x < -r * 3 && pb.x < -r * 3 || pa.y < -r * 3 && pb.y < -r * 3 || pa.x > size.width + r * 3 && pb.x > size.width + r * 3 || pa.y > size.height + r * 3 && pb.y > size.height + r * 3) return@forEach
+                    val d = pb - pa; val len = d.getDistance(); if (len < 1f) return@forEach
+                    val u = d / len
+                    val hot = s != null && ((na === s && g.canAttack(s, nb)) || (nb === s && g.canAttack(s, na)))
+                    val col = when { hot -> Color(0xFFFF3B30); na.owner >= 0 && na.owner == nb.owner -> P_COLORS[na.owner].first; else -> Color(0xFF7D828C) }
+                    glowLine(pa + u * r * 0.86f, pb - u * r * 0.86f, col, maxOf(1.2f, r * 0.07f))
+                }
+                val paint = android.graphics.Paint().apply { isAntiAlias = true; textAlign = android.graphics.Paint.Align.CENTER; color = android.graphics.Color.WHITE
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL) }
                 g.cells.forEach { hx ->
-                    val c = pt(hx)
-                    val r = if (hx.outpost) r0 * 1.35f else r0
+                    if (!visible(hx)) return@forEach
+                    val c = toScreen(hx.x, hx.y)
+                    val rr = if (hx.outpost) r * 1.18f else r
+                    if (c.x < -rr * 2 || c.y < -rr * 2 || c.x > size.width + rr * 2 || c.y > size.height + rr * 2) return@forEach
                     val path = Path()
-                    for (k in 0 until 6) { val a = Math.toRadians(60.0 * k - 30); val px = c.x + (kotlin.math.cos(a) * r).toFloat(); val py = c.y + (kotlin.math.sin(a) * r).toFloat(); if (k == 0) path.moveTo(px, py) else path.lineTo(px, py) }
+                    for (k in 0 until 6) { val a = Math.toRadians(60.0 * k - 90); val px = c.x + (kotlin.math.cos(a) * rr).toFloat(); val py = c.y + (kotlin.math.sin(a) * rr).toFloat(); if (k == 0) path.moveTo(px, py) else path.lineTo(px, py) }
                     path.close()
-                    if (!visible(hx)) { drawPath(path, Color(0xFF2E3350)); return@forEach }
-                    val (fill, ink) = if (hx.owner >= 0) P_COLORS[hx.owner] else Color(0xFFE9E7EF) to Color(0xFF9A98A6)
-                    val tint = if (hx.owner >= 0) fill.copy(alpha = 0.4f + 0.6f * hx.v / hx.cap) else fill
-                    drawPath(path, tint)
+                    val owned = hx.owner >= 0
+                    val col = if (owned) P_COLORS[hx.owner].first else Color(0xFF9BA0AA)
+                    // заливка: своя — цветом (ярче при силе), ничья — тёмная
+                    drawPath(path, if (owned) col.copy(alpha = 0.35f + 0.5f * hx.v / hx.cap) else Color(0xFF0E1015))
+                    // неоновая обводка: три прохода — ореол, свечение, линия
                     val target = s != null && g.canAttack(s, hx)
-                    when {
-                        hx === s -> drawPath(path, ink, style = Stroke(r * 0.22f))
-                        target -> drawPath(path, Color(0xFFE5485D), style = Stroke(r * 0.16f))
-                        g.phase == 1 && myTurn && hx.owner == 0 && hx.v < hx.cap && g.points > 0 -> drawPath(path, ink.copy(alpha = 0.6f), style = Stroke(r * 0.1f))
-                        hx.outpost -> drawPath(path, Color(0xFFF2B635), style = Stroke(r * 0.14f))
-                        else -> drawPath(path, Color.White, style = Stroke(r * 0.08f))
-                    }
-                    paint.textSize = r * 0.85f
-                    paint.color = if (hx.v >= hx.cap * 0.6f && hx.owner >= 0) android.graphics.Color.WHITE else android.graphics.Color.argb(255, (ink.red * 255).toInt(), (ink.green * 255).toInt(), (ink.blue * 255).toInt())
-                    if (hx.owner >= 0 || hx.v > 0) drawContext.canvas.nativeCanvas.drawText("${hx.v}", c.x, c.y + r * 0.3f, paint)
-                    if (hx.outpost) { paint.textSize = r * 0.5f; paint.color = 0xFFC48A12.toInt(); drawContext.canvas.nativeCanvas.drawText("★", c.x, c.y - r * 0.95f, paint) }
-                    // шанс при выбранной точке — над целью
-                    if (target && s != null) { paint.textSize = r * 0.55f; paint.color = 0xFFE5485D.toInt(); drawContext.canvas.nativeCanvas.drawText("${(TerritoryGame.chance(s.v, hx.v) * 100).toInt()}%", c.x, c.y + r * 1.75f, paint) }
+                    val edge = when { hx === s -> Color.White; target -> Color(0xFFFF3B30); hx.outpost && !owned -> Color(0xFFFFD36B); else -> col }
+                    drawPath(path, edge.copy(alpha = 0.12f), style = Stroke(rr * 0.42f))
+                    drawPath(path, edge.copy(alpha = 0.3f), style = Stroke(rr * 0.2f))
+                    drawPath(path, edge, style = Stroke(maxOf(1.2f, rr * 0.07f)))
+                    if (g.phase == 1 && myTurn && hx.owner == 0 && hx.v < hx.cap && g.points > 0) drawPath(path, Color.White.copy(alpha = 0.5f), style = Stroke(maxOf(1f, rr * 0.05f)))
+                    paint.textSize = rr * 0.72f
+                    if (rr > 6f) drawContext.canvas.nativeCanvas.drawText("${hx.v}", c.x, c.y + rr * 0.26f, paint)
+                    if (hx.outpost && rr > 8f) { paint.textSize = rr * 0.42f; paint.color = 0xFFFFD36B.toInt(); drawContext.canvas.nativeCanvas.drawText("★", c.x - rr * 0.55f, c.y + rr * 0.55f, paint); paint.color = android.graphics.Color.WHITE }
+                    if (target && s != null && rr > 6f) { paint.textSize = rr * 0.5f; paint.color = 0xFFFF6B5E.toInt(); drawContext.canvas.nativeCanvas.drawText("${(TerritoryGame.chance(s.v, hx.v) * 100).toInt()}%", c.x, c.y - rr * 1.15f, paint); paint.color = android.graphics.Color.WHITE }
                 }
             }
+            // показать всю карту
+            Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(44.dp).clip(CircleShape).background(Color(0x332F8BFF)).clickable { zoom = 1f; pan = Offset.Zero },
+                contentAlignment = Alignment.Center) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.CropFree, "Вся карта", tint = Color(0xFF7FB6FF)) }
             key(ver) {
                 g.winner?.let { w ->
-                    if (w == 0) VictoryOverlay("Победа!", "Вся карта твоя: ${g.cells.size} точек · ходов ${g.turns}", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ }
-                    else GameOverlay("${P_NAMES[w]} захватила карту", "Бот: ${g.brainOf(w).title}", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ }
+                    if (w == 0) VictoryOverlay("Победа!", "Вся карта твоя: ${g.cells.size} клеток · ходов ${g.turns}", "Новая карта") { g = newGame(); sel = null; zoom = 1f; pan = Offset.Zero; ver++; turnSeq++ }
+                    else GameOverlay("${P_NAMES[w]} захватила карту", "Бот: ${g.brainOf(w).title}", "Новая карта") { g = newGame(); sel = null; zoom = 1f; pan = Offset.Zero; ver++; turnSeq++ }
                 }
             }
             if (!g.alive(0) && g.winner == null) GameOverlay("Тебя вытеснили", "Боты ещё доигрывают", "Новая карта") { g = newGame(); sel = null; ver++; turnSeq++ }
         }
+        // низ: полоса долей территории по цветам и управление
         key(ver) {
-            Column(Modifier.fillMaxWidth().padding(16.dp, 4.dp, 16.dp, 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val counts = (0 until g.players).map { g.owned(it).size.toFloat() }
+            val total = counts.sum().coerceAtLeast(1f)
+            Row(Modifier.fillMaxWidth().height(4.dp)) { counts.forEachIndexed { p, n -> if (n > 0) Box(Modifier.weight(n / total).fillMaxHeight().background(P_COLORS[p].first)) } }
+            Column(Modifier.fillMaxWidth().background(Color(0xFF0B0F1A)).padding(16.dp, 8.dp, 16.dp, 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(when {
                     !myTurn -> "Ходит ${P_NAMES[g.turn]} (${g.brainOf(g.turn).title})…"
-                    g.phase == 0 -> if (sel == null) "Атака: выбери свою точку силой 2+" else "Нажми соседнюю точку — над ней шанс захвата"
-                    else -> "Рост: раздай очки по своим точкам — осталось ${g.points}"
-                }, style = MaterialTheme.typography.titleSmall)
-                if (g.log.isNotBlank()) Text(g.log, style = MaterialTheme.typography.bodySmall)
+                    g.phase == 0 -> if (sel == null) "Коснись своей клетки (сила 2+)" else "Коснись соседней — над ней шанс захвата"
+                    else -> "Рост: раздай очки — осталось ${g.points}"
+                }, style = MaterialTheme.typography.titleSmall, color = if (myTurn) Color(0xFF7FB6FF) else Color.White)
+                if (g.log.isNotBlank()) Text(g.log, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB0B5C0))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (myTurn && g.phase == 0) PillButton("К росту →", { g.endAttack(); sel = null; ver++ }, Modifier.weight(1f))
+                    if (myTurn && g.phase == 0) PillButton("К росту →", { g.endAttack(); sel = null; ver++ }, Modifier.weight(1f), bg = Color(0xFF2F8BFF))
                     if (myTurn && g.phase == 1) {
-                        PillButton("Раздать сам", { g.autoGrow(); ver++ }, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink, enabled = g.points > 0)
-                        PillButton("Конец хода", { g.endTurn(); ver++; turnSeq++ }, Modifier.weight(1f))
+                        PillButton("Раздать сам", { g.autoGrow(); ver++ }, Modifier.weight(1f), bg = Color(0x22FFFFFF), fg = Color.White, enabled = g.points > 0)
+                        PillButton("Конец хода", { g.endTurn(); ver++; turnSeq++ }, Modifier.weight(1f), bg = Color(0xFF2F8BFF))
                     }
-                    PillButton("Заново", { g = newGame(); sel = null; ver++; turnSeq++ }, Modifier.weight(0.7f), bg = Pal.Card, fg = Pal.Ink)
+                    PillButton("Заново", { g = newGame(); sel = null; zoom = 1f; pan = Offset.Zero; ver++; turnSeq++ }, Modifier.weight(0.7f), bg = Color(0x22FFFFFF), fg = Color.White)
                 }
             }
         }

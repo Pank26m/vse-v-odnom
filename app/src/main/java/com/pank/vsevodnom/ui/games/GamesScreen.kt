@@ -36,6 +36,9 @@ private val GAMES = listOf(
     Game("territory", "Территории", "свой редактор карты, 1–3 бота, шансы как в оригинале", "⬢", Tints.Lilac),
     Game("c4", "Четыре в ряд", "сильный бот, кто первый — случайно", "●", Tints.Rose),
     Game("sea", "Морской бой", "свой флот, корабли ручкой, взрывы", "⚓", Tints.Sky),
+    Game("blocks", "Блоки", "падающие фигуры: собирай линии", "▦", Tints.Sky),
+    Game("hockey", "Аэрохоккей", "неон, умный бот, до 7 голов", "◉", Tints.Rose),
+    Game("knives", "Ножи", "метни в мишень, не задень ножи, боссы", "🗡", Tints.Peach),
     Game("random", "Рандом", "монетка, колесо, шар, бутылочка, кости", "🎲", Tints.Butter),
 )
 
@@ -58,6 +61,9 @@ fun GamesScreen(onBack: () -> Unit) {
         "territory" -> TerritoryScreen(close)
         "c4" -> ConnectFourScreen(close)
         "sea" -> BattleshipScreen(close)
+        "blocks" -> BlocksScreen(close)
+        "hockey" -> AirHockeyScreen(close)
+        "knives" -> KnivesScreen(close)
         else -> ScreenScaffold("Игры", onBack) {
             LazyVerticalGrid(
                 GridCells.Fixed(2), contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp),

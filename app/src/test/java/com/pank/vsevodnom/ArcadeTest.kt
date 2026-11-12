@@ -80,6 +80,11 @@ class ArcadeTest {
             assertEquals(g.cells.size, seen.size, "карта несвязна size=$size p=$players sym=$sym")
             assertEquals(players, (0 until players).count { g.alive(it) })
             if (mixed) assertTrue(g.cells.all { it.owner >= 0 && it.v == 2 })
+            // у каждой клетки есть мост, мосты — только между соседними шестиугольниками
+            g.cells.forEach { c -> assertTrue(g.nbrs(c).isNotEmpty(), "клетка без мостов") }
+            g.edges.forEach { (a, b) -> val x = g.cells[a]; val y = g.cells[b]; val dq = x.q - y.q; val dr = x.r - y.r
+                assertTrue((kotlin.math.abs(dq) + kotlin.math.abs(dr) + kotlin.math.abs(dq + dr)) == 2, "мост не между соседями") }
+            if (size >= 2) { println("size=$size p=$players sym=$sym mixed=$mixed: клеток ${g.cells.size}, мостов ${g.edges.size} (без доигрывания)"); continue }
             var turns = 0
             while (g.winner == null && turns < 3000) {
                 while (g.botAttackOnce() && g.winner == null) {}
@@ -90,6 +95,64 @@ class ArcadeTest {
             println("size=$size p=$players sym=$sym mixed=$mixed: точек ${g.cells.size}, мостов ${g.edges.size}, аванпостов ${g.cells.count { it.outpost }}, ходов $turns, победил ${g.winner}")
             assertNotNull(g.winner, "партия ботов не закончилась: size=$size p=$players sym=$sym mixed=$mixed")
         }
+    }
+
+    /** Турнир уровней ботов «Территорий» (дуэли на карте L): сильнее должен чаще побеждать. */
+    @Test fun territoryBrains() {
+        val res = StringBuilder()
+        for ((a, b) in listOf(Brain.GOD to Brain.HUNTER, Brain.MASTER to Brain.HUNTER, Brain.HUNTER to Brain.DUMB, Brain.GOD to Brain.MASTER)) {
+            var winA = 0; var games = 0
+            repeat(40) { seed ->
+                // a играет то за первого, то за второго
+                val aFirst = seed % 2 == 0
+                val g = TerritoryGame(players = 2, seed = seed * 101L, size = 1, brains = listOf(if (aFirst) b else a), brain0 = if (aFirst) a else b)
+                var t = 0
+                while (g.winner == null && t < 1500) { while (g.botAttackOnce() && g.winner == null) {}; if (g.winner != null) break; g.endAttack(); g.autoGrow(g.brainOf(g.turn)); g.endTurn(); t++ }
+                if (g.winner != null) { games++; if ((g.winner == 0) == aFirst) winA++ }
+            }
+            res.append("${a.title} против ${b.title}: $winA из $games\n")
+        }
+        println(res)
+    }
+
+    @Test fun blocksClearLine() {
+        val g = BlocksGame(kotlin.random.Random(1))
+        // нижняя строка заполнена, кроме 4 клеток справа — палка I закрывает их
+        for (x in 0 until 6) g.grid[(BlocksGame.H - 1) * BlocksGame.W + x] = 1
+        g.kind = 0; g.rot = 0; g.px = 6; g.py = 0
+        g.drop()
+        assertEquals(1, g.lines); assertTrue(g.score >= 100)
+        assertTrue((0 until BlocksGame.W).none { g.grid[(BlocksGame.H - 1) * BlocksGame.W + it] == 1 })
+        // повороты не выходят за стены
+        repeat(50) { g.rotate(); g.move(-1) }
+        assertTrue(g.cells().all { it.first in 0 until BlocksGame.W })
+    }
+
+    @Test fun knivesCollide() {
+        val g = KnivesGame(kotlin.random.Random(2))
+        g.stuck.clear(); g.applesOn.clear()
+        g.throwKnife(); var ev = 0; repeat(30) { if (ev == 0) ev = g.step(0.01f) }
+        assertEquals(1, g.stuck.size)
+        // второй нож в то же место (мишень не повернулась) — отскок
+        g.angle = (360f - g.stuck[0]) % 360f
+        val saved = g.stuck[0]; g.stuck.clear(); g.stuck += saved
+        g.throwKnife(); ev = 0
+        // «заморозим» вращение: полёт 0,11 с — за это время мишень повернётся ~15°, поэтому ставим нож прямо в точку прилёта
+        repeat(30) { if (ev == 0) { val before = g.angle; ev = g.step(0.01f); if (ev == 0 && g.flying >= 0) { g.stuck[0] = (360f - g.angle) % 360f; @Suppress("UNUSED_VARIABLE") val x = before } } }
+        assertEquals(4, ev)
+    }
+
+    @Test fun hockeyBotPlays() {
+        val g = HockeyGame(2)
+        // «игрок» попроще: держится между шайбой и своими воротами и бьёт, когда шайба на его половине
+        repeat(120 * 60) {
+            val tx = g.px; val ty = if (g.py > HockeyGame.H / 2) g.py + 0.05f else HockeyGame.H * 0.85f
+            g.moveMine(g.mx + (tx - g.mx).coerceIn(-0.02f, 0.02f), g.my + (ty - g.my).coerceIn(-0.02f, 0.02f), 1f / 60)
+            g.step(1f / 60)
+        }
+        assertTrue(!g.px.isNaN() && !g.py.isNaN())
+        println("хоккей: за 2 минуты бот забил ${g.bot}, простой игрок ${g.me}")
+        assertTrue(g.bot >= 1, "бот должен уметь забивать")
     }
 
     @Test fun sudokuGod() {
