@@ -85,6 +85,9 @@ private class MazeGame(var level: Int = 1, var lives: Int = 3, var score: Int = 
         val m = me
         if (want.first == -m.dx && want.second == -m.dy && (m.dx != 0 || m.dy != 0)) { m.x += m.dx; m.y += m.dy; m.dx = want.first; m.dy = want.second; m.t = 1 - m.t }
         if (m.dx == 0 && m.dy == 0) { if (!wall(m.x + want.first, m.y + want.second, false) && want != (0 to 0)) { m.dx = want.first; m.dy = want.second } else return }
+        // поворот «впритык»: смахнул чуть позже перекрёстка (ушёл от центра клетки меньше чем на 40%) — поворачиваем здесь же, а не на следующем
+        val perp = want != (0 to 0) && want.first * m.dx + want.second * m.dy == 0
+        if (perp && m.t < 0.4f && !wall(m.x + want.first, m.y + want.second, false)) { m.t = 0f; m.dx = want.first; m.dy = want.second }
         m.t += sp * dt
         while (m.t >= 1f) {
             m.t -= 1f; m.x += m.dx; m.y += m.dy
@@ -182,7 +185,7 @@ fun MazeScreen(onBack: () -> Unit) {
                 var a = Offset.Zero
                 detectDragGestures(onDragStart = { a = Offset.Zero; g.started = true }) { ch, d ->
                     ch.consume(); a += d
-                    if (maxOf(abs(a.x), abs(a.y)) > 24f) { g.want = if (abs(a.x) > abs(a.y)) (if (a.x > 0) 1 to 0 else -1 to 0) else (if (a.y > 0) 0 to 1 else 0 to -1); a = Offset.Zero }
+                    if (maxOf(abs(a.x), abs(a.y)) > 14f) { g.want = if (abs(a.x) > abs(a.y)) (if (a.x > 0) 1 to 0 else -1 to 0) else (if (a.y > 0) 0 to 1 else 0 to -1); a = Offset.Zero }
                 }
             }) {
                 tick

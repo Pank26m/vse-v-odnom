@@ -35,20 +35,12 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.roundToInt
 
-val HC_PERMS = setOf(
-    HealthPermission.getReadPermission(StepsRecord::class),
-    HealthPermission.getReadPermission(DistanceRecord::class),
-    HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
-    HealthPermission.getReadPermission(HeartRateRecord::class),
-    HealthPermission.getReadPermission(RestingHeartRateRecord::class),
-    HealthPermission.getReadPermission(SleepSessionRecord::class),
-    HealthPermission.getReadPermission(WeightRecord::class),
-    HealthPermission.getReadPermission(HeightRecord::class),
-    HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+/** Все разрешения Health Connect, которые объявлены в манифесте (иначе окно разрешений не открывается вовсе). */
+val HC_PERMS: Set<String> = com.pank.vsevodnom.data.HealthData.READ + setOf(
     HealthPermission.getWritePermission(WeightRecord::class),
     HealthPermission.getWritePermission(ExerciseSessionRecord::class),
     HealthPermission.getWritePermission(HeartRateRecord::class),
-) + com.pank.vsevodnom.data.HealthData.READ
+)
 
 data class HealthSummary(
     val steps: Long, val distanceKm: Double, val kcal: Double,

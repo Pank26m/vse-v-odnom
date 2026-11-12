@@ -146,8 +146,9 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
     // вкладки: пароли | документы (сканы, файлы — тем же шифрованием)
     var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     if (tab == 1) { DocsContent(entries, onChange, onBack, onLock) { tab = it }; return }
+    if (tab == 2) { AutoContent(entries, onChange, onBack, onLock) { tab = it }; return }
     val docsN = entries.count { it.kind == "doc" }
-    val pwds = entries.filter { it.kind != "doc" }
+    val pwds = entries.filter { it.kind == "" }
     var tagFilter by remember { mutableStateOf<String?>(null) }
     var q by remember { mutableStateOf("") }
     var edit by remember { mutableStateOf<VaultEntry?>(null) }
@@ -195,7 +196,7 @@ private fun VaultContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
         }
     }) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            VaultTabs(0, pwds.size, docsN) { tab = it }
+            VaultTabs(0, pwds.size, docsN, { tab = it }, entries.count { it.kind == "auto" })
             AppTextField(q, { q = it }, "Поиск")
             if (allTags.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip("Все · ${pwds.size}", tagFilter == null, { tagFilter = null })

@@ -1,6 +1,11 @@
 package com.pank.vsevodnom.ui.games
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -161,6 +166,9 @@ private val INK = Color(0xFF233F9C)
 private val RED_PEN = Color(0xFFD23A3A)
 private const val LETTERS = "АБВГДЕЖЗИК"
 
+/** Корабль, который тащат: длина, ориентация, за какую клетку схватили, откуда взят (null — из дока), куда встанет, где палец. */
+private data class DragShip(val len: Int, val horiz: Boolean, val grab: Int, val from: List<Int>?, val cells: List<Int>? = null, val pos: Offset = Offset.Zero)
+
 /** Анимация на поле: взрыв попадания или гибель корабля (разлом и погружение). */
 private class Fx(val foe: Boolean, val cells: List<Int>, val sunk: Boolean, val at: Long, val horiz: Boolean)
 
@@ -247,31 +255,88 @@ fun BattleshipScreen(onBack: () -> Unit) {
                     if (!started) Text("Сначала расставь флот на «Моей карте»", style = MaterialTheme.typography.bodySmall, color = INK)
                 } else {
                     Text(if (started) "Мой флот · осталось: ${mine.aliveShips()}" else "Мой флот · осталось поставить: ${left.size}", style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Serif, color = INK)
-                    Canvas(Modifier.fillMaxWidth().aspectRatio(1f).background(PAPER).pointerInput(started, pickLen, horiz, ver) {
-                        detectTapGestures { p ->
-                            if (started) return@detectTapGestures
-                            val cell = size.width / (Sea.N + 1f)
-                            val c = ((p.x - cell) / cell).toInt(); val r = ((p.y - cell) / cell).toInt()
-                            if (p.x < cell || p.y < cell || r !in 0 until Sea.N || c !in 0 until Sea.N) return@detectTapGestures
-                            val i = r * Sea.N + c
-                            val s = mine.ship[i]
-                            if (s >= 0) { val len = mine.ships[s].size; mine.remove(s); pickLen = len; ver++; return@detectTapGestures }   // снять корабль обратно в руку
-                            if (pickLen !in left) return@detectTapGestures
-                            val cells = mine.cellsFrom(i, pickLen, horiz) ?: mine.cellsFrom(i, pickLen, !horiz)?.also { horiz = !horiz }
-                            if (cells == null || mine.put(cells) < 0) { msg = "Сюда нельзя: корабли не касаются даже углами"; ver++; return@detectTapGestures }
-                            val rest = Sea.FLEET.toMutableList().also { l -> mine.ships.forEach { l.remove(it.size) } }
-                            pickLen = rest.maxOrNull() ?: 0
-                            msg = if (rest.isEmpty()) "Флот готов — жми «В бой»" else "Дальше: корабль на ${rest.max()} (нажми клетку)"
+                    // конструктор: тащишь корабль из дока на поле — подсвечиваются клетки, куда встанет (зелёные — можно, красные — нельзя);
+                    // тап по поставленному — повернуть; потащил поставленный за пределы поля — вернулся в док
+                    var boardRect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+                    val dockRects = remember { mutableStateMapOf<Int, androidx.compose.ui.geometry.Rect>() }
+                    var wrapRect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+                    var drag by remember { mutableStateOf<DragShip?>(null) }
+                    fun cellAt(root: Offset): Int? {
+                        if (!boardRect.contains(root)) return null
+                        val cell = boardRect.width / (Sea.N + 1f)
+                        val c = ((root.x - boardRect.left - cell) / cell).toInt(); val r = ((root.y - boardRect.top - cell) / cell).toInt()
+                        if (root.x - boardRect.left < cell || root.y - boardRect.top < cell || r !in 0 until Sea.N || c !in 0 until Sea.N) return null
+                        return r * Sea.N + c
+                    }
+                    fun preview(d: DragShip, root: Offset): List<Int>? {
+                        val cell = boardRect.width / (Sea.N + 1f)
+                        // клетка «головы» корабля = клетка под пальцем минус место, за которое схватили
+                        val at = cellAt(Offset(root.x - (if (d.horiz) d.grab * cell else 0f), root.y - (if (!d.horiz) d.grab * cell else 0f))) ?: return null
+                        return mine.cellsFrom(at, d.len, d.horiz)
+                    }
+                    Column(Modifier.onGloballyPositioned { wrapRect = it.boundsInRoot() }.pointerInput(started, ver) {
+                        if (started) return@pointerInput
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val root0 = down.position + wrapRect.topLeft
+                            val onCell = cellAt(root0)
+                            val fromShip = onCell?.let { mine.ship[it] }?.takeIf { it >= 0 }
+                            val fromDock = if (fromShip == null) dockRects.entries.firstOrNull { it.value.contains(root0) && it.key in left }?.key else null
+                            if (fromShip == null && fromDock == null) return@awaitEachGesture
+                            val slop = awaitTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume() }
+                            if (slop == null) {
+                                // тап по поставленному кораблю — поворот вокруг его первой клетки
+                                if (fromShip != null) {
+                                    val cells = mine.ships[fromShip]; val h = cells.map { it / Sea.N }.distinct().size == 1
+                                    val nc = mine.cellsFrom(cells.min(), cells.size, !h)
+                                    if (cells.size > 1 && nc != null && mine.canPut(nc, fromShip)) { mine.remove(fromShip); mine.put(nc); msg = "Повёрнут" }
+                                    else if (cells.size > 1) msg = "Повернуть нельзя — мешают край или соседи"
+                                    ver++
+                                }
+                                return@awaitEachGesture
+                            }
+                            val d = if (fromShip != null) {
+                                val cells = mine.ships[fromShip]; val h = cells.map { it / Sea.N }.distinct().size == 1
+                                val grab = cells.sorted().indexOf(onCell!!).coerceAtLeast(0)
+                                DragShip(cells.size, h, grab, cells.toList()).also { mine.remove(fromShip) }
+                            } else DragShip(fromDock!!, true, 0, null)
+                            drag = d.copy(pos = slop.position + wrapRect.topLeft)
+                            drag = drag!!.copy(cells = preview(drag!!, drag!!.pos))
+                            while (true) {
+                                val ev = awaitPointerEvent(); val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!ch.pressed) break
+                                ch.consume()
+                                val pos = ch.position + wrapRect.topLeft
+                                drag = drag!!.copy(pos = pos, cells = preview(drag!!, pos))
+                            }
+                            val fin = drag!!; drag = null
+                            val ok = fin.cells != null && mine.canPut(fin.cells)
+                            when {
+                                ok -> { mine.put(fin.cells!!); msg = if (mine.ships.size == Sea.FLEET.size) "Флот готов — жми «В бой»" else "Корабль на месте" }
+                                fin.from != null && boardRect.contains(fin.pos) -> { mine.put(fin.from); msg = "Сюда нельзя: корабли не касаются даже углами" }
+                                fin.from != null -> msg = "Корабль вернулся в док"
+                                else -> {}
+                            }
                             ver++
                         }
-                    }) { now; paperBoard(mine, showShips = true, last = lastMine, fx = fx.filter { !it.foe }, now = now) }
-                    if (!started) {
-                        // док: корабли, которые осталось поставить
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    }) {
+                        Canvas(Modifier.fillMaxWidth().aspectRatio(1f).background(PAPER).onGloballyPositioned { boardRect = it.boundsInRoot() }) {
+                            now; paperBoard(mine, showShips = true, last = lastMine, fx = fx.filter { !it.foe }, now = now)
+                            drag?.let { d ->
+                                val cell = size.width / (Sea.N + 1f)
+                                val ok = d.cells != null && mine.canPut(d.cells)
+                                d.cells?.forEach { i -> drawRect((if (ok) Color(0xFF3FB27F) else Color(0xFFD23A3A)).copy(alpha = 0.35f), Offset(cell + (i % Sea.N) * cell, cell + (i / Sea.N) * cell), Size(cell, cell)) }
+                                // сам корабль — под пальцем, полупрозрачный
+                                val fx0 = d.pos.x - boardRect.left - (if (d.horiz) (d.grab + 0.5f) * cell else cell / 2)
+                                val fy0 = d.pos.y - boardRect.top - (if (!d.horiz) (d.grab + 0.5f) * cell else cell / 2)
+                                drawShip(Offset(fx0, fy0), if (d.horiz) Size(cell * d.len, cell) else Size(cell, cell * d.len), d.len, d.horiz, d.len * 7, INK.copy(alpha = 0.6f), 0f)
+                            }
+                        }
+                        if (!started) Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             listOf(4, 3, 2, 1).forEach { len ->
                                 val n = left.count { it == len }
-                                Column(Modifier.weight(len + 1f).clip(RoundedCornerShape(10.dp)).background(if (pickLen == len && n > 0) Color(0x22233F9C) else Color.Transparent)
-                                    .clickable(enabled = n > 0) { pickLen = len }.padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Column(Modifier.weight(len + 1f).clip(RoundedCornerShape(10.dp)).background(if (n > 0) Color(0x14233F9C) else Color.Transparent)
+                                    .onGloballyPositioned { dockRects[len] = it.boundsInRoot() }.padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                     Canvas(Modifier.fillMaxWidth().height(26.dp)) {
                                         if (n > 0) drawShip(Offset(2f, 2f), Size(size.width - 4f, size.height - 4f), len, true, len * 7, INK, 0f)
                                         else drawLine(INK.copy(alpha = 0.3f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 2f)
@@ -280,12 +345,13 @@ fun BattleshipScreen(onBack: () -> Unit) {
                                 }
                             }
                         }
+                    }
+                    if (!started) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PillButton(if (horiz) "⟷ Горизонтально" else "↕ Вертикально", { horiz = !horiz }, Modifier.weight(1f), bg = Pal.Card, fg = INK)
                             PillButton("Случайно", { mine = Sea(); pickLen = 0; msg = "Флот готов — жми «В бой»"; ver++ }, Modifier.weight(1f), bg = Pal.Card, fg = INK)
                             PillButton("Очистить", { mine = Sea(random = false); pickLen = 4; ver++ }, Modifier.weight(1f), bg = Pal.Card, fg = INK)
                         }
-                        Text("Выбери корабль снизу, нажми клетку — поставится от неё вправо (или вниз). Нажал на поставленный — он снова в руке.",
+                        Text("Перетащи корабль из дока на поле — подсветится, куда встанет. Тап по кораблю — повернуть. Утащи его за поле — вернётся в док.",
                             style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Serif, color = INK.copy(alpha = 0.8f))
                         PillButton("В бой", {
                             started = true; myTurn = Random.nextBoolean(); tab = if (myTurn) 0 else 1

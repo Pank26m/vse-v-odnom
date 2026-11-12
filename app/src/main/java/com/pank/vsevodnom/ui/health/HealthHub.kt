@@ -124,7 +124,11 @@ fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false, onOpenMap: ()
     var workout by remember { mutableStateOf<WorkoutKind?>(null) }
     var version by remember { mutableIntStateOf(0) }
     val available = remember { HealthData.available(ctx) }
-    val permLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { version++ }
+    // если окно разрешений не открылось/ничего не выдали — открыть настройки Health Connect для приложения
+    val permLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { got ->
+        version++
+        if (!got.containsAll(HealthData.READ)) openHcSettings(ctx)
+    }
 
     LaunchedEffect(version) {
         st.loading = true
@@ -220,6 +224,8 @@ private fun SummaryTab(st: HealthState, ms: List<Metric>, available: Boolean, on
                 Text("Подключи Health Connect", style = MaterialTheme.typography.titleSmall, color = Pal.RoseInk)
                 Text("Mi Band 8 → Mi Fitness → Профиль → Настройки → Сторонние данные / Health Connect → включить синхронизацию. Потом здесь «Разрешить».", style = MaterialTheme.typography.bodySmall)
                 PillButton("Разрешить доступ", onConnect, Modifier.fillMaxWidth().padding(top = 8.dp))
+                val c2 = androidx.compose.ui.platform.LocalContext.current
+                TextButton({ openHcSettings(c2) }) { Text("Открыть настройки Health Connect") }
             }
         }
         if (!available) item {
@@ -579,4 +585,14 @@ internal fun BodyCheckStatusCard(onOpen: () -> Unit) {
             Icon(Icons.Rounded.ChevronRight, null, tint = Pal.Muted)
         }
     }
+}
+
+/** Настройки Health Connect: на Android 14+ — сразу разрешения этого приложения, иначе — общий экран Health Connect. */
+internal fun openHcSettings(ctx: android.content.Context) {
+    val tries = listOf(
+        android.content.Intent("android.health.connect.action.MANAGE_HEALTH_PERMISSIONS").putExtra(android.content.Intent.EXTRA_PACKAGE_NAME, ctx.packageName),
+        android.content.Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS),
+        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${ctx.packageName}")),
+    )
+    for (i in tries) if (runCatching { ctx.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
 }

@@ -3,6 +3,7 @@ package com.pank.vsevodnom.ui.games
 import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -29,8 +30,8 @@ import kotlinx.coroutines.delay
 import kotlin.random.Random
 
 private data class Level(val name: String, val cols: Int, val rows: Int, val mines: Int)
-/** Одно поле: 16 по ширине × 27 по высоте (целиком на экране), 85 мин (~20%, как у «Профи»). */
-private val LEVELS = listOf(Level("16×27", 16, 27, 85))
+/** Поле 16 по ширине × 27 по высоте (целиком на экране); перед игрой — сколько мин. */
+private val LEVELS = listOf(Level("Минимум бомб", 16, 27, 55), Level("Норма", 16, 27, 85), Level("Максимум бомб", 16, 27, 115))
 
 private class MineBoard(val cols: Int, val rows: Int, val mines: Int) {
     val mine = BooleanArray(cols * rows)
@@ -96,7 +97,8 @@ private fun setBest(ctx: Context, lvl: String, s: Int) = ctx.getSharedPreference
 fun MinesScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    var lvl by remember { mutableIntStateOf(0) }
+    var lvl by remember { mutableIntStateOf(1) }
+    var chosen by remember { mutableStateOf(false) }
     var gen by remember { mutableIntStateOf(0) }
     val L = LEVELS[lvl]
     val b = remember(lvl, gen) { MineBoard(L.cols, L.rows, L.mines) }
@@ -106,7 +108,26 @@ fun MinesScreen(onBack: () -> Unit) {
     LaunchedEffect(lvl, gen, b.placed, done) { while (b.placed && !done) { delay(1000); sec++ } }
     LaunchedEffect(b.won) { if (b.won) { val old = best(ctx, L.name); if (old == 0 || sec < old) setBest(ctx, L.name, sec) } }
 
-    ScreenScaffold("Сапёр", onBack) {
+    if (!chosen) {
+        ScreenScaffold("Сапёр", onBack) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Сколько мин на поле 16×27?", style = MaterialTheme.typography.titleMedium)
+                LEVELS.forEachIndexed { i, l ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(listOf(Pal.Mint, Pal.Sky, Pal.Rose)[i]).clickable { lvl = i; gen++; chosen = true }.padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("✱".repeat(i + 1), fontSize = 22.sp, color = listOf(Pal.MintInk, Pal.SkyInk, Pal.RoseInk)[i], modifier = Modifier.width(64.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(l.name, style = MaterialTheme.typography.titleMedium)
+                            Text("${l.mines} мин · ${l.mines * 100 / (l.cols * l.rows)}% поля" + (best(ctx, l.name).takeIf { it > 0 }?.let { " · рекорд $it с" } ?: ""), style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+    androidx.activity.compose.BackHandler { chosen = false }
+    ScreenScaffold("Сапёр · ${L.name}", { chosen = false }) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("✱ ${L.mines - b.flags}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))

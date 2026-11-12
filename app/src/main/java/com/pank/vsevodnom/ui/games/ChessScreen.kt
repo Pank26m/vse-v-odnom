@@ -255,10 +255,11 @@ fun ChessScreen(onBack: () -> Unit) {
             "themes" -> ThemesPage { page = "home" }
             "games" -> GamesPage(onBack = { page = "home" }) { review = it; page = "review" }
             "review" -> review?.let { g -> ReviewPage(g) { page = "games" } }
-            else -> ChessHome(onBack, onPlay = { askSetup = true }, onPuzzles = { page = "puzzles" }, onThemes = { page = "themes" }, onGames = { page = "games" })
+            "setup" -> PlaySetupPage(onBack = { page = "home" }) { s -> setup = s; page = "play" }
+            else -> ChessHome(onBack, onPlay = { page = "setup" }, onPuzzles = { page = "puzzles" }, onThemes = { page = "themes" }, onGames = { page = "games" })
         }
     }
-    if (askSetup) PlaySetupDialog(onDismiss = { askSetup = false }) { s -> askSetup = false; setup = s; page = "play" }
+    @Suppress("UNUSED_EXPRESSION") askSetup
 }
 
 @Composable
@@ -298,27 +299,63 @@ private fun ChessHome(onBack: () -> Unit, onPlay: () -> Unit, onPuzzles: () -> U
     }
 }
 
+/** Настройка партии — во весь экран: время, сложность, цвет. */
 @Composable
-private fun PlaySetupDialog(onDismiss: () -> Unit, onStart: (PlaySetup) -> Unit) {
+private fun PlaySetupPage(onBack: () -> Unit, onStart: (PlaySetup) -> Unit) {
     val ctx = LocalContext.current
     val p = remember { ctx.getSharedPreferences("chess", Context.MODE_PRIVATE) }
     var level by remember { mutableIntStateOf(p.getInt("level", 2)) }
     var minutes by remember { mutableFloatStateOf(p.getInt("minutes", 10).toFloat()) }
     var color by remember { mutableIntStateOf(p.getInt("color", 2)) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Игра с ботом") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Время на партию: ${minutes.toInt()} мин", style = MaterialTheme.typography.titleSmall)
-            Slider(minutes, { minutes = it }, valueRange = 1f..60f, steps = 58)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf(1, 3, 5, 10, 30, 60).forEach { m -> Chip("$m", minutes.toInt() == m, { minutes = m.toFloat() }) } }
-            Text("Сложность", style = MaterialTheme.typography.titleSmall)
-            LEVEL_NAMES.chunked(3).forEachIndexed { r, row -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { row.forEachIndexed { c, n -> Chip(n, level == r * 3 + c, { level = r * 3 + c }) } } }
-            Text("Играю за", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("Белых", "Чёрных", "Случайно").forEachIndexed { i, t -> Chip(t, color == i, { color = i }) } }
+    val green = Color(0xFF7FA650)
+    Column(Modifier.fillMaxSize()) {
+        ChessTop("Игра с ботом", onBack)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp, 0.dp, 16.dp, 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(ChessLook.card).padding(16.dp)) {
+                Text("Время на партию", style = MaterialTheme.typography.titleMedium, color = ChessLook.ink)
+                Text("${minutes.toInt()} мин", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = ChessLook.ink)
+                Slider(minutes, { minutes = it }, valueRange = 1f..60f, steps = 58)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(1, 3, 5, 10, 15, 30, 60).forEach { m ->
+                        val on = minutes.toInt() == m
+                        Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (on) green else Color(0x14000000)).clickable { minutes = m.toFloat() }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            Text("$m", color = if (on) Color.White else ChessLook.ink, style = MaterialTheme.typography.titleSmall)
+                        }
+                    }
+                }
+            }
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(ChessLook.card).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Сложность", style = MaterialTheme.typography.titleMedium, color = ChessLook.ink)
+                val subs = listOf("ошибается часто — для разминки", "думает на ход вперёд", "играет аккуратно", "считает на 5 ходов", "в полную силу, до 3,5 с на ход")
+                LEVEL_NAMES.forEachIndexed { i, n ->
+                    val on = level == i
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (on) green else Color(0x0F000000)).clickable { level = i }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("★".repeat(i + 1), color = if (on) Color.White else Color(0xFFE0A100), modifier = Modifier.width(80.dp))
+                        Column { Text(n, style = MaterialTheme.typography.titleSmall, color = if (on) Color.White else ChessLook.ink)
+                            Text(subs[i], style = MaterialTheme.typography.bodySmall, color = if (on) Color.White.copy(alpha = 0.85f) else ChessLook.muted) }
+                    }
+                }
+            }
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(ChessLook.card).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Играю за", style = MaterialTheme.typography.titleMedium, color = ChessLook.ink)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Белых" to 6, "Случайно" to 0, "Чёрных" to -6).forEachIndexed { k, (t, piece) ->
+                        val i = listOf(0, 2, 1)[k]
+                        val on = color == i
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if (on) green else Color(0x0F000000)).clickable { color = i }.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            val img = remember(piece, ChessLook.pieces) { ChessArt.piece(ctx, ChessLook.pieces, piece) }
+                            if (img != null) androidx.compose.foundation.Image(img, null, Modifier.size(44.dp)) else Text("?", fontSize = 32.sp, color = if (on) Color.White else ChessLook.ink)
+                            Text(t, style = MaterialTheme.typography.titleSmall, color = if (on) Color.White else ChessLook.ink)
+                        }
+                    }
+                }
+            }
         }
-    }, confirmButton = { TextButton({
-        p.edit().putInt("level", level).putInt("minutes", minutes.toInt()).putInt("color", color).apply()
-        onStart(PlaySetup(level, minutes.toInt(), if (color == 2) kotlin.random.Random.nextBoolean() else color == 0))
-    }) { Text("Играть") } }, dismissButton = { TextButton(onDismiss) { Text("Отмена") } })
+        PillButton("Играть", {
+            p.edit().putInt("level", level).putInt("minutes", minutes.toInt()).putInt("color", color).apply()
+            onStart(PlaySetup(level, minutes.toInt(), if (color == 2) kotlin.random.Random.nextBoolean() else color == 0))
+        }, Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding(), bg = green)
+    }
 }
 
 private fun clock(ms: Long): String { val s = (ms.coerceAtLeast(0) + 999) / 1000; return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }

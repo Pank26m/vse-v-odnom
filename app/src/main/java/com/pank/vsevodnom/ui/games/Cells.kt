@@ -47,6 +47,8 @@ private class Blob(var x: Float, var y: Float, var mass: Float, val color: Color
     var vx = 0f; var vy = 0f          // толчок после деления
     var mergeIn = 0f                   // через сколько секунд кусок может слиться обратно
     var dashIn = 0f                    // бот: перезарядка рывка
+    var chase = 0f                     // бот: сколько секунд гонится за тобой
+    var rest = 0f                      // бот: отстал — какое-то время тебя не трогает
 }
 
 private class CellsGame {
@@ -136,8 +138,9 @@ private class CellsGame {
                 b.think = 0.15f + Random.nextFloat() * 0.2f
                 val threat = all.filter { it !== b && it.mass > b.mass * 1.15f && hypot(it.x - b.x, it.y - b.y) < it.r + 300 }.minByOrNull { hypot(it.x - b.x, it.y - b.y) }
                 // охотятся охотнее на тебя: твои куски «ближе» на 40%
-                val prey = all.filter { it !== b && b.mass > it.mass * 1.15f && hypot(it.x - b.x, it.y - b.y) < b.r + 480 }
-                    .minByOrNull { hypot(it.x - b.x, it.y - b.y) * (if (it.bot) 1f else 0.6f) }
+                // добыча — только рядом (не дальше ~700), без «бесконечной погони»: погнался 6 с и не догнал — отстаёт на 5 с
+                val prey = all.filter { it !== b && b.mass > it.mass * 1.15f && hypot(it.x - b.x, it.y - b.y) < minOf(b.r + 420, 700f) && (it.bot || b.rest <= 0f) }
+                    .minByOrNull { hypot(it.x - b.x, it.y - b.y) * (if (it.bot) 1f else 0.8f) }
                 when {
                     threat != null -> {
                         // мелкий — под ближайший островок, если он рядом; иначе прочь от угрозы
@@ -155,6 +158,10 @@ private class CellsGame {
                     else -> food.minByOrNull { hypot(it.first - b.x, it.second - b.y) }?.let { b.tx = it.first; b.ty = it.second }
                 }
             }
+            // таймер погони за тобой
+            val chasingMe = mine.any { it.alive && hypot(it.x - b.tx, it.y - b.ty) < it.r + 140 }
+            if (chasingMe) { b.chase += dt; if (b.chase > 6f) { b.rest = 5f; b.chase = 0f; b.think = 0f } } else b.chase = (b.chase - dt).coerceAtLeast(0f)
+            b.rest -= dt
             val dx = b.tx - b.x; val dy = b.ty - b.y; val d = hypot(dx, dy)
             if (d > 1) { val k = speed(b) * dt / d; b.x += dx * k; b.y += dy * k }
             b.x += b.vx * dt; b.y += b.vy * dt; b.vx *= (1f - 4f * dt).coerceAtLeast(0f); b.vy *= (1f - 4f * dt).coerceAtLeast(0f)

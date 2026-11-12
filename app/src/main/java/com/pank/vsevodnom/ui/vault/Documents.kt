@@ -47,9 +47,9 @@ import java.util.UUID
 
 /** Переключатель «Пароли | Документы» сверху хранилища. */
 @Composable
-internal fun VaultTabs(tab: Int, pwds: Int, docs: Int, onTab: (Int) -> Unit) {
+internal fun VaultTabs(tab: Int, pwds: Int, docs: Int, onTab: (Int) -> Unit, auto: Int = -1) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(4.dp)) {
-        listOf("Пароли · $pwds" to Icons.Rounded.Key, "Документы · $docs" to Icons.Rounded.Description).forEachIndexed { i, (t, ic) ->
+        listOf("Пароли $pwds" to Icons.Rounded.Key, "Документы $docs" to Icons.Rounded.Description, "Авто${if (auto >= 0) " $auto" else ""}" to Icons.Rounded.Password).forEachIndexed { i, (t, ic) ->
             Row(Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).background(if (tab == i) Pal.Lilac else Color.Transparent).clickable { onTab(i) }.padding(vertical = 10.dp),
                 horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                 Icon(ic, null, tint = if (tab == i) Pal.LilacInk else Pal.Muted, modifier = Modifier.size(18.dp))
@@ -201,7 +201,7 @@ internal fun DocsContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>)
         RoundIconButton(Icons.Rounded.Lock, "Закрыть хранилище", onLock)
     }) {
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            VaultTabs(1, entries.count { it.kind != "doc" }, docs.size, onTab)
+            VaultTabs(1, entries.count { it.kind == "" }, docs.size, onTab, entries.count { it.kind == "auto" })
             AppTextField(q, { q = it }, "Поиск документа")
             if (folders.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip("Все · ${docs.size}", folder == null, { folder = null })
@@ -319,4 +319,54 @@ private fun DocEditor(d: VaultEntry, folders: List<String>, onSave: (VaultEntry)
     }
     if (askDel) AlertDialog(onDismissRequest = { askDel = false }, title = { Text("Удалить документ «${d.title}»?") },
         confirmButton = { TextButton({ askDel = false; onDelete() }) { Text("Удалить", color = Pal.RoseInk) } }, dismissButton = { TextButton({ askDel = false }) { Text("Отмена") } })
+}
+
+/**
+ * Вкладка «Автозаполнение»: пароли, сохранённые через окно Android «Сохранить пароль?» (kind = "auto").
+ * Ими же заполняются формы входа. Можно перенести в обычные «Пароли».
+ */
+@Composable
+internal fun AutoContent(entries: List<VaultEntry>, onChange: (List<VaultEntry>) -> Unit, onBack: () -> Unit, onLock: () -> Unit, onTab: (Int) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val list = entries.filter { it.kind == "auto" }.sortedByDescending { it.updatedAt }
+    val am = remember { ctx.getSystemService(android.view.autofill.AutofillManager::class.java) }
+    var enabled by remember { mutableStateOf(runCatching { am?.hasEnabledAutofillServices() == true }.getOrDefault(false)) }
+    var shown by remember { mutableStateOf<String?>(null) }
+    val fmt = remember { java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("ru")) }
+    val enable = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
+        enabled = runCatching { am?.hasEnabledAutofillServices() == true }.getOrDefault(false)
+    }
+    ScreenScaffold("Пароли", onBack, actions = { RoundIconButton(Icons.Rounded.Lock, "Закрыть хранилище", onLock) }) {
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            VaultTabs(2, entries.count { it.kind == "" }, entries.count { it.kind == "doc" }, onTab, list.size)
+            AppCard(Modifier.fillMaxWidth(), color = if (enabled) Pal.Mint else Pal.Peach) {
+                Text(if (enabled) "Автозаполнение «Всё в одном» включено" else "Автозаполнение выключено", style = MaterialTheme.typography.titleSmall)
+                Text(if (enabled) "Когда войдёшь на сайт или в приложение, Android спросит «Сохранить пароль?» → отпечаток → запись появится здесь. В формах входа — кнопка «🔑 Пароли «Всё в одном»»."
+                    else "Включи — тогда Android будет предлагать сохранять пароли сюда и заполнять формы входа.", style = MaterialTheme.typography.bodySmall)
+                if (!enabled) PillButton("Включить", {
+                    LockGuard.suppress = true
+                    runCatching { enable.launch(android.content.Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, android.net.Uri.parse("package:${ctx.packageName}"))) }
+                }, Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (list.isEmpty()) item { Text("Пока пусто. Пароли из окна «Сохранить пароль?» будут здесь.", style = MaterialTheme.typography.bodyMedium, color = Pal.Muted) }
+            items(list.size) { k ->
+                val e = list[k]
+                AppCard(Modifier.fillMaxWidth(), padding = 12.dp) {
+                    Text(e.title.ifBlank { "Без названия" }, style = MaterialTheme.typography.titleSmall)
+                    Text(listOf(e.login.ifBlank { null }, e.url.removePrefix("https://").removePrefix("android://").ifBlank { null }).filterNotNull().joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                    Text(if (shown == e.id) e.password else "•".repeat(e.password.length.coerceIn(6, 12)), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 4.dp))
+                    Text("сохранено " + fmt.format(java.util.Date(e.updatedAt)), style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton({ shown = if (shown == e.id) null else e.id }) { Text(if (shown == e.id) "Скрыть" else "Показать") }
+                        TextButton({ copySecret(ctx, "Пароль", e.password) }) { Text("Копировать") }
+                        TextButton({ onChange(entries.map { if (it.id == e.id) it.copy(kind = "") else it }) }) { Text("В пароли") }
+                        TextButton({ onChange(entries.filterNot { it.id == e.id }) }) { Text("Удалить", color = Pal.RoseInk) }
+                    }
+                }
+            }
+        }
+    }
 }

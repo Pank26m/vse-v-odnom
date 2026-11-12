@@ -83,7 +83,28 @@ class KbVaultActivity : FragmentActivity() {
     }
 
     private fun loaded(list: List<VaultEntry>?) {
-        if (list != null && intent.getStringExtra("mode") == "unlock") handOver(list) else entries = list
+        when {
+            list != null && intent.getStringExtra("mode") == "unlock" -> handOver(list)
+            // «Сохранить пароль?» → отпечаток → сразу сохраняем (раньше нужна была ещё кнопка — и запись терялась)
+            list != null && intent.getStringExtra("mode") == "save" -> saveAuto(list)
+            else -> entries = list
+        }
+    }
+
+    /** Пароль из окна Android «Сохранить»: обновить запись с тем же логином/сайтом или новая во вкладке «Автозаполнение». */
+    private fun saveAuto(list: List<VaultEntry>) {
+        val login = intent.getStringExtra("login").orEmpty(); val pass = intent.getStringExtra("password").orEmpty()
+        val domain = intent.getStringExtra("domain").orEmpty(); val pkg = intent.getStringExtra("target").orEmpty()
+        val appName = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+        val existing = list.firstOrNull { it.kind != "doc" && it.login.equals(login, true) && (matches(it) || (domain.isNotBlank() && it.url.contains(domain, true))) }
+        runCatching {
+            val next = if (existing != null) list.map { if (it.id == existing.id) it.copy(password = pass, updatedAt = System.currentTimeMillis()) else it }
+            else list + VaultEntry(id = java.util.UUID.randomUUID().toString(), title = domain.ifBlank { appName ?: pkg }.ifBlank { "Без названия" }, login = login, password = pass,
+                url = if (domain.isNotBlank()) "https://$domain" else "android://$pkg", kind = "auto")
+            Vault.save(this, next)
+        }.onSuccess {
+            Toast.makeText(this, if (existing != null) "Пароль обновлён в «${existing.title}»" else "Сохранено: Пароли → Автозаполнение", Toast.LENGTH_LONG).show(); finish()
+        }.onFailure { err = "Не сохранилось: " + (it.message ?: "ошибка хранилища") }
     }
 
     private fun unlock() {

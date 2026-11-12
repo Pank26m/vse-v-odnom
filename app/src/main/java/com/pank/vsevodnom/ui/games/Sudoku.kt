@@ -176,7 +176,7 @@ fun SudokuScreen(onBack: () -> Unit) {
                     if (DIFFS[d].clues == 0) Text("Ищу головоломку, достойную божества…", style = MaterialTheme.typography.bodySmall, color = Pal.Muted, modifier = Modifier.padding(top = 10.dp))
                 }
             }
-            else key(p) { SudokuBoard(p.first, p.second) { sec ->
+            else key(p) { SudokuBoard(p.first, p.second, maxErr = if (DIFFS[d].clues == 0) 1 else 3, onRestart = { gen++ }, onMenu = { diff = null }) { sec ->
                 val old = sbest(ctx, d); if (old == 0 || sec < old) ctx.getSharedPreferences("games", android.content.Context.MODE_PRIVATE).edit().putInt("sudoku_best_$d", sec).apply()
             } }
         }
@@ -184,7 +184,7 @@ fun SudokuScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun SudokuBoard(start: IntArray, sol: IntArray, onSolved: (Int) -> Unit) {
+private fun SudokuBoard(start: IntArray, sol: IntArray, maxErr: Int, onRestart: () -> Unit, onMenu: () -> Unit, onSolved: (Int) -> Unit) {
     val cells = remember { mutableStateListOf(*start.toTypedArray()) }
     val notes = remember { mutableStateListOf(*Array(81) { 0 }) } // битовая маска заметок 1..9
     var sel by remember { mutableIntStateOf(-1) }
@@ -194,7 +194,9 @@ private fun SudokuBoard(start: IntArray, sol: IntArray, onSolved: (Int) -> Unit)
     var sec by remember { mutableIntStateOf(0) }
     var hlDigit by remember { mutableIntStateOf(0) }   // подсветка цифры (нажал на цифру в поле)
     val solved = (0 until 81).all { cells[it] == sol[it] }
-    LaunchedEffect(solved) { if (solved) onSolved(sec); while (!solved) { delay(1000); sec++ } }
+    // поражение: 3 ошибки (в «Божестве» — первая же)
+    val lost = mistakes >= maxErr
+    LaunchedEffect(solved, lost) { if (solved) onSolved(sec); while (!solved && !lost) { delay(1000); sec++ } }
 
     fun clearNotesAround(i: Int, v: Int) {
         val r = i / 9; val c = i % 9
@@ -204,7 +206,7 @@ private fun SudokuBoard(start: IntArray, sol: IntArray, onSolved: (Int) -> Unit)
         }
     }
     fun put(v: Int) {
-        if (sel < 0 || start[sel] != 0 || solved) return
+        if (sel < 0 || start[sel] != 0 || solved || lost) return
         history.addLast(Triple(sel, cells[sel], notes[sel]))
         if (noteMode && v != 0) { if (cells[sel] == 0) notes[sel] = notes[sel] xor (1 shl v); return }
         cells[sel] = v; notes[sel] = 0
@@ -219,10 +221,19 @@ private fun SudokuBoard(start: IntArray, sol: IntArray, onSolved: (Int) -> Unit)
         var m = notes[sel]; ds.forEach { m = m or (1 shl it) }; notes[sel] = m
     }
 
-    val selVal = if (sel >= 0 && cells[sel] != 0) cells[sel] else hlDigit
+    // подсветка цифры: нажал на поставленную цифру — подсветились все такие (и карандашные); нажал на неё же ещё раз — подсветка снялась
+    val selVal = hlDigit
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("%d:%02d".format(sec / 60, sec % 60), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        Text("Ошибок: $mistakes", style = MaterialTheme.typography.titleSmall, color = if (mistakes > 0) Pal.RoseInk else Pal.Muted)
+        Text(if (maxErr == 1) "без права на ошибку" else "Ошибок: $mistakes из $maxErr", style = MaterialTheme.typography.titleSmall, color = if (mistakes > 0) Pal.RoseInk else Pal.Muted)
+    }
+    if (lost) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pal.Rose).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Поражение", style = MaterialTheme.typography.titleLarge, color = Pal.RoseInk)
+        Text(if (maxErr == 1) "В «Божестве» ошибка — сразу конец." else "Три ошибки — партия проиграна.", style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PillButton("Начать заново", onRestart, Modifier.weight(1f))
+            PillButton("В меню", onMenu, Modifier.weight(1f), bg = Pal.Card, fg = Pal.Ink)
+        }
     }
     if (solved) AppCard(Modifier.fillMaxWidth(), color = Pal.Mint) { Text("Решено за %d:%02d!".format(sec / 60, sec % 60), style = MaterialTheme.typography.titleLarge, color = Pal.MintInk) }
     BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(14.dp)).background(Pal.Ink).padding(2.dp)) {
@@ -239,7 +250,10 @@ private fun SudokuBoard(start: IntArray, sol: IntArray, onSolved: (Int) -> Unit)
                     Box(
                         Modifier.size(cs)
                             .padding(start = if (c % 3 == 0 && c > 0) 1.5.dp else 0.5.dp, top = if (r % 3 == 0 && r > 0) 1.5.dp else 0.5.dp, end = 0.5.dp, bottom = 0.5.dp)
-                            .background(bg).clickable { sel = i; if (cells[i] != 0) hlDigit = cells[i] },
+                            .background(bg).clickable {
+                                if (cells[i] != 0 && sel == i && hlDigit == cells[i]) { sel = -1; hlDigit = 0 }
+                                else { sel = i; if (cells[i] != 0) hlDigit = cells[i] }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         if (v != 0) Text(

@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -139,6 +140,7 @@ private fun RateTile(title: String, done: Int, due: Int, modifier: Modifier) {
 fun HabitRow(h: Habit, logs: List<HabitLog>, day: LocalDate, compact: Boolean = false, onClick: () -> Unit) {
     val ctx = LocalContext.current
     val t = Tints.all[h.tint % 6]
+    HabitPenalty.ensure(ctx)
     val cnt = logs.firstOrNull { it.habitId == h.id && it.epochDay == day.toEpochDay() }?.count ?: 0
     val done = cnt >= h.perDay
     val today = LocalDate.now()
@@ -169,6 +171,7 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
     var pick by remember { mutableStateOf<String?>(null) }
     var emojiOpen by remember { mutableStateOf(h0.id == 0L) }
     val reminders = remember { mutableStateListOf<Int>().apply { addAll(HabitReminders.times(h0)) } }
+    var pen by remember { com.pank.vsevodnom.data.HabitPenalty.ensure(ctx); mutableStateOf(com.pank.vsevodnom.data.HabitPenalty.rule(h0.id)) }
     val t = Tints.all[h.tint % 6]
     Dialog(onDone, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
@@ -178,7 +181,8 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
                 RoundIconButton(Icons.Rounded.Check, "Сохранить", {
                     if (h.title.isBlank()) return@RoundIconButton
                     val saved = h.copy(title = h.title.trim(), reminders = reminders.sorted().joinToString(","), remindMinute = null, startDay = h.startDay ?: LocalDate.now().toEpochDay())
-                    AppScope.io.launch { val id = AppDb.get(ctx).todo().upsertHabit(saved); HabitReminders.schedule(ctx, saved.copy(id = if (saved.id == 0L) id else saved.id)) }
+                    AppScope.io.launch { val id = AppDb.get(ctx).todo().upsertHabit(saved); val realId = if (saved.id == 0L) id else saved.id
+                        HabitReminders.schedule(ctx, saved.copy(id = realId)); com.pank.vsevodnom.data.HabitPenalty.set(ctx, realId, pen) }
                     onDone()
                 }, bg = Pal.Ink, tint = Color.White)
             }
@@ -215,6 +219,19 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
                 FormCard("Цель в днях") {
                     ChoiceGrid(listOf<Pair<Int?, String>>(null to "Вечно", 7 to "7", 21 to "21", 30 to "30", 66 to "66", 100 to "100"), { it == h.goalDays }, 3) { h = h.copy(goalDays = it) }
                     Text(h.goalDays?.let { "Через $it дней привычка закончится — можно продлить." } ?: "Привычка без срока.", style = MaterialTheme.typography.bodySmall)
+                }
+                FormCard("Разрешено штрафов") {
+                    Text("Штраф — день, когда не сделал, но по уважительной причине (например, раз в месяц гулял с друзьями). Серия не растёт, но и не сгорает. Поставить штраф — удерживай день в календаре привычки или кнопка «Штраф за сегодня».",
+                        style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+                    Text("В неделю", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
+                    ChoiceGrid(listOf(0 to "нет", 1 to "1", 2 to "2", 3 to "3"), { it == pen.perWeek }, 4) { pen = pen.copy(perWeek = it) }
+                    Text("В месяц", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
+                    ChoiceGrid(listOf(0 to "нет", 1 to "1", 2 to "2", 3 to "3", 5 to "5", 10 to "10"), { it == pen.perMonth }, 3) { pen = pen.copy(perMonth = it) }
+                    Text("Подряд не больше", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
+                    ChoiceGrid(listOf(1 to "1 день", 2 to "2 дня", 3 to "3 дня"), { it == pen.inRow }, 3) { pen = pen.copy(inRow = it) }
+                    Text(if (!pen.any) "Штрафы выключены — пропуск сбрасывает серию." else
+                        "Можно ${if (pen.perWeek > 0) "${pen.perWeek} в неделю" else "сколько угодно в неделю"}, ${if (pen.perMonth > 0) "${pen.perMonth} в месяц" else "без лимита в месяц"}, подряд — не больше ${pen.inRow}.",
+                        style = MaterialTheme.typography.bodySmall)
                 }
                 FormCard("Уведомление") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -259,13 +276,18 @@ fun HabitEditor(h0: Habit, onDone: () -> Unit) {
 
 // ================= Подробности привычки =================
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val today = LocalDate.now()
     val t = Tints.all[h.tint % 6]
     var month by remember { mutableStateOf(YearMonth.now()) }
+    HabitPenalty.ensure(ctx)
     val streak = Todo.streak(h, logs, today)
+    val penRule = HabitPenalty.rule(h.id)
+    fun isPen(d: LocalDate) = (logs.firstOrNull { it.habitId == h.id && it.epochDay == d.toEpochDay() }?.count ?: 0) < 0
+    fun togglePen(d: LocalDate) { if (penRule.any) AppScope.io.launch { Todo.setPenalty(ctx, h, d, !isPen(d)) } }
     val (wd, wn) = habitRate(h, logs, today.minusDays((today.dayOfWeek.value - 1).toLong()), today)
     val (md, mn) = habitRate(h, logs, month.atDay(1), month.atEndOfMonth().coerceAtMost(today))
     val total = logs.count { it.habitId == h.id && it.count >= h.perDay }
@@ -297,6 +319,9 @@ internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onD
                         CheckDivider(height = 34.dp)
                         CheckCircle(habitDone(h, logs, today), t.ink, 36.dp) { AppScope.io.launch { Todo.tickHabit(ctx, h, today) } }
                     }
+                    if (penRule.any && !habitDone(h, logs, today)) TextButton({ togglePen(today) }) {
+                        Text(if (isPen(today)) "Снять штраф за сегодня" else "Штраф за сегодня (серия не сгорит)", color = Color(0xFFB65E2E))
+                    }
                 }
                 Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     RateTile("Эта неделя", wd, wn, Modifier.weight(1f).fillMaxHeight())
@@ -312,9 +337,11 @@ internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onD
                             val d = mon.plusDays(k.toLong()); val ok = habitDone(h, logs, d); val dueD = Todo.isDue(h, d, logs)
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(DOW[k], style = MaterialTheme.typography.labelSmall)
-                                Box(Modifier.padding(top = 4.dp).size(36.dp).clip(RoundedCornerShape(10.dp)).background(when { ok -> t.ink; dueD && !d.isAfter(today) -> Pal.Ink.copy(alpha = 0.07f); else -> Color.Transparent })
-                                    .clickable(enabled = !d.isAfter(today)) { AppScope.io.launch { Todo.tickHabit(ctx, h, d) } }, contentAlignment = Alignment.Center) {
-                                    if (ok) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(20.dp)) else Text("${d.dayOfMonth}", style = MaterialTheme.typography.labelLarge, color = if (dueD) Pal.Ink else Pal.Muted)
+                                Box(Modifier.padding(top = 4.dp).size(36.dp).clip(RoundedCornerShape(10.dp)).background(when { ok -> t.ink; isPen(d) -> PEN_BG; dueD && !d.isAfter(today) -> Pal.Ink.copy(alpha = 0.07f); else -> Color.Transparent })
+                                    .combinedClickable(enabled = !d.isAfter(today), onLongClick = { togglePen(d) }) { AppScope.io.launch { Todo.tickHabit(ctx, h, d) } }, contentAlignment = Alignment.Center) {
+                                    if (ok) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                    else if (isPen(d)) Text("Ш", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                                    else Text("${d.dayOfMonth}", style = MaterialTheme.typography.labelLarge, color = if (dueD) Pal.Ink else Pal.Muted)
                                 }
                             }
                         }
@@ -333,18 +360,21 @@ internal fun HabitDetail(h: Habit, logs: List<HabitLog>, onEdit: () -> Unit, onD
                             Box(Modifier.weight(1f).height(40.dp).padding(2.dp), contentAlignment = Alignment.Center) {
                                 if (n in 1..month.lengthOfMonth()) {
                                     val date = month.atDay(n); val ok = habitDone(h, logs, date)
-                                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(if (ok) t.ink else if (date == today) Pal.Lilac else Color.Transparent)
-                                        .clickable(enabled = !date.isAfter(today)) { AppScope.io.launch { Todo.tickHabit(ctx, h, date) } }, contentAlignment = Alignment.Center) {
-                                        Text("$n", color = if (ok) Color.White else if (Todo.isDue(h, date, logs) && !date.isAfter(today)) Pal.Ink else Pal.Muted, style = MaterialTheme.typography.bodyMedium)
+                                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(if (ok) t.ink else if (isPen(date)) PEN_BG else if (date == today) Pal.Lilac else Color.Transparent)
+                                        .combinedClickable(enabled = !date.isAfter(today), onLongClick = { togglePen(date) }) { AppScope.io.launch { Todo.tickHabit(ctx, h, date) } }, contentAlignment = Alignment.Center) {
+                                        Text("$n", color = if (ok || isPen(date)) Color.White else if (Todo.isDue(h, date, logs) && !date.isAfter(today)) Pal.Ink else Pal.Muted, style = MaterialTheme.typography.bodyMedium)
                                     }
                                 }
                             }
                         }
                     }
-                    Text("Нажми на день, чтобы отметить задним числом.", style = MaterialTheme.typography.bodySmall)
+                    Text("Нажми на день, чтобы отметить задним числом." + if (penRule.any) " Удерживай — штраф (оранжевый): серия не сгорит." else "", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(24.dp))
             }
         }
     }
 }
+
+/** Цвет дня со штрафом. */
+private val PEN_BG = Color(0xFFE8963C)

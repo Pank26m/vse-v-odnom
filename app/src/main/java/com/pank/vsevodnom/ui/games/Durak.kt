@@ -76,6 +76,8 @@ class Durak(val players: Int = 2, val transfer: Boolean = false, rnd: kotlin.ran
     var discarded by mutableIntStateOf(0)
     /** Кто вышел из игры (без карт при пустой колоде), по порядку. */
     val out = mutableStateListOf<Int>()
+    /** Кто положил карту на стол — откуда она «вылетает». */
+    val by = HashMap<Card, Int>()
 
     init {
         for (s in 0..3) for (r in 6..14) deck += Card(r, s)
@@ -116,13 +118,13 @@ class Durak(val players: Int = 2, val transfer: Boolean = false, rnd: kotlin.ran
 
     fun playAttack(p: Int, c: Card): Boolean {
         if (over != null || !canThrow(p, c)) return false
-        hands[p].remove(c); attack += c; defense += null; passed.clear()
+        hands[p].remove(c); by[c] = p; attack += c; defense += null; passed.clear()
         return true
     }
 
     fun playTransfer(c: Card): Boolean {
         if (over != null || !canTransfer(c)) return false
-        hands[defender].remove(c); attack += c; defense += null
+        hands[defender].remove(c); by[c] = defender; attack += c; defense += null
         attacker = defender; defender = next(defender); passed.clear()
         roundLimit = minOf(6, hands[defender].size + 0).coerceAtLeast(attack.size)
         message = "Перевод!"
@@ -131,7 +133,7 @@ class Durak(val players: Int = 2, val transfer: Boolean = false, rnd: kotlin.ran
 
     fun playDefense(c: Card, idx: Int): Boolean {
         if (over != null || taking || defense.getOrNull(idx) != null || !beats(c, attack[idx])) return false
-        hands[defender].remove(c); defense[idx] = c; passed.clear()
+        hands[defender].remove(c); by[c] = defender; defense[idx] = c; passed.clear()
         return true
     }
 
@@ -381,10 +383,19 @@ private fun FaceArt(c: Card, modifier: Modifier) {
 
 /** Карта с анимацией появления: прилетает сверху (бот) или снизу (ты). */
 @Composable
-private fun FlyIn(key: Any, fromTop: Boolean, content: @Composable () -> Unit) {
+private fun FlyIn(key: Any, fromTop: Boolean, dx: Float = 0f, content: @Composable () -> Unit) {
     val a = remember(key) { Animatable(0f) }
-    LaunchedEffect(key) { a.animateTo(1f, tween(280)) }
-    Box(Modifier.graphicsLayer { translationY = (1 - a.value) * (if (fromTop) -260f else 260f); alpha = 0.3f + 0.7f * a.value }) { content() }
+    LaunchedEffect(key) { a.animateTo(1f, tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    Box(Modifier.graphicsLayer {
+        translationY = (1 - a.value) * (if (fromTop) -520f else 620f); translationX = (1 - a.value) * dx
+        rotationZ = (1 - a.value) * (if (dx < 0) -25f else 25f); alpha = 0.3f + 0.7f * a.value
+    }) { content() }
+}
+/** Откуда летит карта игрока p: ты — снизу, бот — сверху (в игре на троих — слева или справа). */
+private fun flyFrom(g: Durak, p: Int?): Pair<Boolean, Float> = when {
+    p == null || p == 0 -> false to 0f
+    g.players > 2 -> true to (if (p == 1) -380f else 380f)
+    else -> true to 0f
 }
 
 @Composable
@@ -403,10 +414,13 @@ fun DurakScreen(onBack: () -> Unit) {
     val slotRects = remember(gen) { mutableStateMapOf<Int, Rect>() }
     var dragging by remember { mutableStateOf<Card?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var transferRect by remember { mutableStateOf(Rect.Zero) }
 
     // ход игры: закрыть кон, если можно; иначе — шаг очередного бота. Человек без подходящих карт «пасует» сам.
     LaunchedEffect(gen, tick, g.attacker, g.defender, g.taking, g.attack.size, g.defense.toList(), g.passed.size) {
-        delay(750)
+        // ходы ботов между собой — медленнее, чтобы было видно, кто что положил
+        val botsOnly = g.defender != 0 && (g.attack.isEmpty() && g.attacker != 0 || 0 in g.passed || !g.inGame(0))
+        delay(if (botsOnly) 1400 else 900)
         if (g.over != null) return@LaunchedEffect
         if (0 != g.defender && g.inGame(0) && 0 !in g.passed && g.attack.isNotEmpty() && (g.taking || g.unbeaten().isEmpty()) && !g.canThrowAny(0)) g.pass(0)
         if (g.roundCanEnd()) { g.finishRound(); tick++; return@LaunchedEffect }
@@ -428,8 +442,9 @@ fun DurakScreen(onBack: () -> Unit) {
             return g.playAttack(0, c).also { if (it) tick++ else { g.message = "Этой картой сейчас нельзя"; tick++ } }
         }
         if (!iDefend || g.taking) return false
+        // перевод — только в пунктирную ячейку справа; на карту — отбиться ею (даже если перевести тоже можно)
         val target = slotRects.entries.firstOrNull { it.value.inflate(24f).contains(dropAt) && it.key in unbeaten }?.key
-        if (target == null && tableRect.contains(dropAt) && g.canTransfer(c)) return g.playTransfer(c).also { tick++ }
+        if (target == null && g.canTransfer(c) && transferRect.inflate(30f).contains(dropAt)) return g.playTransfer(c).also { tick++ }
         val t = target ?: if (tableRect.contains(dropAt) && unbeaten.size == 1) unbeaten.first() else null
         if (t == null) return false
         if (!g.beats(c, g.attack[t])) { g.message = "Эта карта не бьёт"; tick++; return false }
@@ -468,7 +483,7 @@ fun DurakScreen(onBack: () -> Unit) {
                     g.over ?: when {
                         !g.inGame(me) -> "Ты вышел — не дурак. Боты доигрывают"
                         iDefend && g.taking -> "Ты берёшь"
-                        iDefend && unbeaten.isNotEmpty() -> "Отбивайся: перетащи карту на карту" + if (g.transfer && g.defense.all { it == null }) " (или на стол — перевод)" else ""
+                        iDefend && unbeaten.isNotEmpty() -> "Отбивайся: перетащи карту на карту" + if (g.transfer && g.defense.all { it == null }) " (или в пунктир справа — перевод)" else ""
                         iDefend -> "Отбился — ждём подкидывающих"
                         g.attack.isEmpty() && g.attacker == me -> "Твой ход — перетащи карту на стол"
                         g.attack.isEmpty() -> "${g.name(g.attacker)} ходит на ${g.name(g.defender)}…"
@@ -482,10 +497,20 @@ fun DurakScreen(onBack: () -> Unit) {
                 FlowRow(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     g.attack.forEachIndexed { i, a ->
                         Box(Modifier.size(84.dp + 18.dp, 120.dp + 22.dp).onGloballyPositioned { slotRects[i] = it.boundsInRoot() }) {
-                            FlyIn(a, fromTop = !iThrow) { CardFace(a, 84.dp, 120.dp) }
-                            g.defense[i]?.let { d -> Box(Modifier.offset(18.dp, 22.dp).rotate(8f)) { FlyIn(d, fromTop = !iDefend) { CardFace(d, 84.dp, 120.dp) } } }
+                            val (ft, fx) = flyFrom(g, g.by[a])
+                            FlyIn(a, fromTop = ft, dx = fx) { CardFace(a, 84.dp, 120.dp) }
+                            g.defense[i]?.let { d -> val (dt, dxx) = flyFrom(g, g.by[d]); Box(Modifier.offset(18.dp, 22.dp).rotate(8f)) { FlyIn(d, fromTop = dt, dx = dxx) { CardFace(d, 84.dp, 120.dp) } } }
                         }
                     }
+                    // переводной: тащишь карту того же достоинства — справа пунктирная «ячейка», брось туда — перевод
+                    val dc = dragging
+                    if (dc != null && iDefend && g.canTransfer(dc)) Box(Modifier.size(84.dp + 18.dp, 120.dp + 22.dp).onGloballyPositioned { transferRect = it.boundsInRoot() }) {
+                        Canvas(Modifier.size(84.dp, 120.dp)) {
+                            drawRoundRect(Color.White.copy(alpha = 0.9f), cornerRadius = CornerRadius(size.width * 0.08f),
+                                style = Stroke(5f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(18f, 12f))))
+                        }
+                        Text("перевод", Modifier.align(Alignment.Center).offset(x = (-9).dp, y = (-11).dp), color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    } else transferRect = Rect.Zero
                 }
                 if (g.message.isNotBlank() && g.over == null) Text(g.message, Modifier.align(Alignment.BottomStart), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
             }

@@ -20,6 +20,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.pank.vsevodnom.ui.common.*
+import androidx.compose.material.icons.rounded.Lightbulb
 import com.pank.vsevodnom.ui.theme.Pal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -90,6 +91,17 @@ object C4 {
         return best
     }
 
+    /** Подсказка: столбцы, лучшие для p (оценка на глубину 7; равные лучшему с запасом 10). */
+    fun hints(b0: IntArray, p: Int): Set<Int> {
+        val b = b0.copyOf()
+        val v = (0 until W).filter { canDrop(b, it) }.associateWith { c ->
+            val r = dropRow(b, c); b[r * W + c] = p
+            val x = -negamax(b, 3 - p, 6, -1_000_000, 1_000_000); b[r * W + c] = 0; x
+        }
+        val best = v.values.maxOrNull() ?: return emptySet()
+        return v.filter { it.value >= best - 10 }.keys
+    }
+
     /** Лучший столбец для p. level: 0 лёгкий, 1 средний, 2 сильный. */
     fun best(b0: IntArray, p: Int, level: Int, rnd: Random = Random): Int {
         val b = b0.copyOf()
@@ -128,6 +140,9 @@ fun ConnectFourScreen(onBack: () -> Unit) {
     var counted by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
+    var hint by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var hinting by remember { mutableStateOf(false) }
+    LaunchedEffect(b) { hint = emptySet() }
     LaunchedEffect(Unit) { turn = if (botFirst) 2 else 1 }
     // кто ходит первым — случайно
     fun reset() { b = C4.empty(); last = -1; counted = false; botFirst = kotlin.random.Random.nextBoolean(); turn = if (botFirst) 2 else 1 }
@@ -151,7 +166,12 @@ fun ConnectFourScreen(onBack: () -> Unit) {
             scope.launch { put(c) }   // не внутри эффекта: смена b отменила бы анимацию падения
         }
     }
-    ScreenScaffold("Четыре в ряд", onBack) {
+    ScreenScaffold("Четыре в ряд", onBack, actions = {
+        // лампочка: подсветить зелёным лучшие столбцы
+        RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Lightbulb, "Подсказка", {
+            if (turn == 1 && win == null && !draw && !hinting) { hinting = true; scope.launch { hint = withContext(Dispatchers.Default) { C4.hints(b, 1) }; hinting = false } }
+        }, bg = if (hint.isNotEmpty()) Color(0xFFDDF3E6) else com.pank.vsevodnom.ui.theme.Pal.Card, tint = if (hinting) Pal.Muted else Color(0xFFE0A100))
+    }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf("победы" to score.first, "ничьи" to score.third, "поражения" to score.second).forEach { (k, v) ->
@@ -171,6 +191,7 @@ fun ConnectFourScreen(onBack: () -> Unit) {
                     val cw = size.width / C4.W; val ch = size.height / C4.H
                     val rad = minOf(cw, ch) * 0.38f
                     drawRoundRect(C4_BOARD, cornerRadius = CornerRadius(40f))
+                    hint.forEach { c -> drawRoundRect(Color(0xFF3FD18A).copy(alpha = 0.55f), Offset(cw * c + 4f, 4f), androidx.compose.ui.geometry.Size(cw - 8f, size.height - 8f), CornerRadius(30f)) }
                     val hl = win?.second.orEmpty().toSet()
                     for (r in 0 until C4.H) for (c in 0 until C4.W) {
                         val i = r * C4.W + c

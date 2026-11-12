@@ -64,13 +64,14 @@ fun GamesScreen(onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(GAMES) { g ->
-                    AppCard(Modifier.fillMaxWidth(), onClick = { open = g.key }) {
+                    // все плитки одного размера: высота фиксирована, подпись — до 2 строк
+                    AppCard(Modifier.fillMaxWidth().height(172.dp), onClick = { open = g.key }) {
                         Box(Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).background(g.tint.bg), contentAlignment = Alignment.Center) {
                             Text(g.glyph, fontSize = 30.sp, color = g.tint.ink)
                         }
                         Spacer(Modifier.height(10.dp))
-                        Text(g.title, style = MaterialTheme.typography.titleMedium)
-                        Text(g.sub, style = MaterialTheme.typography.bodySmall)
+                        Text(g.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(g.sub, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 }
             }

@@ -191,8 +191,10 @@ fun WeatherGlyph(scene: Scene, isDay: Boolean, modifier: Modifier = Modifier, an
             }
             else -> {
                 val cc = if (scene == Scene.THUNDER || scene == Scene.RAIN) Color(0xFF9DAFC6) else Color(0xFFB9C7D8)
-                if (scene == Scene.CLOUDY && animated) cloud(Offset(w * 0.62f - sway, h * 0.3f), w * 0.22f, Color(0xFFD3DCE7))
-                cloud(Offset(w * 0.5f + sway * 0.6f, h * 0.38f), w * 0.34f, cc)
+                // просто облачно (без осадков снизу) — облака по центру значка, а не вверху
+                val cy = if (scene == Scene.CLOUDY) h * 0.52f else h * 0.38f
+                if (scene == Scene.CLOUDY && animated) cloud(Offset(w * 0.62f - sway, cy - h * 0.1f), w * 0.22f, Color(0xFFD3DCE7))
+                cloud(Offset(w * 0.5f + sway * 0.6f, cy), w * 0.34f, cc)
                 when (scene) {
                     Scene.RAIN, Scene.DRIZZLE, Scene.THUNDER -> for (i in 0..2) {
                         if (scene == Scene.THUNDER && i == 1) continue

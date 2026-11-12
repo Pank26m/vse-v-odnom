@@ -609,7 +609,7 @@ private fun WeightDialog(onDismiss: () -> Unit) {
 
 /** Разделы, которые уже есть в нижнем баре или внутри ToDo, — в «Всех» не дублируем. */
 /** Что не показывать во «Все»: есть в нижнем баре, в ToDo или в «Утилитах». */
-private val IN_BAR = setOf("todo", "money", "calendar", "weather", "map", "power", "alerts", "cart", "recorder", "passwords", "piggy", "cards", "pdf", "codes", "downloads", "calc", "markets")
+private val IN_BAR = setOf("todo", "money", "calendar", "weather", "map", "power", "alerts", "cart", "recorder", "passwords", "piggy", "cards", "pdf", "codes", "downloads", "calc", "markets", "keyboard")
 
 /** Все разделы плитками. */
 @Composable
@@ -619,7 +619,8 @@ fun AppsScreen(open: (String) -> Unit) {
         modifier = Modifier.fillMaxSize().background(Pal.Bg).statusBarsPadding(),
         contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        // плитки прижаты к низу экрана — ближе к большому пальцу
+        verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom)
     ) {
         item(span = { GridItemSpan(4) }) { Text("Все приложения", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(4.dp, 8.dp)) }
         // в «Всех» — только то, чего нет в нижнем баре и в ToDo
