@@ -32,7 +32,8 @@ private data class Game(val key: String, val title: String, val sub: String, val
 
 private val GAMES = listOf(
     Game("chess", "Шахматы", "бот с часами, 500 задач, разбор партий, темы", "♞", Tints.Lilac),
-    Game("durak", "Дурак", "подкидной и переводной, 1–2 бота", "♠", Tints.Rose),
+    Game("durak", "Дурак", "подкидной и переводной, до 5 ботов", "♠", Tints.Rose),
+    Game("checkers", "Шашки", "русские шашки: дамки, бой назад", "⛀", Tints.Peach),
     Game("sudoku", "Судоку", "4 сложности, вплоть до «Божества»", "9", Tints.Sky),
     Game("mines", "Сапёр", "поле 16×27", "✱", Tints.Mint),
     Game("merge", "2048", "сдвигай плитки, собери 2048", "²", Tints.Lilac),
@@ -59,6 +60,7 @@ fun GamesScreen(onBack: () -> Unit) {
         "sudoku" -> SudokuScreen(close)
         "chess" -> ChessScreen(close)
         "durak" -> DurakScreen(close)
+        "checkers" -> CheckersScreen(close)
         "random" -> com.pank.vsevodnom.ui.random.RandomScreen(close)
         "merge" -> MergeScreen(close)
         "snake" -> SnakeScreen(close)
@@ -125,6 +127,13 @@ private object GameMenu {
         removeCover(ctx, key)
         p(ctx).edit().putString("cover_$key", name).apply(); true
     }.getOrDefault(false)
+    /** Обложка из набора иконок: значок на светлом квадрате. */
+    fun setCoverBitmap(ctx: android.content.Context, key: String, bmp: android.graphics.Bitmap): Boolean = runCatching {
+        val name = "${key}_${System.currentTimeMillis()}.png"
+        java.io.File(dir(ctx), name).outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        removeCover(ctx, key)
+        p(ctx).edit().putString("cover_$key", name).apply(); true
+    }.getOrDefault(false)
     fun removeCover(ctx: android.content.Context, key: String) {
         p(ctx).getString("cover_$key", null)?.let { java.io.File(dir(ctx), it).delete() }
         p(ctx).edit().remove("cover_$key").apply()
@@ -139,6 +148,8 @@ private fun GamesEditor(onDone: () -> Unit) {
     var ver by remember { mutableIntStateOf(0) }
     var rename by remember { mutableStateOf<Game?>(null) }
     var coverFor by remember { mutableStateOf<String?>(null) }
+    var coverMenu by remember { mutableStateOf<String?>(null) }
+    var packFor by remember { mutableStateOf<String?>(null) }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
         val k = coverFor; coverFor = null
         if (uri != null && k != null) com.pank.vsevodnom.data.AppScope.io.launch { GameMenu.setCover(ctx, k, uri); ver++ }
@@ -146,13 +157,13 @@ private fun GamesEditor(onDone: () -> Unit) {
     fun move(i: Int, d: Int) { val j = i + d; if (j !in list.indices) return; val g = list.removeAt(i); list.add(j, g); GameMenu.setOrder(ctx, list) }
     ScreenScaffold("Меню игр", onDone) {
         androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Text("Стрелки — порядок, название — переименовать, квадрат слева — своя картинка (долгое нажатие — убрать).", style = MaterialTheme.typography.bodySmall) }
+            item { Text("Стрелки — порядок, название — переименовать, квадрат слева — картинка из галереи или значок из набора иконок (долгое нажатие — убрать).", style = MaterialTheme.typography.bodySmall) }
             itemsIndexedGames(list) { i, g ->
                 key(ver) {
                     val cover = GameMenu.cover(ctx, g.key)
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(com.pank.vsevodnom.ui.theme.Pal.Card).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(g.tint.bg)
-                            .pointerInput(g.key) { detectTapGestures(onTap = { coverFor = g.key; picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            .pointerInput(g.key) { detectTapGestures(onTap = { coverMenu = g.key },
                                 onLongPress = { GameMenu.removeCover(ctx, g.key); ver++ }) }, contentAlignment = Alignment.Center) {
                             if (cover != null) com.pank.vsevodnom.ui.common.AppImage(cover, Modifier.fillMaxSize(), maxPx = 300, radius = 10.dp)
                             else Text(g.glyph, fontSize = 26.sp, color = g.tint.ink)
@@ -168,6 +179,18 @@ private fun GamesEditor(onDone: () -> Unit) {
             }
         }
     }
+    coverMenu?.let { k ->
+        androidx.compose.material3.AlertDialog(onDismissRequest = { coverMenu = null }, title = { Text("Картинка игры") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.pank.vsevodnom.ui.common.PillButton("Значок из набора иконок", { coverMenu = null; packFor = k }, Modifier.fillMaxWidth())
+                com.pank.vsevodnom.ui.common.PillButton("Фото из галереи", { coverMenu = null; coverFor = k
+                    picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, Modifier.fillMaxWidth(),
+                    bg = com.pank.vsevodnom.ui.theme.Pal.Card, fg = com.pank.vsevodnom.ui.theme.Pal.Ink)
+                if (GameMenu.cover(ctx, k) != null) androidx.compose.material3.TextButton({ GameMenu.removeCover(ctx, k); coverMenu = null; ver++ }) { Text("Убрать картинку") }
+            }
+        }, confirmButton = {})
+    }
+    packFor?.let { k -> IconPackPicker({ packFor = null }) { b -> GameMenu.setCoverBitmap(ctx, k, b); packFor = null; ver++ } }
     rename?.let { g ->
         var t by remember(g) { mutableStateOf(GameMenu.name(ctx, g)) }
         androidx.compose.material3.AlertDialog(onDismissRequest = { rename = null }, title = { Text("Название игры") },

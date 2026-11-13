@@ -20,7 +20,7 @@ class GamesTest {
 
     /** Боты играют за всех (2–3 игрока, подкидной и переводной): партия заканчивается, карт всегда 36. */
     @Test fun durakSelfPlay() {
-        for (players in 2..3) for (tr in listOf(false, true)) repeat(150) { game ->
+        for (players in 2..6) for (tr in listOf(false, true)) repeat(if (players <= 3) 150 else 60) { game ->
             val g = Durak(players = players, transfer = tr, rnd = kotlin.random.Random(game * 7 + players))
             var steps = 0
             while (g.over == null && steps < 8000) {

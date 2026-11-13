@@ -63,7 +63,7 @@ fun ClockScreen(onBack: () -> Unit, startTab: Int = 0) {
         Box(Modifier.weight(1f)) {
             when (tab) {
                 0 -> WorldTab()
-                1 -> AlarmsTab()
+                1 -> AlarmsPage()
                 2 -> StopwatchTab()
                 3 -> TimerTab()
                 else -> FocusTab()
@@ -235,147 +235,7 @@ private fun daysText(mask: Int): String = when (mask) {
     else -> DAY_SHORT.filterIndexed { i, _ -> mask and (1 shl i) != 0 }.joinToString(", ")
 }
 
-private fun untilText(a: AlarmEntity): String {
-    val next = nextTrigger(a)
-    val d = Duration.between(LocalDateTime.now(), next)
-    val h = d.toHours()
-    val m = d.toMinutes() % 60
-    return if (h > 0) "через $h ч $m мин" else "через $m мин"
-}
-
-@Composable
-private fun AlarmsTab() {
-    val ctx = LocalContext.current
-    val dao = remember { AppDb.get(ctx).alarms() }
-    val alarms by dao.all().collectAsState(initial = emptyList())
-    val scope = rememberCoroutineScope()
-    var editing by remember { mutableStateOf<AlarmEntity?>(null) }
-    tickingNow(30_000) // обновлять «через N мин»
-
-    val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
-
-    LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { PermissionWarnings() }
-        if (alarms.isEmpty()) item { EmptyHint("Будильников пока нет") }
-        items(alarms, key = { it.id }) { a ->
-            AppCard(modifier = Modifier.fillMaxWidth(), onClick = { editing = a }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "%02d:%02d".format(a.hour, a.minute),
-                            style = MaterialTheme.typography.displayMedium,
-                            color = if (a.enabled) Pal.Ink else Pal.Muted
-                        )
-                        Text(
-                            listOfNotNull(a.label.ifBlank { null }, daysText(a.daysMask), if (a.enabled) untilText(a) else null).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    Switch(
-                        checked = a.enabled,
-                        onCheckedChange = { on ->
-                            scope.launch {
-                                val upd = a.copy(enabled = on)
-                                dao.upsert(upd)
-                                if (on) AlarmScheduler.schedule(ctx, upd) else AlarmScheduler.cancel(ctx, upd)
-                            }
-                        },
-                        colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF9C88D6))
-                    )
-                }
-            }
-        }
-        item {
-            PillButton("+ Новый будильник", { editing = AlarmEntity(hour = 7, minute = 30, daysMask = 0b0011111) }, Modifier.fillMaxWidth())
-        }
-    }
-
-    editing?.let { a ->
-        AlarmEditor(
-            initial = a,
-            onDismiss = { editing = null },
-            onSave = { upd ->
-                scope.launch {
-                    val id = dao.upsert(upd.copy(enabled = true))
-                    val saved = if (upd.id == 0L) upd.copy(id = id, enabled = true) else upd.copy(enabled = true)
-                    AlarmScheduler.schedule(ctx, saved)
-                }
-                editing = null
-            },
-            onDelete = if (a.id != 0L) ({
-                scope.launch { AlarmScheduler.cancel(ctx, a); dao.delete(a) }
-                editing = null
-            }) else null
-        )
-    }
-}
-
-@Composable
-private fun PermissionWarnings() {
-    val ctx = LocalContext.current
-    val canExact = AlarmScheduler.canExact(ctx)
-    val canFull = Build.VERSION.SDK_INT < 34 || ctx.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
-    if (canExact && canFull) return
-    AppCard(color = Pal.Peach, modifier = Modifier.fillMaxWidth()) {
-        Text("Нужны разрешения", style = MaterialTheme.typography.titleSmall, color = Pal.PeachInk)
-        Spacer(Modifier.height(4.dp))
-        if (!canExact) {
-            Text("Точные будильники выключены — может звонить с опозданием.", style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = {
-                if (Build.VERSION.SDK_INT >= 31) ctx.startActivity(
-                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${ctx.packageName}"))
-                )
-            }) { Text("Разрешить") }
-        }
-        if (!canFull) {
-            Text("Полноэкранный будильник выключен — будет только уведомление.", style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = {
-                ctx.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${ctx.packageName}")))
-            }) { Text("Разрешить") }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AlarmEditor(initial: AlarmEntity, onDismiss: () -> Unit, onSave: (AlarmEntity) -> Unit, onDelete: (() -> Unit)?) {
-    val tp = rememberTimePickerState(initial.hour, initial.minute, is24Hour = true)
-    var mask by remember { mutableIntStateOf(initial.daysMask) }
-    var label by remember { mutableStateOf(initial.label) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = { onSave(initial.copy(hour = tp.hour, minute = tp.minute, daysMask = mask, label = label.trim())) }) { Text("Сохранить") } },
-        dismissButton = {
-            Row {
-                if (onDelete != null) TextButton(onClick = onDelete) { Text("Удалить", color = Pal.RoseInk) }
-                TextButton(onClick = onDismiss) { Text("Отмена") }
-            }
-        },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                TimePicker(tp)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    DAY_SHORT.forEachIndexed { i, d ->
-                        val on = mask and (1 shl i) != 0
-                        Box(
-                            Modifier.size(36.dp).clip(CircleShape)
-                                .background(if (on) Pal.Ink else Pal.Line)
-                                .clickable { mask = mask xor (1 shl i) },
-                            contentAlignment = Alignment.Center
-                        ) { Text(d, style = MaterialTheme.typography.labelMedium, color = if (on) Color.White else Pal.Ink) }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                AppTextField(label, { label = it }, "Подпись")
-            }
-        }
-    )
-}
+// Будильники — в Alarms.kt (0.45: теги, сортировка, задания, селфи)
 
 // ------------------------- Секундомер -------------------------
 

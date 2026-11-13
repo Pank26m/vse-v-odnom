@@ -108,6 +108,15 @@ object LifeScore {
                 if (overdue >= 3) "Висит $overdue просроченных задач. Разбери: что-то сделать сегодня, что-то перенести, лишнее — удалить." else null)
         }
 
+        // Экранное время (0.45): средние полные дни за неделю
+        val scr = com.pank.vsevodnom.data.ScreenTime.byDay(ctx, 8).filterKeys { it.isBefore(today) && !it.isBefore(weekAgo) }.values.filter { it > 0 }
+        if (scr.isNotEmpty()) {
+            val avg = scr.average(); val s = com.pank.vsevodnom.data.ScreenTime.score(avg)
+            out += LifePart("Экран", s, 1.0, "в среднем ${"%.1f".format(avg / 60).replace('.', ',')} ч в день",
+                if (s >= 7) "Телефон не съедает день — время остаётся на жизнь." else null,
+                if (s < 5) "Телефон забирает много времени. Поставь лимиты на 2–3 самых «залипательных» приложения и не бери телефон в кровать." else null)
+        }
+
         // Фокус
         val focus = runCatching { db.todo().focus().first() }.getOrDefault(emptyList()).filter { it.completed && !day(it.startedAt).isBefore(weekAgo) }
         if (focus.isNotEmpty()) {

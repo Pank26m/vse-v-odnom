@@ -1,0 +1,2 @@
+Колода «Английская» — Vector Playing Cards (Byron Knoll; github.com/notpeter/vector-playing-cards).
+Лицензия: общественное достояние (public domain) / WTFPL. Индексы J/Q/K/A заменены на В/Д/К/Т, отрисовано в WebP 320 px.

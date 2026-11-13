@@ -123,19 +123,38 @@ object Sfx {
     }
 
     /** Кости: n кубиков падают на стол, кувыркаются — серия стуков с замедлением, иногда кубик о кубик. */
+    // кость — пластик/смола: короткие сухие моды (затухание сотни 1/с), иначе звенит как струна (так было до 0.45)
+    private val DIE_CLICK = listOf(2650.0 to 520.0, 4150.0 to 700.0, 5900.0 to 900.0, 1500.0 to 380.0)
+    // деревянный стол: глухой «тук» низкими модами
+    private val TABLE_THOCK = listOf(165.0 to 55.0, 290.0 to 75.0, 470.0 to 110.0, 820.0 to 180.0)
+
+    /**
+     * Кости, брошенные на деревянный стол: пара щелчков друг о друга в ладони, затем каждая кость падает,
+     * отскакивает (интервалы и громкость уменьшаются), между ударами — короткое перекатывание по ребру,
+     * в конце — дробь мелких ударов, пока кость не ляжет.
+     */
     fun dice(n: Int, dur: Double = 0.95): ShortArray {
-        val b = Buf(dur + 0.35)
-        // встряхивание в ладонях
-        b.noise(0.0, 0.12, 900.0, 0.25f) { x -> sin(PI * x) }
+        val b = Buf(dur + 0.4)
+        // в ладони: кости стукаются друг о друга
+        repeat(3 + n) { b.hit(b.rnd.nextDouble() * 0.11, DIE_CLICK.map { it.first * (1.1 + b.rnd.nextDouble() * 0.3) to it.second * 1.4 }, 0.22f, 0.8, 0.5f) }
         repeat(n.coerceIn(1, 6)) { d ->
-            var t = 0.13 + b.rnd.nextDouble() * 0.05; var gap = 0.07 + b.rnd.nextDouble() * 0.04; var amp = 0.9f
-            while (t < dur && amp > 0.06f) {
-                val shift = 0.9 + b.rnd.nextDouble() * 0.25
-                b.hit(t, DIE.map { it.first * shift to it.second }, amp, 1.2, 0.9f)
-                b.hit(t, TABLE, amp * 0.5f, 0.4, 0f)
-                if (n > 1 && b.rnd.nextFloat() < 0.18f) b.hit(t + 0.012, DIE.map { it.first * 1.4 to it.second * 1.3 }, amp * 0.5f, 0.6, 0.6f)
-                t += gap * (0.8 + b.rnd.nextDouble() * 0.4); gap *= 0.83; amp *= 0.72f
+            var t = 0.16 + d * 0.025 + b.rnd.nextDouble() * 0.05
+            var gap = 0.11 + b.rnd.nextDouble() * 0.05; var amp = 1.0f
+            var bounce = 0
+            while (t < dur && amp > 0.05f) {
+                val shift = 0.92 + b.rnd.nextDouble() * 0.18
+                // удар ребром/гранью: щелчок кости + глухой стол (на первых — сильнее)
+                b.hit(t, DIE_CLICK.map { it.first * shift to it.second }, amp * 0.75f, 3.5, 1.0f)
+                b.hit(t, TABLE_THOCK, amp * (if (bounce < 2) 0.9f else 0.5f), 1.0, 0.2f)
+                // иногда двойной удар (сначала угол, потом грань)
+                if (b.rnd.nextFloat() < 0.35f) b.hit(t + 0.006 + b.rnd.nextDouble() * 0.01, DIE_CLICK.map { it.first * shift * 1.07 to it.second }, amp * 0.4f, 2.0, 0.7f)
+                // перекатывание между ударами: шершавый шорох
+                if (bounce >= 1) b.noise(t + 0.01, gap * 0.7, 3200.0, 0.05f * amp) { x -> sin(PI * x) }
+                t += gap * (0.8 + b.rnd.nextDouble() * 0.4); gap *= 0.7; amp *= 0.62f; bounce++
             }
+            // кость ложится: быстрая дробь
+            var tt = t; var a2 = 0.12f
+            repeat(4) { b.hit(tt, DIE_CLICK.map { it.first * 0.95 to it.second * 1.3 }, a2, 1.0, 0.6f); b.hit(tt, TABLE_THOCK, a2 * 0.5f, 0.5, 0f); tt += 0.018 + b.rnd.nextDouble() * 0.01; a2 *= 0.6f }
         }
         return b.pcm()
     }

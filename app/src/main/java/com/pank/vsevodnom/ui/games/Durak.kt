@@ -262,13 +262,22 @@ private val PIPS: Map<Int, List<Pair<Float, Float>>> = run {
 
 /** Классическая карта: индексы в двух углах, значки по раскладке, у картинок — портрет в рамке. */
 /** Скин карт: классическая колода (картинки) или своя рисованная. */
-object CardSkin { var classic by mutableStateOf(true) }
+object CardSkin {
+    /** 0 — классика (SVG-cards), 1 — английская (Byron Knoll), 2 — рисованные, 3 — четырёхцветные рисованные. */
+    var mode by mutableIntStateOf(0)
+    val classic get() = mode == 0 || mode == 1
+    val TITLES = listOf("Классика", "Английская", "Рисованные", "Четыре цвета")
+    val dir get() = if (mode == 1) "cards2" else "cards"
+}
+/** Цвет масти: в четырёхцветной колоде бубны синие, трефы зелёные — масти не перепутать. */
+private fun suitColor(c: Card): Color = if (CardSkin.mode == 3) when (c.suit) { 1 -> Color(0xFFC62828); 2 -> Color(0xFF1E5BC6); 3 -> Color(0xFF2E7D32); else -> Color(0xFF1C1B22) }
+    else if (c.red) Color(0xFFC62828) else Color(0xFF1C1B22)
 
 /** Классическая карта из assets/cards (SVG-cards, LGPL) — кэш картинок. */
 private object CardImages {
     private val cache = HashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
-    fun get(ctx: android.content.Context, c: Card): androidx.compose.ui.graphics.ImageBitmap? = cache.getOrPut("${c.suit}_${c.rank}") {
-        runCatching { ctx.assets.open("cards/${c.suit}_${c.rank}.webp").use { android.graphics.BitmapFactory.decodeStream(it).asImageBitmap() } }.getOrNull() ?: return null
+    fun get(ctx: android.content.Context, c: Card): androidx.compose.ui.graphics.ImageBitmap? = cache.getOrPut("${CardSkin.dir}/${c.suit}_${c.rank}") {
+        runCatching { ctx.assets.open("${CardSkin.dir}/${c.suit}_${c.rank}.webp").use { android.graphics.BitmapFactory.decodeStream(it).asImageBitmap() } }.getOrNull() ?: return null
     }
 }
 
@@ -276,7 +285,7 @@ private object CardImages {
 private fun CardFace(c: Card, w: Dp, h: Dp, modifier: Modifier = Modifier) {
     if (CardSkin.classic) {
         val ctx = androidx.compose.ui.platform.LocalContext.current
-        val img = remember(c) { CardImages.get(ctx, c) }
+        val img = remember(c, CardSkin.mode) { CardImages.get(ctx, c) }
         if (img != null) {
             Box(modifier.size(w, h).shadow(3.dp, RoundedCornerShape(w * 0.07f)).clip(RoundedCornerShape(w * 0.07f)).background(Color.White)) {
                 androidx.compose.foundation.Image(img, "${c.rankName}${c.suitName}", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
@@ -289,7 +298,7 @@ private fun CardFace(c: Card, w: Dp, h: Dp, modifier: Modifier = Modifier) {
 
 @Composable
 private fun CardFaceOwn(c: Card, w: Dp, h: Dp, modifier: Modifier = Modifier) {
-    val col = if (c.red) RED else BLACK
+    val col = suitColor(c)
     Box(modifier.size(w, h).shadow(3.dp, RoundedCornerShape(w * 0.09f)).clip(RoundedCornerShape(w * 0.09f)).background(Color.White)
         .border(0.8.dp, Color(0xFFD9D6CF), RoundedCornerShape(w * 0.09f))) {
         Canvas(Modifier.fillMaxSize()) {
@@ -392,10 +401,25 @@ private fun FlyIn(key: Any, fromTop: Boolean, dx: Float = 0f, content: @Composab
         rotationZ = (1 - a.value) * (if (dx < 0) -25f else 25f); alpha = 0.3f + 0.7f * a.value
     }) { content() }
 }
+/** Соперник: имя, сколько карт, роль и веер рубашек. */
+@Composable
+private fun Opponent(g: Durak, p: Int, small: Boolean, modifier: Modifier) {
+    val role = when { !g.inGame(p) -> "вышел"; p == g.defender -> "отбивается"; p == g.attacker -> "ходит"; p in g.passed -> "пас"; else -> "" }
+    Column(modifier) {
+        Text("${g.name(p)} · ${g.hands[p].size}" + if (role.isNotEmpty()) " · $role" else "", style = MaterialTheme.typography.labelMedium,
+            color = if (p == g.defender) Pal.RoseInk else Pal.Ink, maxLines = 1)
+        Box(Modifier.height(if (small && g.players > 4) 44.dp else 58.dp)) {
+            val n = g.hands[p].size.coerceAtMost(10)
+            val w = if (g.players > 4) 30.dp else 40.dp; val h = if (g.players > 4) 42.dp else 56.dp
+            repeat(n) { i -> CardBack(w, h, Modifier.offset(x = (i * (if (g.players > 4) 5 else if (g.players > 2) 9 else 14)).dp)) }
+        }
+    }
+}
+
 /** Откуда летит карта игрока p: ты — снизу, бот — сверху (в игре на троих — слева или справа). */
 private fun flyFrom(g: Durak, p: Int?): Pair<Boolean, Float> = when {
     p == null || p == 0 -> false to 0f
-    g.players > 2 -> true to (if (p == 1) -380f else 380f)
+    g.players > 2 -> true to ((p - 1) - (g.players - 2) / 2f) * (760f / (g.players - 1).coerceAtLeast(2))
     else -> true to 0f
 }
 
@@ -405,7 +429,7 @@ fun DurakScreen(onBack: () -> Unit) {
     val dp = remember { ctx.getSharedPreferences("durak", android.content.Context.MODE_PRIVATE) }
     var bots by remember { mutableIntStateOf(dp.getInt("bots", 1)) }
     var transfer by remember { mutableStateOf(dp.getBoolean("transfer", false)) }
-    LaunchedEffect(Unit) { CardSkin.classic = dp.getBoolean("classic", true) }
+    LaunchedEffect(Unit) { CardSkin.mode = dp.getInt("skin", if (dp.getBoolean("classic", true)) 0 else 2) }
     var opts by remember { mutableStateOf(false) }
     var gen by remember { mutableIntStateOf(0) }
     val g = remember(gen) { Durak(players = bots + 1, transfer = transfer) }
@@ -466,19 +490,12 @@ fun DurakScreen(onBack: () -> Unit) {
         RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Tune, "Настройки", { opts = true })
     }) {
         Column(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // соперники и колода
+            // соперники и колода; больше трёх ботов — в два ряда, карты рубашкой мельче
+            val opp = (1 until g.players).toList()
+            val many = opp.size > 3
+            if (many) Row(verticalAlignment = Alignment.CenterVertically) { opp.drop(3).forEach { p -> Opponent(g, p, true, Modifier.weight(1f)) }; repeat(3 - opp.drop(3).size) { Spacer(Modifier.weight(1f)) } }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                (1 until g.players).forEach { p ->
-                    val role = when { !g.inGame(p) -> "вышел"; p == g.defender -> "отбивается"; p == g.attacker -> "ходит"; p in g.passed -> "пас"; else -> "" }
-                    Column(Modifier.weight(1f)) {
-                        Text("${g.name(p)} · ${g.hands[p].size}" + if (role.isNotEmpty()) " · $role" else "", style = MaterialTheme.typography.labelMedium,
-                            color = if (p == g.defender) Pal.RoseInk else Pal.Ink, maxLines = 1)
-                        Box(Modifier.height(58.dp)) {
-                            val n = g.hands[p].size.coerceAtMost(10)
-                            repeat(n) { i -> CardBack(40.dp, 56.dp, Modifier.offset(x = (i * (if (g.players > 2) 9 else 14)).dp)) }
-                        }
-                    }
-                }
+                opp.take(3).forEach { p -> Opponent(g, p, many || g.players > 2, Modifier.weight(1f)) }
                 Box(Modifier.width(92.dp).height(76.dp)) {
                     if (g.deck.isNotEmpty()) CardFace(g.trump, 50.dp, 72.dp, Modifier.align(Alignment.CenterEnd).offset(x = (-4).dp).rotate(90f))
                     if (g.deck.size > 1) CardBack(50.dp, 72.dp, Modifier.align(Alignment.CenterStart))
@@ -573,14 +590,18 @@ fun DurakScreen(onBack: () -> Unit) {
     if (opts) androidx.compose.material3.AlertDialog(onDismissRequest = { opts = false }, title = { Text("Дурак") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Соперников", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(1, 2).forEach { n -> Chip(if (n == 1) "1 бот" else "2 бота", bots == n, { bots = n }) } }
+            // до 5 ботов (6 игроков): колода всегда 36 карт — при шестерых раздаётся вся
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { (1..5).forEach { n -> Chip("$n", bots == n, { bots = n }) } }
+            Text(if (bots == 5) "6 игроков: колода раздаётся целиком, козырь — последняя карта" else "${bots + 1} игрока" .replace("5 игрока", "5 игроков").replace("6 игрока", "6 игроков"), style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
             Text("Игра", style = MaterialTheme.typography.titleSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Chip("Подкидной", !transfer, { transfer = false }); Chip("Переводной", transfer, { transfer = true }) }
             Text("Карты", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Chip("Классические", CardSkin.classic, { CardSkin.classic = true }); Chip("Рисованные", !CardSkin.classic, { CardSkin.classic = false }) }
-            Text("Классическая колода — SVG-cards (David Bellot, LGPL-2.1). Кто ходит первым — случайно.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
+            CardSkin.TITLES.chunked(2).forEachIndexed { r, row -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEachIndexed { i, t -> val m = r * 2 + i; Chip(t, CardSkin.mode == m, { CardSkin.mode = m }) } } }
+            // предпросмотр: дама червей и туз треф в выбранной колоде
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { CardFace(Card(12, 1), 44.dp, 64.dp); CardFace(Card(14, 3), 44.dp, 64.dp); CardFace(Card(11, 2), 44.dp, 64.dp) }
+            Text("Классика — SVG-cards (David Bellot, LGPL-2.1); Английская — Vector Playing Cards (Byron Knoll, общественное достояние). Кто ходит первым — случайно.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
         }
     }, confirmButton = { androidx.compose.material3.TextButton({
-        dp.edit().putInt("bots", bots).putBoolean("transfer", transfer).putBoolean("classic", CardSkin.classic).apply(); opts = false; gen++
-    }) { Text("Новая партия") } }, dismissButton = { androidx.compose.material3.TextButton({ dp.edit().putBoolean("classic", CardSkin.classic).apply(); opts = false }) { Text("Готово") } })
+        dp.edit().putInt("bots", bots).putBoolean("transfer", transfer).putInt("skin", CardSkin.mode).apply(); opts = false; gen++
+    }) { Text("Новая партия") } }, dismissButton = { androidx.compose.material3.TextButton({ dp.edit().putInt("skin", CardSkin.mode).apply(); opts = false }) { Text("Готово") } })
 }

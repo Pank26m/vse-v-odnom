@@ -251,7 +251,7 @@ fun HomeScreen(open: (String) -> Unit) {
 private fun dayNotes(alarms: List<com.pank.vsevodnom.data.AlarmEntity>, tasks: List<TaskItem>, w: WeatherData?, bdays: List<Birthday>, today: LocalDate, alert: Int?): List<Triple<ImageVector, String, String?>> {
     val out = ArrayList<Triple<ImageVector, String, String?>>()
     val now = java.time.LocalDateTime.now()
-    alarms.filter { it.enabled }.map { com.pank.vsevodnom.alarm.nextTrigger(it, now) }.minOrNull()?.takeIf { java.time.Duration.between(now, it).toHours() < 24 }?.let { t ->
+    alarms.filter { it.enabled }.mapNotNull { com.pank.vsevodnom.alarm.nextTriggerOrNull(it, now) }.minOrNull()?.takeIf { java.time.Duration.between(now, it).toHours() < 24 }?.let { t ->
         out += Triple(Icons.Rounded.Alarm, "Будильник прозвонит " + (if (t.toLocalDate() != today) "завтра " else "") + "в %02d:%02d".format(t.hour, t.minute), "clock/0")
     }
     // неотложные — высокий приоритет на сегодня; просроченные — отдельно; нажатие показывает сами задачи

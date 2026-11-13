@@ -28,7 +28,7 @@ class SfxTest {
         assertTrue(all.size >= 12, "все звуки: ${all.keys}")
         val out = System.getenv("SFX_OUT")
         all.forEach { (k, pcm) ->
-            assertTrue(loud(pcm) > 10000, "$k звучит")   // слабый удар шайбы нарочно тише
+            assertTrue(loud(pcm) > (if (k.startsWith("b_")) 4000 else 10000), "$k звучит")   // звуки «Блоков» нарочно тихие
             assertTrue(pcm.size > Sfx.SR / 20, "$k не пустой")
             assertTrue(pcm.size < Sfx.SR * 4, "$k не длиннее 4 с")
             if (out != null) writeWav(java.io.File(out, "game_$k.wav"), pcm)

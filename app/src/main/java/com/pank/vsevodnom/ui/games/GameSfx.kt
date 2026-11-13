@@ -79,7 +79,7 @@ object GameSfx {
     /** Все звуки (для теста): ключ → PCM 44,1 кГц моно. */
     fun renderAll(): Map<String, ShortArray> {
         renderOnly = true
-        try { shuffle(); place(); take(); crunch(); splash(); boom(); bigBoom(); puck(0f); puck(1f); rail(); goal(); mystic() } finally { renderOnly = false }
+        try { shuffle(); place(); take(); crunch(); splash(); boom(); bigBoom(); puck(0f); puck(1f); rail(); goal(); mystic(); blkMove(); blkTurn(); blkLock(); blkLine(1); blkLine(4) } finally { renderOnly = false }
         return synchronized(cache) { HashMap(cache) }
     }
 
@@ -166,6 +166,19 @@ object GameSfx {
         for (k in 0..1) w.tone(0.12, 0.75, 0.35, { 330.0 * (1 + k * 0.5) }) { x -> if (x < 0.05) x / 0.05 else if (x > 0.85) (1 - x) / 0.15 else 1.0 }
         w.pcm(0.7)
     }
+
+    // ---------------- блоки ----------------
+    // тихие, мягкие звуки — чтобы не отвлекали: «тик» сдвига, «щёлк» поворота, глухое «тук» укладки, аккорд линии
+    fun blkMove() = play("b_move") { val w = W(0.07); w.hit(0.006, listOf(2400.0 to 260.0, 3600.0 to 380.0), 0.35); w.pcm(0.18) }
+    fun blkTurn() = play("b_turn") { val w = W(0.07); w.hit(0.006, listOf(1700.0 to 200.0, 2550.0 to 260.0), 0.4); w.hit(0.024, listOf(2300.0 to 260.0), 0.25); w.pcm(0.22) }
+    fun blkLock() = play("b_lock") { val w = W(0.14); w.hit(0.006, listOf(190.0 to 40.0, 340.0 to 60.0, 900.0 to 160.0), 0.8); w.noise(0.006, 0.02, 1500.0, 0.3) { x -> 1 - x }; w.pcm(0.32) }
+    /** Убраны линии: мягкий аккорд, 4 линии — выше и ярче. */
+    fun blkLine(n: Int) { val k = n.coerceIn(1, 4); play("b_line$k") {
+        val w = W(0.6)
+        val base = listOf(523.25, 659.25, 783.99, 1046.5).take(k + 1)
+        base.forEachIndexed { i, f -> w.tone(i * 0.045, 0.5, 0.25, { f }) { x -> (if (x < 0.04) x / 0.04 else 1.0) * exp(-x * 5) } }
+        w.room(0.2); w.pcm(0.3)
+    } }
 
     // ---------------- шар ----------------
     /** Таинственный звон: медленно нарастающий мерцающий аккорд, шёпот и искры при ответе. */

@@ -97,16 +97,35 @@ object AlarmScheduler {
     }
 
     fun schedule(ctx: Context, a: AlarmEntity) {
+        AlarmExtStore.ensure(ctx)
         val op = ringIntent(ctx, a.id, a.label.ifBlank { "Будильник" }, a.id.toInt())
         if (!a.enabled) { am(ctx).cancel(op); return }
-        setClock(ctx, nextTrigger(a).toMillis(), op)
+        val at = nextTriggerOrNull(a) ?: run { am(ctx).cancel(op); return }   // однократный на дату — уже прошёл
+        setClock(ctx, at.toMillis(), op)
+    }
+
+    /**
+     * Поставить все включённые; одинаковые по времени и дням (из разных тегов) звенят одним —
+     * первый по id, остальные «заморожены» (снимаются с будильника системы).
+     */
+    fun syncAll(ctx: Context) {
+        bgScope.launch {
+            AlarmExtStore.ensure(ctx)
+            val all = AppDb.get(ctx).alarms().allOnce()
+            all.filter { !it.enabled }.forEach { cancel(ctx, it) }
+            all.filter { it.enabled }.groupBy { alarmKey(it, AlarmExtStore.peek(it.id)) }.values.forEach { g ->
+                val keep = g.minBy { it.id }
+                schedule(ctx, keep)
+                g.filter { it.id != keep.id }.forEach { cancel(ctx, it) }
+            }
+        }
     }
 
     fun cancel(ctx: Context, a: AlarmEntity) {
         am(ctx).cancel(ringIntent(ctx, a.id, "", a.id.toInt()))
     }
 
-    fun snooze(ctx: Context, alarmId: Long, label: String, minutes: Int = 10) {
+    fun snooze(ctx: Context, alarmId: Long, label: String, minutes: Int = AlarmSettings.snoozeMin(ctx)) {
         setClock(ctx, System.currentTimeMillis() + minutes * 60_000L, ringIntent(ctx, alarmId, label, alarmId.toInt()))
     }
 
@@ -128,10 +147,8 @@ object AlarmScheduler {
     }
 
     fun rescheduleAll(ctx: Context) {
-        bgScope.launch {
-            AppDb.get(ctx).alarms().allOnce().filter { it.enabled }.forEach { schedule(ctx, it) }
-            scheduleWeightReminder(ctx)
-        }
+        syncAll(ctx)
+        scheduleWeightReminder(ctx)
     }
 }
 
@@ -203,6 +220,8 @@ class AlarmService : Service() {
         private const val AUTO_STOP_MS = 10 * 60_000L
 
         @Volatile var ringing: Pair<Long, String>? = null
+        /** Настройки звенящего будильника (для экрана: погода, задание, полноэкранный ли). */
+        @Volatile var ringExt: AlarmExt? = null
     }
 
     private var player: MediaPlayer? = null
@@ -223,23 +242,36 @@ class AlarmService : Service() {
             }
         }
         Channels.ensure(this)
+        AlarmExtStore.ensure(this)
+        val ext = if (id > 0) AlarmExtStore.get(this, id) else AlarmExt(mission = "none")
+        ringExt = ext
         ringing = id to label
-        val n = buildNotification(id, label)
+        val n = buildNotification(id, label, ext)
         ServiceCompat.startForeground(
             this, NOTIF_ID, n,
             if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0
         )
-        startSound()
+        // вибрация — по настройке будильника (из базы), звук — своя мелодия и плавное нарастание
+        bgScope.launch {
+            val vib = if (id > 0) AppDb.get(this@AlarmService).alarms().byId(id)?.vibrate ?: true else true
+            handler.post { startSound(ext, vib) }
+        }
         handler.removeCallbacksAndMessages(null)
         handler.postDelayed({ finishRing(id) }, AUTO_STOP_MS)
-        // попытка открыть экран будильника сразу (сработает, если разрешено)
-        runCatching {
-            startActivity(
-                Intent(this, AlarmActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
-            )
+        if (ext.full) {
+            openScreen()
+            // полноэкранный: свернуть нельзя — пока звенит, экран возвращается (нужно «Поверх других окон»)
+            handler.postDelayed(object : Runnable { override fun run() {
+                if (ringing == null) return
+                if (!AlarmActivity.visible && !AlarmActivity.external) openScreen()
+                handler.postDelayed(this, 1500)
+            } }, 2000)
         }
         return START_NOT_STICKY
+    }
+
+    private fun openScreen() = runCatching {
+        startActivity(Intent(this, AlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
 
     private fun action(act: String, id: Long, label: String, req: Int) = PendingIntent.getService(
@@ -248,7 +280,7 @@ class AlarmService : Service() {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    private fun buildNotification(id: Long, label: String): Notification {
+    private fun buildNotification(id: Long, label: String, ext: AlarmExt): Notification {
         val full = PendingIntent.getActivity(
             this, 3, Intent(this, AlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -260,18 +292,20 @@ class AlarmService : Service() {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
-            .setFullScreenIntent(full, true)
             .setContentIntent(full)
-            .addAction(0, "Выключить", action(ACTION_DISMISS, id, label, 11))
-        if (id != TIMER_ID) b.addAction(0, "Ещё 10 мин", action(ACTION_SNOOZE, id, label, 12))
+        if (ext.full) b.setFullScreenIntent(full, true)
+        // с заданием выключить можно только на экране будильника
+        if (!ext.full || ext.mission == "none") b.addAction(0, "Выключить", action(ACTION_DISMISS, id, label, 11))
+        if (id != TIMER_ID && AlarmSettings.snoozeOn(this)) b.addAction(0, "Ещё ${AlarmSettings.snoozeMin(this)} мин", action(ACTION_SNOOZE, id, label, 12))
         return b.build()
     }
 
-    private fun startSound() {
+    private fun startSound(ext: AlarmExt = AlarmExt(), vibrate: Boolean = true) {
         stopSound()
-        val uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
+        val uri = ext.sound.takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it) }
+            ?: RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        player = runCatching {
+        fun make(u: android.net.Uri) = runCatching {
             MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -279,16 +313,30 @@ class AlarmService : Service() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
-                setDataSource(this@AlarmService, uri)
+                setDataSource(this@AlarmService, u)
                 isLooping = true
                 prepare()
-                start()
             }
         }.getOrNull()
+        player = (make(uri) ?: make(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)))?.also { mp ->
+            // плавное пробуждение: громкость от 5 % до 100 % за ext.ramp секунд
+            if (ext.ramp > 0) {
+                mp.setVolume(0.05f, 0.05f)
+                val start = SystemClock.elapsedRealtime()
+                handler.post(object : Runnable { override fun run() {
+                    val p = player ?: return
+                    val k = ((SystemClock.elapsedRealtime() - start) / (ext.ramp * 1000f)).coerceIn(0f, 1f)
+                    val v = 0.05f + 0.95f * k * k
+                    runCatching { p.setVolume(v, v) }
+                    if (k < 1f) handler.postDelayed(this, 250)
+                } })
+            }
+            mp.start()
+        }
         vibrator = if (Build.VERSION.SDK_INT >= 31)
             getSystemService(VibratorManager::class.java).defaultVibrator
         else @Suppress("DEPRECATION") getSystemService(Vibrator::class.java)
-        vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 600, 600), 0))
+        if (vibrate) vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 600, 600), 0))
     }
 
     private fun stopSound() {
@@ -301,6 +349,7 @@ class AlarmService : Service() {
         handler.removeCallbacksAndMessages(null)
         stopSound()
         ringing = null
+        val ext = ringExt; ringExt = null
         AlarmActivity.closeAll()
         if (id > 0 && !snoozed) {
             val ctx = applicationContext
@@ -308,7 +357,8 @@ class AlarmService : Service() {
                 val dao = AppDb.get(ctx).alarms()
                 val a = dao.byId(id) ?: return@launch
                 if (a.daysMask == 0) dao.upsert(a.copy(enabled = false))
-                else AlarmScheduler.schedule(ctx, a)
+                AlarmScheduler.syncAll(ctx)
+                if (ext?.summary == true) MorningSummary.post(ctx)
             }
         }
         if (id == TIMER_ID) TimerState.reset()

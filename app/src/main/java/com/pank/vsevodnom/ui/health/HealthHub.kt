@@ -75,6 +75,7 @@ private class HealthState {
     var days by mutableStateOf<List<DayHealth>>(emptyList())
     var workouts by mutableStateOf<List<WorkoutRec>>(emptyList())
     var moodByDay by mutableStateOf<Map<LocalDate, Double>>(emptyMap())
+    var screenByDay by mutableStateOf<Map<LocalDate, Long>>(emptyMap())
     var parts by mutableStateOf<List<HealthScore.Part>>(emptyList())
     var granted by mutableStateOf<Set<String>?>(null)
     var loading by mutableStateOf(true)
@@ -108,6 +109,10 @@ private fun metrics(ctx: android.content.Context, st: HealthState): List<Metric>
         Metric("food", "Питание", Icons.Rounded.Restaurant, Tints.Butter, "ккал", plan.kcal * 0.9, plan.kcal * 1.1,
             "Если записей питания нет — считаю по плану специалиста: ${plan.kcal} ккал, белки ${plan.protein} г, жиры ${plan.fat} г, углеводы ${plan.carbs} г (меняется на вкладке «Тело»).",
             { it.intakeKcal ?: plan.kcal.toDouble() }),
+        Metric("screen", "Экранное время", Icons.Rounded.PhoneAndroid, Tints.Lilac, "ч", null, 3.0,
+            "Сколько телефон был включён и в руках (рабочий стол не считается). Лучше до 2–3 часов в день: больше — меньше сна, движения и внимания. Входит в оценку здоровья и жизни." +
+                if (!com.pank.vsevodnom.data.ScreenTime.available(ctx)) "\n\nНужен доступ «Статистика использования» — нажми на плитку." else "",
+            { st.screenByDay[it.day]?.let { m -> m / 60.0 } }, ::f1),
         Metric("mood", "Настроение", Icons.Rounded.Mood, Tints.Butter, "из 5", 3.5, 5.0, "Среднее по отметкам настроения за день (сводка трижды в день).",
             { st.moodByDay[it.day] }, ::f1),
     )
@@ -142,8 +147,10 @@ fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false, onOpenMap: ()
         val check = BodyCheck.latest(ctx)
         val h = com.pank.vsevodnom.ui.home.Profile.get(ctx, "height").replace(',', '.').toDoubleOrNull()
         val weekMood = st.moodByDay.filterKeys { !it.isBefore(LocalDate.now().minusDays(6)) }.values.takeIf { it.isNotEmpty() }?.average()
+        st.screenByDay = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.pank.vsevodnom.data.ScreenTime.byDay(ctx) }
         st.parts = HealthScore.compute(st.days, StepGoal.value(ctx, kg), Nutrition.plan(ctx), h, check,
-            check?.let { java.time.temporal.ChronoUnit.DAYS.between(it.date, LocalDate.now()) }, weekMood)
+            check?.let { java.time.temporal.ChronoUnit.DAYS.between(it.date, LocalDate.now()) }, weekMood,
+            (6 downTo 1).mapNotNull { st.screenByDay[LocalDate.now().minusDays(it.toLong())] })   // полные дни, без сегодняшнего
         st.loading = false
     }
 
@@ -154,7 +161,7 @@ fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false, onOpenMap: ()
         "photos" -> { BackHandler { page = null }; BodyPhotosScreen { page = null }; return }
         "mood" -> { BackHandler { page = null }; com.pank.vsevodnom.ui.life.MoodScreen { page = null }; return }
     }
-    val ms = remember(st.days, st.moodByDay) { metrics(ctx, st) }
+    val ms = remember(st.days, st.moodByDay, st.screenByDay) { metrics(ctx, st) }
 
     Box(Modifier.fillMaxSize()) {
         ScreenScaffold(listOf("Здоровье", "Показатели", "Тренировки", "Тело")[tab], onBack, actions = {
@@ -163,7 +170,9 @@ fun HealthScreen(onBack: () -> Unit, startWeight: Boolean = false, onOpenMap: ()
             Box(Modifier.weight(1f)) {
                 when (tab) {
                     0 -> SummaryTab(st, ms, available, onConnect = { permLauncher.launch(HC_PERMS) }, onMetric = { detail = it }, onBody = { page = "bodycheck" })
-                    1 -> MetricsTab(st, ms, onMetric = { m -> if (m.key == "mood") page = "mood" else detail = m }, onWorkouts = { tab = 2 })
+                    1 -> MetricsTab(st, ms, onMetric = { m -> if (m.key == "mood") page = "mood"
+                        else if (m.key == "screen" && !com.pank.vsevodnom.data.ScreenTime.available(ctx)) runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+                        else detail = m }, onWorkouts = { tab = 2 })
                     2 -> WorkoutsTab(st) { workout = it }
                     else -> BodyTab(st, onWeight = { weightOpen = true }, onCheck = { page = "bodycheck" }, onPhotos = { page = "photos" })
                 }

@@ -4,7 +4,7 @@ import kotlin.math.abs
 
 /**
  * Оценка здоровья 0…10 — по показателям тела, с весами (коэффициентами):
- * шаги 3 · тренировки 2 · питание 2 · состав тела/вес 2 · сон 1 · пульс в покое 0,7 · кислород 0,5 · давление 0,5 · настроение 0,3.
+ * шаги 3 · тренировки 2 · питание 2 · состав тела/вес 2 · сон 1 · экранное время 1 · пульс в покое 0,7 · кислород 0,5 · давление 0,5 · настроение 0,3.
  * Нет данных по стороне — она не считается (нет сна — не штраф). Перебор тренировок (> 10 ч в неделю) — минус, не плюс.
  * Чистая функция — проверяется тестом HealthScoreTest.
  */
@@ -17,6 +17,7 @@ object HealthScore {
     fun compute(
         days: List<DayHealth>, stepGoal: Long, plan: Nutrition.Plan?, heightCm: Double?, check: BodyCheck.Rec?, checkAgeDays: Long?,
         moodAvg: Double?,
+        screenMin: List<Long> = emptyList(),
     ): List<Part> {
         val w7 = days.takeLast(7)
         val out = ArrayList<Part>()
@@ -74,6 +75,12 @@ object HealthScore {
         if (sys.isNotEmpty() && dia.isNotEmpty()) {
             val s1 = sys.average(); val d1 = dia.average()
             out += Part("bp", "Давление", c(10 - maxOf(s1 - 120, (d1 - 80) * 1.5, 0.0) * 0.25), 0.5, "${s1.toInt()}/${d1.toInt()}", "норма до 120/80")
+        }
+        // экранное время (0.45): до 2 ч в день — отлично, 8 ч и больше — 0
+        val scr = screenMin.takeLast(7).filter { it > 0 }
+        if (scr.isNotEmpty()) {
+            val avg = scr.average()
+            out += Part("screen", "Экранное время", ScreenTime.score(avg), 1.0, "${f1(avg / 60)} ч в день за неделю", "лучше до 2–3 ч")
         }
         if (moodAvg != null) out += Part("mood", "Настроение", c((moodAvg - 1) / 4 * 10), 0.3, "${f1(moodAvg)} из 5", "")
         return out
