@@ -59,8 +59,9 @@ class DunkJumperTest {
     /** Слабый бросок вбок — мяч падает вниз, игра кончается. */
     @Test fun dunkMissEndsGame() {
         val g = DunkGame(Random(3))
-        val away = if (g.hoops[1].x > 50f) -1f else 1f
-        g.launch(away * 30f, 60f)
+        val dir = if (g.hoops[1].x > g.bx) 1f else -1f
+        val (vx, vy) = g.velocityTo(g.bx + dir * 30f, g.by, 8f)
+        g.launch(vx, vy)
         var n = 0
         while (n < 900 && !g.over) { g.step(1f / 60f); n++ }
         assertTrue(g.over)

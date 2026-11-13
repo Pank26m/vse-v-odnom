@@ -47,6 +47,9 @@ private val GAMES = listOf(
     Game("blocks", "Блоки", "падающие фигуры: собирай линии", "▦", Tints.Sky),
     Game("hockey", "Аэрохоккей", "неон, умный бот, до 7 голов", "◉", Tints.Rose),
     Game("knives", "Ножи", "метни в мишень, не задень ножи, боссы", "🗡", Tints.Peach),
+    Game("tiltmaze", "Лабиринт с шариком", "наклоняй телефон, не урони в лунку", "🪵", Tints.Peach),
+    Game("rocket", "Ракета", "отделяй ступени точно в момент", "🚀", Tints.Sky),
+    Game("duel", "Дуэль", "дуэль на лестнице: один выстрел", "🤠", Tints.Butter),
     Game("random", "Рандом", "монетка, колесо, шар, бутылочка, кости", "🎲", Tints.Butter),
 )
 
@@ -73,6 +76,9 @@ fun GamesScreen(onBack: () -> Unit) {
         "blocks" -> BlocksScreen(close)
         "hockey" -> AirHockeyScreen(close)
         "knives" -> KnivesScreen(close)
+        "tiltmaze" -> TiltMazeScreen(close)
+        "rocket" -> RocketScreen(close)
+        "duel" -> DuelScreen(close)
         else -> {
             val ctx = androidx.compose.ui.platform.LocalContext.current
             var ver by remember { mutableIntStateOf(0) }

@@ -40,6 +40,7 @@ import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sign
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
@@ -159,8 +160,13 @@ class DunkGame(private val rnd: Random = Random) {
     /** Натяжение (мировые единицы): куда полетит мяч. Ограничено PULL_MAX. */
     fun setPull(x: Float, y: Float) {
         if (!aiming) return
-        val l = hypot(x, y); val k = if (l > PULL_MAX) PULL_MAX / l else 1f
+        var l = hypot(x, y); val k = if (l > PULL_MAX) PULL_MAX / l else 1f
         pullX = x * k; pullY = y * k
+        // не круче 60° от вертикали (иначе мяч уходит вбок сквозь своё кольцо)
+        if (pullY > 0f) {
+            val a = atan2(pullX, pullY)
+            if (abs(a) > 1.05f) { l = hypot(pullX, pullY); val c = 1.05f * sign(a); pullX = l * sin(c); pullY = l * cos(c) }
+        }
     }
     fun cancelAim() { aiming = false; pullX = 0f; pullY = 0f }
     /** Отпустил палец: бросок, если натянул достаточно и вверх. */
@@ -269,6 +275,11 @@ class DunkGame(private val rnd: Random = Random) {
                         if (imp > 25f) ev = ev or EV_RIM
                     }
                 } else continue
+                // слабый бросок: мяч так и не вышел из своего кольца — просто вернулся в сетку
+                if (hp === from) {
+                    val lyb = hp.localY(bx, by); val lxb = hp.localX(bx, by)
+                    if (lyb < 0f && lyb > -REST - 10f && abs(lxb) < HOOP_R - RIM_R) { ev = ev or catchIn(hp); break }
+                }
                 val ly0 = hp.localY(ox, oy); val ly1 = hp.localY(bx, by); val lx1 = hp.localX(bx, by)
                 val vly = -vx * sin(hp.angle) + vy * cos(hp.angle)
                 if (ly0 > 0f && ly1 <= 0f && abs(lx1) < HOOP_R - RIM_R - 0.4f && vly < 0f) { ev = ev or catchIn(hp); break }

@@ -112,7 +112,7 @@ class JumperGame(private val rnd: Random = Random) {
     val plats = ArrayList<Plat>()
     val monsters = ArrayList<Monster>()
     val holes = ArrayList<Hole>()
-    var px = W / 2; var py = 0f; var vx = 0f; var vy = JUMP_V
+    var px = W / 2; var py = PLAT_H / 2; var vx = 0f; var vy = JUMP_V
     var face = 1f
     /** Полёт: ITEM_NONE / PROP / JET. */
     var fly = ITEM_NONE; var flyT = 0f
