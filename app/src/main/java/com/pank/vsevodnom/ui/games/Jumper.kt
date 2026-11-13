@@ -173,7 +173,7 @@ class JumperGame(private val rnd: Random = Random) {
                 var x = 0f; var ok = false
                 repeat(20) { if (!ok) { x = 8f + rnd.nextFloat() * (W - 16f); ok = abs(wdx(x, p.x)) > 32f && abs(wdx(x, lastX)) > 32f } }
                 if (ok) {
-                    val my = genY + gap * 0.5f + 14f
+                    val my = genY + gap * 0.5f
                     if (danger == 1) {
                         val m = Monster(x, my, if (rnd.nextFloat() < 0.4f + 0.3f * d) 1 else 0, rnd.nextInt(1000))
                         if (m.kind == 1) m.vx = (10f + 14f * d) * (if (rnd.nextBoolean()) 1f else -1f)

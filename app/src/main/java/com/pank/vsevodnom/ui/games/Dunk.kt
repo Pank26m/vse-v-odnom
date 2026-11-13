@@ -192,8 +192,8 @@ class DunkGame(private val rnd: Random = Random) {
         trail.clear(); pendingEv = pendingEv or EV_LAUNCH
     }
 
-    /** Скорость, с которой мяч из текущего места пролетит через (tx, ty) сверху вниз (вершина на apexAbove выше). */
-    fun velocityTo(tx: Float, ty: Float, apexAbove: Float = 14f): Pair<Float, Float> {
+    /** Скорость, с которой мяч из текущего места пролетит через (tx, ty) сверху вниз (вершина на apexAbove выше; к близкому кольцу — выше, чтобы не задеть ближнюю дужку снизу). */
+    fun velocityTo(tx: Float, ty: Float, apexAbove: Float = 14f + max(0f, 34f - abs(tx - bx)) * 0.8f): Pair<Float, Float> {
         val apex = max(by, ty) + apexAbove
         val vy0 = sqrt(2f * G * (apex - by)); val vyT = sqrt(2f * G * (apex - ty))
         val time = (vy0 + vyT) / G
@@ -512,7 +512,7 @@ private fun DrawScope.hoopFront(h: DunkHoop, s: Float, sx: (Float) -> Float, sy:
                 if (abs(dy) < DunkGame.BALL_R) rad = max(rad, (sqrt(DunkGame.BALL_R * DunkGame.BALL_R - dy * dy) + 0.6f) * s)
             }
             Array(cols) { i ->
-                val phi = PI * (i + if (row % 2 == 1) 0.5 else 0.0) / (cols - 1)
+                val phi = min(PI, PI * (i + if (row % 2 == 1) 0.5 else 0.0) / (cols - 1))
                 val ex = e * (1f - 0.6f * q)
                 Offset(c.x + (cos(phi) * rad).toFloat(), yy + (sin(phi) * ex).toFloat())
             }
