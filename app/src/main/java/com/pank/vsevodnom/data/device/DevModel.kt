@@ -25,7 +25,10 @@ class SectionBuilder(val title: String) {
     fun build() = InfoSection(title, rows.toList(), note)
 }
 
-fun section(title: String, b: SectionBuilder.() -> Unit): InfoSection = SectionBuilder(title).apply(b).build()
+/** Секция: если чтение какого-то поля упало (нет разрешения, закрыт API), показываем то, что успели, и строку об ошибке. */
+fun section(title: String, b: SectionBuilder.() -> Unit): InfoSection = SectionBuilder(title).apply {
+    runCatching { b() }.onFailure { rows += InfoRow("Не удалось дочитать", (it.message ?: it.javaClass.simpleName).take(120)) }
+}.build()
 
 object Dev {
     /** Чтение файла /sys или /proc; null — нет файла или Android не дал прочитать. */

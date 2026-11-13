@@ -72,9 +72,18 @@ import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.sin
 
-private enum class Res { NONE, OK, FAIL }
+internal enum class Res { NONE, OK, FAIL }
 
 private data class Check(val key: String, val title: String, val hint: String)
+
+/** Результаты тестов сохраняются (prefs repair_test) — видно и после перезапуска, и в сводке анализатора. */
+object RepairStore {
+    private fun p(ctx: android.content.Context) = ctx.getSharedPreferences("repair_test", android.content.Context.MODE_PRIVATE)
+    fun all(ctx: android.content.Context): Map<String, Boolean> = p(ctx).all.mapNotNull { (k, v) -> (v as? Boolean)?.let { k to it } }.toMap()
+    fun set(ctx: android.content.Context, key: String, ok: Boolean?) { p(ctx).edit().apply { if (ok == null) remove(key) else putBoolean(key, ok) }.apply() }
+    fun clear(ctx: android.content.Context) = p(ctx).edit().clear().apply()
+    val manualCount get() = CHECKS.size
+}
 
 private val CHECKS = listOf(
     Check("colors", "Экран: цвета", "Битые пиксели, пятна, выгорание"),
@@ -89,19 +98,21 @@ private val CHECKS = listOf(
     Check("flash", "Фонарик", "Включается?"),
     Check("camBack", "Основная камера", "Откроется камера — проверь фото"),
     Check("camFront", "Фронтальная камера", "Переключись на фронталку в камере"),
-    Check("buttons", "Кнопки громкости", "Нажми громкость + и −"),
+    Check("buttons", "Кнопки громкости", "Нажми громкость + и − (каждая отмечается отдельно)"),
     Check("proximity", "Датчик приближения", "Закрой верх экрана рукой"),
     Check("light", "Датчик освещённости", "Прикрой и открой — значение меняется?"),
-    Check("motion", "Акселерометр и гироскоп", "Покрути телефон — цифры меняются?"),
+    Check("imu", "Акселерометр и гироскоп", "Покрути телефон — цифры меняются?"),
     Check("compass", "Компас", "Покрути — направление меняется?"),
     Check("charge", "Зарядка", "Подключи кабель"),
     Check("biometric", "Отпечаток / лицо", "Приложи палец"),
 )
 
 @Composable
-fun RepairTestScreen(onBack: () -> Unit) {
+fun RepairTestScreen(onBack: () -> Unit, header: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {}, extra: List<Triple<String, String, String>> = emptyList(), openExtra: (String) -> Unit = {}) {
     val ctx = LocalContext.current
-    val res = remember { mutableStateMapOf<String, Res>() }
+    val res = remember { mutableStateMapOf<String, Res>().apply { RepairStore.all(ctx).forEach { (k, v) -> put(k, if (v) Res.OK else Res.FAIL) } } }
+    // любое изменение — сразу в сохранённые результаты
+    LaunchedEffect(res.toMap()) { res.forEach { (k, v) -> RepairStore.set(ctx, k, when (v) { Res.OK -> true; Res.FAIL -> false; else -> null }) } }
     var running by remember { mutableStateOf<Check?>(null) }
     val full = remember { mutableStateOf<String?>(null) }
 
@@ -118,19 +129,33 @@ fun RepairTestScreen(onBack: () -> Unit) {
 
     ScreenScaffold("Тесты телефона", onBack, actions = {
         RoundIconButton(Icons.Rounded.ContentCopy, "Скопировать отчёт", {
-            val txt = "Тест ${Build.MANUFACTURER} ${Build.MODEL}\n" + CHECKS.joinToString("\n") {
-                (when (res[it.key]) { Res.OK -> "✔"; Res.FAIL -> "✘"; else -> "–" }) + " " + it.title
+            val txt = "Тест ${Build.MANUFACTURER} ${Build.MODEL}\n" + (CHECKS.map { it.key to it.title } + extra.map { it.first to it.second }).joinToString("\n") {
+                (when (res[it.first]) { Res.OK -> "✔"; Res.FAIL -> "✘"; else -> "–" }) + " " + it.second
             }
             ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("test", txt))
             Toast.makeText(ctx, "Отчёт скопирован", Toast.LENGTH_SHORT).show()
         })
     }) {
-        val ok = res.values.count { it == Res.OK }; val fail = res.values.count { it == Res.FAIL }
+        val keys = (CHECKS.map { it.key } + extra.map { it.first }).toSet()
+        val ok = res.filterKeys { it in keys }.values.count { it == Res.OK }; val fail = res.filterKeys { it in keys }.values.count { it == Res.FAIL }
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 AppCard(Modifier.fillMaxWidth(), color = Pal.Peach) {
-                    Text("Пройдено $ok из ${CHECKS.size}" + if (fail > 0) " · проблем: $fail" else "", style = MaterialTheme.typography.titleLarge)
-                    Text("Нажми на пункт, чтобы проверить. Отчёт можно скопировать и отправить мастеру.", style = MaterialTheme.typography.bodySmall)
+                    Text("Пройдено $ok из ${keys.size}" + if (fail > 0) " · проблем: $fail" else "", style = MaterialTheme.typography.titleLarge)
+                    Text("Нажми на пункт, чтобы проверить. Результаты сохраняются. Отчёт можно скопировать и отправить мастеру.", style = MaterialTheme.typography.bodySmall)
+                    TextButton({ res.clear(); RepairStore.clear(ctx) }) { Text("Сбросить результаты") }
+                }
+            }
+            header()
+            items(extra, key = { "x" + it.first }) { (k, t, h) ->
+                val r = RepairStore.all(ctx)[k]?.let { if (it) Res.OK else Res.FAIL } ?: res[k] ?: Res.NONE
+                AppCard(Modifier.fillMaxWidth(), padding = 14.dp, onClick = { openExtra(k) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(28.dp).clip(CircleShape).background(when (r) { Res.OK -> Pal.Mint; Res.FAIL -> Pal.Rose; else -> Pal.Line }), contentAlignment = Alignment.Center) {
+                            Text(when (r) { Res.OK -> "✓"; Res.FAIL -> "✕"; else -> "" }, color = when (r) { Res.OK -> Pal.MintInk; else -> Pal.RoseInk }) }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) { Text(t, style = MaterialTheme.typography.titleSmall); Text(h, style = MaterialTheme.typography.bodySmall) }
+                    }
                 }
             }
             items(CHECKS) { c ->
@@ -316,7 +341,7 @@ private fun CheckDialog(c: Check, onResult: (Res) -> Unit, onDismiss: () -> Unit
                 var up by remember { mutableStateOf(false) }; var down by remember { mutableStateOf(false) }
                 val fr = remember { FocusRequester() }
                 LaunchedEffect(Unit) { fr.requestFocus() }
-                LaunchedEffect(up, down) { if (up && down) autoOk = true }
+                LaunchedEffect(up, down) { if (up) RepairStore.set(ctx, "volUp", true); if (down) RepairStore.set(ctx, "volDown", true); if (up && down) autoOk = true }
                 Column(Modifier.focusRequester(fr).focusable().onPreviewKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown) when (e.key.nativeKeyCode) {
                         KeyEvent.KEYCODE_VOLUME_UP -> { up = true; true }
@@ -336,7 +361,7 @@ private fun CheckDialog(c: Check, onResult: (Res) -> Unit, onDismiss: () -> Unit
                 Text(if (v == null) "Нет данных" else if ((v?.get(0) ?: max) < max) "БЛИЗКО" else "далеко")
             }
             "light" -> { val v by sensorValues(Sensor.TYPE_LIGHT); Text(v?.let { "${it[0].toInt()} люкс" } ?: "нет датчика", style = MaterialTheme.typography.headlineMedium) }
-            "motion" -> {
+            "imu" -> {
                 val a by sensorValues(Sensor.TYPE_ACCELEROMETER); val g by sensorValues(Sensor.TYPE_GYROSCOPE)
                 Column { Text("Акселерометр:\n${v3(a)}"); Spacer(Modifier.height(8.dp)); Text("Гироскоп:\n${v3(g)}") }
             }

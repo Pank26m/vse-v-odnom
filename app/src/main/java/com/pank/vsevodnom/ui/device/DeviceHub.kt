@@ -220,6 +220,12 @@ private fun Summary(open: (String) -> Unit) {
                 LiveChart(listOf(downS, upS), height = 44.dp, label = { "" })
             }
         }
+        val counts = rememberLoad(Unit) { Triple(com.pank.vsevodnom.ui.utils.RepairStore.all(ctx).count { it.value }, DevMedia.sensors(ctx).size, ctx.packageManager.getInstalledPackages(0).size) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatTile("Тесты", "${counts?.first ?: 0} пройдено", "проверка железа", Tints.Rose, Modifier.weight(1f), { open("tests") })
+            StatTile("Датчики", "${counts?.second ?: "…"}", "живые значения", Tints.Butter, Modifier.weight(1f), { open("sensors") })
+            StatTile("Приложения", "${counts?.third ?: "…"}", "анализ и права", Tints.Mint, Modifier.weight(1f), { open("apps") })
+        }
         thermal?.let { (st, hr) ->
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Pal.Card).clickable { open("thermal") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Thermostat, null, tint = if (st >= 3) DevColors.bad else if (st >= 1) DevColors.warn else DevColors.good)

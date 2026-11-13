@@ -51,7 +51,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun InfoPage(title: String, onBack: () -> Unit, tint: Tint, load: (Context) -> List<InfoSection>) {
     val ctx = LocalContext.current
-    val data = rememberLoad(title) { load(ctx) }
+    val data = rememberLoad(title) { runCatching { load(ctx) }.getOrElse { listOf(section("Ошибка") { add("Не удалось прочитать", it.message ?: it.javaClass.simpleName) }) } }
     DevPage(title, onBack) { sections(data, tint) }
 }
 

@@ -117,7 +117,7 @@ object DevHardware {
         dm.displays.forEach { d ->
             val modes = d.supportedModes.toList()
             val native = modes.maxByOrNull { it.physicalWidth * it.physicalHeight }
-            val bounds = wm.maximumWindowMetrics.bounds
+            val bounds = if (Build.VERSION.SDK_INT >= 30) wm.maximumWindowMetrics.bounds else android.graphics.Rect(0, 0, res.widthPixels, res.heightPixels)
             val nw = native?.physicalWidth ?: bounds.width(); val nh = native?.physicalHeight ?: bounds.height()
             // xdpi/ydpi приходят для текущего режима; для «родного» масштабируем
             val k = nw.toFloat() / bounds.width().coerceAtLeast(1)
