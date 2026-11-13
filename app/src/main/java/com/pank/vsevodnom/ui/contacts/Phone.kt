@@ -231,10 +231,16 @@ private fun RecentsTab(st: PhoneState, onBack: () -> Unit, onOpen: (Contact) -> 
         out
     }
     val fav = contacts.filter { it.starred && it.phones.isNotEmpty() }
+    var callRecs by remember { mutableStateOf(false) }
+    var codes by remember { mutableStateOf(false) }
+    if (callRecs) com.pank.vsevodnom.ui.recorder.CallRecordsDialog { callRecs = false }
+    if (codes) PhoneCodesDialog { codes = false }
     ScreenScaffold("Недавние", null, actions = {
         Box {
             RoundIconButton(Icons.Rounded.MoreVert, "Ещё", { menu = true })
             DropdownMenu(menu, { menu = false }) {
+                DropdownMenuItem({ Text("Записи разговоров") }, { menu = false; callRecs = true }, leadingIcon = { Icon(Icons.Rounded.RecordVoiceOver, null) })
+                DropdownMenuItem({ Text("Экстренные службы и коды") }, { menu = false; codes = true }, leadingIcon = { Icon(Icons.Rounded.Sos, null, tint = Pal.RoseInk) })
                 DropdownMenuItem({ Text("Определитель и чёрный список") }, { menu = false; settings = true }, leadingIcon = { Icon(Icons.Rounded.Shield, null) })
                 DropdownMenuItem({ Text("Быстрый набор") }, { menu = false; speed = true }, leadingIcon = { Icon(Icons.Rounded.Speed, null) })
                 DropdownMenuItem({ Text("Уведомления о звонках") }, { menu = false

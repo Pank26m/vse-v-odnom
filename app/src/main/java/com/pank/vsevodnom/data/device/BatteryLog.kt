@@ -157,7 +157,7 @@ class BatteryLogService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CH, "Журнал батареи", NotificationManager.IMPORTANCE_MIN).apply { setShowBadge(false) })
         nm.createNotificationChannel(NotificationChannel(ALARM_CH, "Батарея: заряд достиг цели", NotificationManager.IMPORTANCE_HIGH))
-        runCatching { ServiceCompat.startForeground(this, NID, notif("Журнал батареи работает"), if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0) }
+        runCatching { ServiceCompat.startForeground(this, NID, notif("Журнал батареи"), if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0) }
             .onFailure { stopSelf(); return START_NOT_STICKY }
         if (lastT == 0L) {
             screenOn = getSystemService(PowerManager::class.java).isInteractive
@@ -208,7 +208,6 @@ class BatteryLogService : Service() {
         }
         lastT = t; lastUp = up; if (cnt > 0) lastCounter = cnt
         BatteryLog.saveCurrent(this); BatteryLog.version++
-        updateNotif(s, lvl, ma)
     }
 
     private fun closeSession(s: BatteryLog.Session, lvl: Int) {
@@ -226,14 +225,6 @@ class BatteryLogService : Service() {
 
     private fun notif(text: String): Notification = Notification.Builder(this, CH).setSmallIcon(R.drawable.ic_notify).setContentTitle(text).setOngoing(true)
         .setContentIntent(PendingIntent.getActivity(this, 90, Intent(this, MainActivity::class.java).putExtra("route", "utils"), PendingIntent.FLAG_IMMUTABLE)).build()
-
-    private var lastNotif = ""
-    private fun updateNotif(s: BatteryLog.Session, lvl: Int, ma: Double?) {
-        val txt = "$lvl % · " + (ma?.let { "${if (it > 0) "+" else ""}${it.toInt()} мА" } ?: "") + if (s.charge) " · заряжается" else ""
-        if (txt == lastNotif) return
-        lastNotif = txt
-        runCatching { getSystemService(NotificationManager::class.java).notify(NID, notif(txt)) }
-    }
 
     override fun onDestroy() { h.removeCallbacks(loop); runCatching { unregisterReceiver(rx) }; BatteryLog.saveCurrent(this); super.onDestroy() }
 }

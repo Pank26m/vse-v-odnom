@@ -58,7 +58,7 @@ object Todo {
     suspend fun tickHabit(ctx: Context, h: Habit, day: LocalDate) {
         val dao = AppDb.get(ctx).todo()
         val cur = dao.habitLog(h.id, day.toEpochDay())
-        val n = ((cur?.count ?: 0) + 1).let { if (it > h.perDay) 0 else it }
+        val n = ((cur?.count ?: 0).coerceAtLeast(0) + 1).let { if (it > h.perDay) 0 else it }   // старые «штрафы» −1 считаются как 0
         dao.upsertHabitLog(HabitLog(id = cur?.id ?: 0, habitId = h.id, epochDay = day.toEpochDay(), count = n))
     }
 
@@ -66,42 +66,67 @@ object Todo {
     fun timesPerWeek(h: Habit): Int = when (h.freqType) { 1 -> h.freqN.coerceIn(1, 7); 0 -> Integer.bitCount(h.daysMask and 0b1111111).coerceAtLeast(1); else -> 7 }
     fun freqLabel(h: Habit): String = timesPerWeek(h).let { n -> if (n >= 7) "каждый день" else "$n раза в неделю".replace("5 раза", "5 раз").replace("6 раза", "6 раз").replace("1 раза", "1 раз") }
 
+    /** Серия сейчас, рекорд и «простительные» пропуски (штрафы). */
+    data class Runs(val cur: Int, val best: Int, val excused: Set<Long>)
+
     /**
-     * Серия: сколько запланированных дней подряд привычка выполнена (до вчера включительно + сегодня, если уже).
-     * «Штраф» (отметка count = −1) серию не увеличивает, но и не обрывает — если укладывается в разрешённое
-     * (в неделю, в месяц и подряд — `HabitPenalty`).
+     * Серия по правилам владельца (0.45): штраф — это просто пропущенный нужный день, ставить его не надо.
+     * Пропуск прощается, если укладывается в лимиты `HabitPenalty` (в неделю, в месяц, подряд) — тогда серия
+     * не обрывается; в серию идут только выполненные дни. Пример: 2 в месяц, подряд 1; 9 ✓ 10 ✓ 11 ✗ 12 ✓ 13 ✓ → серия 4.
+     * Если 11 и 12 оба пропущены — второй пропуск сверх «подряд 1» → серия рвётся: рекорд 2, сейчас 1.
+     * Сегодняшний день, пока не отмечен, серию не рвёт.
      */
-    fun streak(h: Habit, logs: List<HabitLog>, today: LocalDate): Int {
+    fun runs(h: Habit, logs: List<HabitLog>, today: LocalDate): Runs {
         val done = logs.filter { it.habitId == h.id && it.count >= h.perDay }.map { it.epochDay }.toSet()
-        val pen = logs.filter { it.habitId == h.id && it.count < 0 }.map { it.epochDay }.toSet()
         val rule = HabitPenalty.rule(h.id)
-        fun excused(d: LocalDate) = d.toEpochDay() in pen && HabitPenalty.allowed(rule, pen, d)
+        val first = listOfNotNull(h.startDay, h.createdAt / 86_400_000L, done.minOrNull()).min().coerceAtMost(today.toEpochDay())
+        val start = LocalDate.ofEpochDay(maxOf(first, today.toEpochDay() - 800))
+        val excused = HashSet<Long>()
         if (h.freqType == 1) {
-            // N раз в неделю: серия — выполненные дни в неделях подряд, где норма набрана (текущая неделя не рвёт серию; разрешённый штраф — как выполненный день для нормы)
+            // N раз в неделю: неделя засчитана, если норма набрана с учётом разрешённых пропусков в неделю
             val n0 = h.freqN.coerceIn(1, 7)
-            var mon = today.minusDays((today.dayOfWeek.value - 1).toLong())
-            var total = (0..6).count { mon.plusDays(it.toLong()).toEpochDay() in done }
-            repeat(60) {
-                mon = mon.minusWeeks(1)
+            var mon = start.minusDays((start.dayOfWeek.value - 1).toLong())
+            val curMon = today.minusDays((today.dayOfWeek.value - 1).toLong())
+            var cur = 0; var best = 0
+            while (!mon.isAfter(curMon)) {
                 val c = (0..6).count { mon.plusDays(it.toLong()).toEpochDay() in done }
-                val ex = (0..6).count { excused(mon.plusDays(it.toLong())) }
-                if (c + ex < n0) return total
-                total += c
+                val allow = if (rule.any) (if (rule.perWeek > 0) rule.perWeek else 1) else 0
+                when {
+                    mon == curMon -> cur += c                       // текущая неделя ещё идёт
+                    c >= n0 -> cur += c
+                    c + allow >= n0 -> { cur += c; excused += (0..6).map { mon.plusDays(it.toLong()).toEpochDay() }.filter { it !in done }.take(n0 - c) }
+                    else -> cur = 0
+                }
+                best = maxOf(best, cur)
+                mon = mon.plusWeeks(1)
             }
-            return total
+            return Runs(cur, best, excused)
         }
-        var d = if (today.toEpochDay() in done || excused(today)) today else today.minusDays(1)
-        var n = 0
-        repeat(400) {
-            if (h.freqType == 0 && h.daysMask and (1 shl (d.dayOfWeek.value - 1)) == 0 || h.freqType == 2 && !isDue(h, d)) { d = d.minusDays(1); return@repeat }
-            when {
-                d.toEpochDay() in done -> { n++; d = d.minusDays(1) }
-                excused(d) -> d = d.minusDays(1)
-                else -> return n
+        var cur = 0; var best = 0; var row = 0
+        val perMonth = HashMap<Int, Int>(); val perWeek = HashMap<Long, Int>()
+        var d = start
+        while (!d.isAfter(today)) {
+            if (isDue(h, d, logs)) {
+                val e = d.toEpochDay()
+                when {
+                    e in done -> { cur++; row = 0; best = maxOf(best, cur) }
+                    d == today -> {}
+                    else -> {
+                        row++
+                        val ym = d.year * 12 + d.monthValue; val wk = (e + 3).floorDiv(7)
+                        val m = (perMonth[ym] ?: 0) + 1; perMonth[ym] = m
+                        val w = (perWeek[wk] ?: 0) + 1; perWeek[wk] = w
+                        val ok = rule.any && row <= rule.inRow.coerceAtLeast(1) && (rule.perMonth == 0 || m <= rule.perMonth) && (rule.perWeek == 0 || w <= rule.perWeek)
+                        if (ok) excused += e else cur = 0
+                    }
+                }
             }
+            d = d.plusDays(1)
         }
-        return n
+        return Runs(cur, best, excused)
     }
+
+    fun streak(h: Habit, logs: List<HabitLog>, today: LocalDate): Int = runs(h, logs, today).cur
 
     /** Поставить/снять штраф за день (count = −1; снять — 0). */
     suspend fun setPenalty(ctx: Context, h: Habit, day: LocalDate, on: Boolean) {
@@ -168,6 +193,8 @@ object HabitPenalty {
         loaded = true
     }
     fun rule(id: Long): Rule = map[id] ?: Rule()
+    /** Для тестов: правило без SharedPreferences. */
+    internal fun putForTest(id: Long, r: Rule) { map = map + (id to r); loaded = true }
     fun set(ctx: Context, id: Long, r: Rule) {
         ensure(ctx)
         map = map + (id to r)

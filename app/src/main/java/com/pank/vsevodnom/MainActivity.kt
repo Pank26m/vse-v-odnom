@@ -90,6 +90,9 @@ class MainActivity : FragmentActivity() {
             androidx.compose.runtime.SideEffect { rootInsets.top = iTop; rootInsets.bottom = iBottom; rootInsets.ime = iIme }
             androidx.compose.runtime.CompositionLocalProvider(com.pank.vsevodnom.ui.common.LocalRootInsets provides rootInsets) {
             AppTheme {
+                // упало в прошлый раз — показать причину, чтобы её можно было прислать
+                val crash = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.pank.vsevodnom.data.CrashLog.takeLast(this@MainActivity)) }
+                crash.value?.let { text -> com.pank.vsevodnom.ui.common.CrashDialog(text) { crash.value = null } }
                 val nav = rememberNavController()
                 val back: () -> Unit = { if (!nav.popBackStack()) finish() }
                 val entry by nav.currentBackStackEntryAsState()

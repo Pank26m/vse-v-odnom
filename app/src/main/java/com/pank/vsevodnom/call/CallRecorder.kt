@@ -66,7 +66,10 @@ object CallRec {
     fun enabled(ctx: Context) = prefs(ctx).getBoolean("on", true)
     fun setEnabled(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("on", on).apply()
     /** Источник звука: 0 микрофон, 1 распознавание речи, 2 связь (VOICE_COMMUNICATION), 3 линия (почти везде запрещено). */
-    fun source(ctx: Context) = prefs(ctx).getInt("src", 0)
+    fun source(ctx: Context) = prefs(ctx).getInt("src", 1)   // по умолчанию «распознавание речи» — у владельца работает только он
+    /** Усиление при прослушивании (LoudnessEnhancer, мБ): собеседник без громкой связи записывается тихо. */
+    fun boost(ctx: Context) = prefs(ctx).getInt("boost", 1200)
+    fun setBoost(ctx: Context, mb: Int) = prefs(ctx).edit().putInt("boost", mb).apply()
     fun setSource(ctx: Context, s: Int) = prefs(ctx).edit().putInt("src", s).apply()
     val SOURCES = listOf("Микрофон", "Распознавание речи", "Связь (VOICE_COMMUNICATION)", "Линия (обычно запрещено)")
     fun pinned(ctx: Context): Set<String> = prefs(ctx).getStringSet("pinned", emptySet())!!

@@ -46,7 +46,7 @@ import java.time.format.DateTimeFormatter
 
 private val RU = java.util.Locale("ru")
 val DATE_COLORS = listOf(Color(0xFFE5485D), Color(0xFFF2A33A), Color(0xFFF2C94C), Color(0xFF3FB27F), Color(0xFF4A86E8), Color(0xFF8E5BD8), Color(0xFF9E9E9E))
-private val BASE_KINDS = listOf("birthday" to "День рождения", "holiday" to "Праздник", "anniversary" to "Годовщина")
+private val BASE_KINDS = listOf("birthday" to "День рождения", "wedding" to "Свадьба", "anniversary" to "Годовщина", "holiday" to "Праздник", "memorial" to "Память")
 /** Свои виды дат (вместо «Другое»): хранятся в prefs «dates»/kinds, в записи — kind = «c:Название». */
 private object DateKinds {
     private fun p(ctx: android.content.Context) = ctx.getSharedPreferences("dates", android.content.Context.MODE_PRIVATE)
@@ -57,7 +57,8 @@ private object DateKinds {
 private var customKinds by androidx.compose.runtime.mutableStateOf<List<String>>(emptyList())
 private val KINDS: List<Pair<String, String>> get() = BASE_KINDS + customKinds.map { "c:$it" to it } + (if (customKinds.isEmpty()) listOf("other" to "Другое") else emptyList())
 private fun kindName(k: String) = BASE_KINDS.firstOrNull { it.first == k }?.second ?: if (k.startsWith("c:")) k.removePrefix("c:") else "Другое"
-private fun kindIcon(k: String) = when (k) { "birthday" -> Icons.Rounded.Cake; "holiday" -> Icons.Rounded.Celebration; "anniversary" -> Icons.Rounded.Favorite; else -> Icons.Rounded.Event }
+internal fun kindIcon(k: String) = when (k) { "birthday" -> Icons.Rounded.Cake; "holiday" -> Icons.Rounded.Celebration; "anniversary" -> Icons.Rounded.Favorite
+    "wedding" -> Icons.Rounded.Diamond; "memorial" -> Icons.Rounded.LocalFlorist; else -> Icons.Rounded.Event }
 
 fun nextOccurrence(b: Birthday, from: LocalDate = LocalDate.now()): LocalDate =
     runCatching { MonthDay.of(b.month, b.day.coerceAtMost(Month.of(b.month).maxLength())).atYear(from.year).let { if (it.isBefore(from)) it.plusYears(1) else it } }.getOrDefault(from.plusYears(1))
@@ -153,7 +154,7 @@ fun DatesPage(onBack: () -> Unit) {
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(b.name, style = MaterialTheme.typography.titleSmall)
-                                Text(n.format(DateTimeFormatter.ofPattern("d MMMM, EEEE", RU)) + (b.year?.let { " · ${if (b.kind == "birthday") "исполнится" else "будет"} ${n.year - it}" } ?: ""), style = MaterialTheme.typography.bodySmall)
+                                Text(n.format(DateTimeFormatter.ofPattern("d MMMM, EEEE", RU)) + (DateInfo.line(ctx, b, n)?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(when (days) { 0L -> "сегодня!"; 1L -> "завтра"; else -> "через $days дн." }, style = MaterialTheme.typography.labelLarge, color = if (days <= 7) col else Pal.Muted)
@@ -222,8 +223,11 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { customKinds = DateKinds.custom(ctx) }
     var b by remember { mutableStateOf(b0) }
-    var year by remember { mutableStateOf(b0.year?.toString() ?: "") }
+    var year by remember { mutableStateOf((if (b0.kind == "birthday") DateInfo.realYear(b0.year) else b0.year)?.toString() ?: "") }
     var pick by remember { mutableStateOf(false) }
+    var death by remember { mutableStateOf(if (b0.id != 0L) DateInfo.death(ctx, b0.id) else null) }
+    var deathPick by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
     var openLink by remember { mutableStateOf<String?>(null) }
     var choose by remember { mutableStateOf(false) }
     var newContact by remember { mutableStateOf(false) }
@@ -251,9 +255,30 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
                 RoundIconButton(Icons.Rounded.Close, "Закрыть", onDone)
                 Text(if (b0.id == 0L) "Новая дата" else "Дата", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
                 RoundIconButton(Icons.Rounded.Check, "Сохранить", {
-                    if (b.name.isNotBlank()) AppScope.io.launch { AppDb.get(ctx).todo().upsertBirthday(b.copy(name = b.name.trim(), year = year.toIntOrNull(), priority = 0)) }
+                    if (b.name.isNotBlank()) { val bb = b.copy(name = b.name.trim(), year = year.toIntOrNull(), priority = 0); val d = death; val had = b0.id != 0L && DateInfo.death(ctx, b0.id) != null
+                        AppScope.io.launch {
+                            val dao = AppDb.get(ctx).todo()
+                            val id = dao.upsertBirthday(bb).let { if (bb.id != 0L) bb.id else it }
+                            // дата смерти → отдельная дата «Память» в календаре (каждый год), у дня рождения — «могло бы исполниться»
+                            val oldMem = DateInfo.memorialId(ctx, id)
+                            if (d != null) {
+                                val mem = Birthday(id = oldMem ?: 0, name = "Память: ${bb.name}", day = d.dayOfMonth, month = d.monthValue, year = d.year, kind = "memorial", tint = 6, contactKey = bb.contactKey)
+                                val mid = dao.upsertBirthday(mem).let { if (mem.id != 0L) mem.id else it }
+                                DateInfo.setDeath(ctx, id, d, mid)
+                            } else if (had) {
+                                oldMem?.let { m -> dao.birthdaysSync().firstOrNull { it.id == m }?.let { dao.deleteBirthday(it) } }
+                                DateInfo.setDeath(ctx, id, null, null)
+                            }
+                        } }
                     onDone()
                 }, bg = Pal.Ink, tint = Color.White)
+                if (b.kind == "birthday") Box {
+                    RoundIconButton(Icons.Rounded.MoreVert, "Ещё", { menu = true })
+                    DropdownMenu(menu, { menu = false }) {
+                        DropdownMenuItem({ Text(if (death == null) "Указать дату смерти" else "Изменить дату смерти") }, { menu = false; deathPick = true })
+                        if (death != null) DropdownMenuItem({ Text("Убрать дату смерти") }, { menu = false; death = null })
+                    }
+                }
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FormCard {
@@ -283,7 +308,25 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
                         Text(MonthDay.of(b.month, b.day.coerceAtMost(Month.of(b.month).maxLength())).atYear(2024).format(DateTimeFormatter.ofPattern("d MMMM", RU)) + (year.takeIf { it.isNotEmpty() }?.let { " $it" } ?: ""),
                             style = MaterialTheme.typography.titleMedium, color = ACCENT)
                     }
-                    year.toIntOrNull()?.let { y -> Text("Будет ${nextOccurrence(b).year - y} — ${nextOccurrence(b).format(DateTimeFormatter.ofPattern("d MMMM yyyy", RU))}", style = MaterialTheme.typography.bodySmall) }
+                    // год отдельным полем: «когда родился/родилась», у свадьбы — год свадьбы
+                    AppTextField(year, { v -> year = v.filter { it.isDigit() }.take(4) }, when (b.kind) { "birthday" -> "Год рождения (когда родился/родилась)"; "wedding" -> "Год свадьбы"; else -> "Год (необязательно)" },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+                    year.toIntOrNull()?.let { y ->
+                        val bb = b.copy(year = y)
+                        val thisYear = runCatching { LocalDate.of(LocalDate.now().year, b.month, b.day.coerceAtMost(java.time.YearMonth.of(LocalDate.now().year, b.month).lengthOfMonth())) }.getOrNull()
+                        val passed = thisYear != null && thisYear.isBefore(LocalDate.now())
+                        val shownOn = if (passed) thisYear!! else nextOccurrence(b)
+                        val probe = if (death != null) null else DateInfo.line(null, bb, shownOn)
+                        val txt = when {
+                            b.kind == "birthday" && death != null -> "Могло бы исполниться ${nextOccurrence(b).year - y} — ${nextOccurrence(b).format(DateTimeFormatter.ofPattern("d MMMM yyyy", RU))}"
+                            probe != null -> probe.replaceFirstChar { it.uppercase() } + " — " + shownOn.format(DateTimeFormatter.ofPattern("d MMMM yyyy", RU)) +
+                                (if (passed && b.kind == "wedding") "\nСледующая: " + DateInfo.line(null, bb, nextOccurrence(b)) else "")
+                            else -> null
+                        }
+                        txt?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                    death?.let { d -> Text("Умер(ла) ${d.format(DateTimeFormatter.ofPattern("d MMMM yyyy", RU))}" + (DateInfo.realYear(year.toIntOrNull())?.let { y -> " · прожил(а) ${java.time.Period.between(LocalDate.of(y, b.month, b.day.coerceAtMost(28)), d).years}" } ?: "") + ". В календаре — дата «Память».",
+                        style = MaterialTheme.typography.bodySmall, color = Pal.Muted) }
                 }
                 FormCard("Цвет") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -309,6 +352,12 @@ internal fun DateEditor(b0: Birthday, onGift: (Birthday) -> Unit, onDone: () -> 
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+    if (deathPick) {
+        val dp = rememberDatePickerState(initialSelectedDateMillis = (death ?: LocalDate.now()).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
+        DatePickerDialog(onDismissRequest = { deathPick = false }, confirmButton = {
+            TextButton({ dp.selectedDateMillis?.let { death = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }; deathPick = false }) { Text("Ок") }
+        }, dismissButton = { TextButton({ deathPick = false }) { Text("Отмена") } }) { DatePicker(dp, showModeToggle = true, title = { Text("Дата смерти", Modifier.padding(16.dp)) }) }
     }
     if (pick) {
         val y0 = year.toIntOrNull()?.coerceIn(1900, 2100) ?: LocalDate.now().year
@@ -401,7 +450,8 @@ private fun readContactBirthdays(ctx: Context): List<ContactBday> {
                     m2 != null -> Triple(m2.groupValues[3].toIntOrNull(), m2.groupValues[2].toInt(), m2.groupValues[1].toInt())
                     else -> continue
                 }
-                if (mo in 1..12 && da in 1..31) out += ContactBday(key, name, da, mo, y, c.getLong(3))
+                // год-заглушка (1604, 1900, 1910… — так контакты хранят «без года») → без года; иначе было «115 лет»
+                if (mo in 1..12 && da in 1..31) out += ContactBday(key, name, da, mo, DateInfo.realYear(y), c.getLong(3))
             }
         }
     }

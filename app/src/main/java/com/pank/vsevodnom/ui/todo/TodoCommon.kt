@@ -205,3 +205,42 @@ fun RichToolbar(value: TextFieldValue, onChange: (TextFieldValue) -> Unit) {
 fun CheckDivider(height: Dp = 26.dp) {
     Box(Modifier.padding(horizontal = 10.dp).width(1.dp).height(height).background(Pal.Ink.copy(alpha = 0.12f)))
 }
+
+/** Текущая минута суток; обновляется раз в 20 с (для подсветки «сейчас»). */
+@Composable
+fun rememberNowMinute(): Int {
+    val v = androidx.compose.runtime.produceState(java.time.LocalTime.now().let { it.hour * 60 + it.minute }) {
+        while (true) { kotlinx.coroutines.delay(20_000); value = java.time.LocalTime.now().let { it.hour * 60 + it.minute } }
+    }
+    return v.value
+}
+
+/** Задача «сейчас»: сегодня, время наступило и не прошло (длительность или 60 мин), не выполнена. */
+fun isNowTask(t: com.pank.vsevodnom.data.TaskItem, nowMin: Int): Boolean {
+    val m = t.dueMinute ?: return false
+    if (t.done || t.dueDay != java.time.LocalDate.now().toEpochDay()) return false
+    return nowMin in m until m + (t.durationMin?.coerceAtLeast(15) ?: 60)
+}
+
+val NOW_RED = Color(0xFFE5484D)
+
+/** Красное пульсирующее свечение вокруг карточки (как синее у ABSOLUTE CINEMA) — то, что идёт прямо сейчас. */
+@Composable
+fun NowGlow(on: Boolean, modifier: Modifier = Modifier, radius: Dp = 14.dp, bottomGap: Dp = 0.dp, content: @Composable () -> Unit) {
+    if (!on) { Box(modifier) { content() }; return }
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "now")
+    val pulse by t.animateFloat(0.5f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1400), androidx.compose.animation.core.RepeatMode.Reverse), label = "p")
+    Box(modifier) {
+        androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+            val glow = 14.dp.toPx(); val h = size.height - bottomGap.toPx()
+            for (k in 6 downTo 1) {
+                val g = glow * k / 6f
+                drawRoundRect(NOW_RED.copy(alpha = 0.075f * pulse), topLeft = androidx.compose.ui.geometry.Offset(-g, -g),
+                    size = androidx.compose.ui.geometry.Size(size.width + 2 * g, h + 2 * g), cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius.toPx() + g))
+            }
+            drawRoundRect(NOW_RED.copy(alpha = 0.55f * pulse), size = androidx.compose.ui.geometry.Size(size.width, h), cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius.toPx()),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+        }
+        content()
+    }
+}

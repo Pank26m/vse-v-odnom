@@ -315,6 +315,7 @@ interface MapDao {
     @Upsert suspend fun upsertTrack(t: Track): Long
     @Delete suspend fun deleteTrack(t: Track)
     @Query("SELECT * FROM place") suspend fun placesNow(): List<Place>
+    @Query("SELECT * FROM place WHERE id = :id") suspend fun place(id: Long): Place?
     @Query("SELECT * FROM track") suspend fun tracksNow(): List<Track>
     @Query("SELECT * FROM track WHERE id = :id") suspend fun track(id: Long): Track?
 

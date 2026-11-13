@@ -297,8 +297,17 @@ private fun MovieSearch(onDismiss: () -> Unit, onPicked: (MediaItem) -> Unit) {
     LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
     LaunchedEffect(q, Net.online) {
         if (q.trim().length < 2) { hits = emptyList(); return@LaunchedEffect }
-        delay(450); busy = true; err = null
-        runCatching { Movies.search(q.trim()) }.onSuccess { hits = it }.onFailure { err = "Нет связи с поиском" }
+        delay(700); busy = true; err = null
+        try { hits = Movies.search(q.trim()) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }   // ввод продолжается — это не ошибка связи
+        catch (e: Exception) {
+            err = when {
+                e is Movies.HttpError && e.code == 429 -> "Поиск фильмов (Викиданные) просит подождать — слишком много запросов. Попробуй через минуту."
+                e is Movies.HttpError -> "Поиск ответил ошибкой ${e.code}"
+                !Net.online -> "Нет интернета"
+                else -> "Нет связи с поиском: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
         busy = false
     }
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {

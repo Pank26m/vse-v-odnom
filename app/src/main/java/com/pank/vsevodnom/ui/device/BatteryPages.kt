@@ -406,7 +406,10 @@ private fun BatterySettings(onDismiss: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Журнал батареи") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Text("Вести журнал в фоне", modifier = Modifier.weight(1f)); Switch(on, { on = it; BatteryLog.setEnabled(ctx, it) }) }
-            Text("Нужен для истории, ёмкости, расхода и уведомления о заряде. Служба почти не тратит батарею: при выключенном экране просыпается раз в минуту, а в глубоком сне спит вместе с телефоном. Её уведомление можно свернуть или отключить в настройках уведомлений — служба продолжит работать.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+            Text("Нужен для истории, ёмкости, расхода и уведомления о заряде. Служба почти не тратит батарею: при выключенном экране просыпается раз в минуту, а в глубоком сне спит вместе с телефоном. Android не даёт фоновой службе работать совсем без уведомления, но его можно выключить: кнопка ниже → выключи «Журнал батареи». Служба продолжит работать, в шторке ничего не будет. Проценты и ток в уведомлении больше не обновляются.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
+            com.pank.vsevodnom.ui.common.PillButton("Скрыть уведомление", {
+                runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName).putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, com.pank.vsevodnom.data.device.BatteryLogService.CH)) }
+            }, Modifier.fillMaxWidth())
             Text("Журнал ведётся с ${whenText(BatteryLog.firstSeen(ctx))}. Историю других приложений (AccuBattery) перенести нельзя — их данные закрыты.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
         }
     }, confirmButton = { TextButton(onDismiss) { Text("Готово") } })

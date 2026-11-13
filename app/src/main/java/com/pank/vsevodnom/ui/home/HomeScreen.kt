@@ -571,6 +571,11 @@ object AgendaDone {
         val keep = hp(ctx).getStringSet("agenda_done", emptySet())!!.filter { (it.substringAfterLast(':').toLongOrNull() ?: 0) > today - 14 }.toSet()
         hp(ctx).edit().putStringSet("agenda_done", keep + key(a)).apply()
     }
+    fun unmark(ctx: Context, a: Agenda) {
+        if (a is Agenda.Pair) { tp(ctx).edit().putStringSet("lesson_done", tp(ctx).getStringSet("lesson_done", emptySet())!! - "${a.l.id}").apply(); return }
+        hp(ctx).edit().putStringSet("agenda_done", hp(ctx).getStringSet("agenda_done", emptySet())!! - key(a)).apply()
+    }
+    fun toggle(ctx: Context, a: Agenda) = if (isDone(ctx, a)) unmark(ctx, a) else mark(ctx, a)
 }
 
 /** Государственный праздник отмечен «сделано» (галочка в сводке). */

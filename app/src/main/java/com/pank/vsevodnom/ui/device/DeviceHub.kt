@@ -145,6 +145,7 @@ private fun Summary(open: (String) -> Unit) {
     var cur by remember { mutableStateOf<List<Long?>>(emptyList()) }
     var mem by remember { mutableStateOf<DevHardware.Mem?>(null) }
     val memS = remember { Series("ОЗУ", DevColors.series[3]) }
+    val batS = remember { Series("мА", DevColors.series[4 % DevColors.series.size]) }
     var down by remember { mutableStateOf(0.0) }; var up by remember { mutableStateOf(0.0) }
     val downS = remember { Series("↓", DevColors.series[1]) }; val upS = remember { Series("↑", DevColors.series[2]) }
     var bat by remember { mutableStateOf<Triple<Int, Double?, Float>?>(null) }
@@ -166,6 +167,7 @@ private fun Summary(open: (String) -> Unit) {
         val i = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         bat = Triple(i?.let { it.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) * 100 / it.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1) } ?: 0,
             DevReport.curMa(bm), (i?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10f)
+        bat?.second?.let { batS.push(kotlin.math.abs(it).toFloat()) }
         if (tick++ % 3 == 0) thermal = DevHardware.thermalStatus(ctx) to DevHardware.headroom(ctx)
     }
     val up0 = SystemClock.elapsedRealtime(); val awake = SystemClock.uptimeMillis()
@@ -211,12 +213,13 @@ private fun Summary(open: (String) -> Unit) {
                 Text("из ${DevHardware.marketing(st.totalBytes)}", style = MaterialTheme.typography.labelSmall, color = Pal.Muted, modifier = Modifier.padding(top = 4.dp))
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // одинаковые по высоте плитки: у обеих по одной строке подписи и живой график
+        Row(Modifier.height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val b = bat
-            StatTile("Батарея", b?.let { "${it.first} %" } ?: "…", b?.let { listOfNotNull(it.second?.let { ma -> "${if (ma > 0) "+" else ""}${ma.toInt()} мА" }, "${Dev.fmt(it.third, 1)} °C").joinToString(" · ") }, Tints.Mint, Modifier.weight(1f), { open("battery") }) {
-                Spacer(Modifier.height(10.dp)); Bar((b?.first ?: 0) / 100f, if ((b?.first ?: 0) < 20) DevColors.bad else DevColors.good)
+            StatTile("Батарея", b?.let { "${it.first} % · ${Dev.fmt(it.third, 0)}°" } ?: "…", b?.second?.let { ma -> "${if (ma > 0) "+" else ""}${ma.toInt()} мА сейчас" } ?: "ток недоступен", Tints.Mint, Modifier.weight(1f).fillMaxHeight(), { open("battery") }) {
+                LiveChart(listOf(batS), height = 44.dp, label = { "" })
             }
-            StatTile("Сеть", "↓ ${Dev.fmt(down, if (down < 10) 1 else 0)} · ↑ ${Dev.fmt(up, if (up < 10) 1 else 0)}", "Мбит/с сейчас", Tints.Sky, Modifier.weight(1f), { open("network") }) {
+            StatTile("Сеть", "↓ ${Dev.fmt(down, if (down < 10) 1 else 0)} · ↑ ${Dev.fmt(up, if (up < 10) 1 else 0)}", "Мбит/с сейчас", Tints.Sky, Modifier.weight(1f).fillMaxHeight(), { open("network") }) {
                 LiveChart(listOf(downS, upS), height = 44.dp, label = { "" })
             }
         }

@@ -22,6 +22,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +88,30 @@ fun CalendarScreen(
     val calPrefs = remember { ctx.getSharedPreferences("calendar", android.content.Context.MODE_PRIVATE) }
     var mode by remember { mutableIntStateOf(calPrefs.getInt("mode", 2)) }   // 0 день, 1 неделя, 2 месяц
     fun select(d: LocalDate) { selected = d; month = YearMonth.from(d) }
+    var doneV by remember { mutableIntStateOf(0) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var scrollTo by remember { mutableStateOf<LocalDate?>(null) }
+    // неделя: нажатие на день — прокрутить список к этому дню (элемент с ключом "wk-дата")
+    LaunchedEffect(scrollTo) {
+        val d = scrollTo ?: return@LaunchedEffect
+        val key = "wk-$d"
+        fun idx() = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.index
+        if (idx() == null) {
+            listState.scrollToItem(0)
+            var n = 0
+            while (idx() == null && n++ < 60 && listState.canScrollForward) { listState.scrollBy(listState.layoutInfo.viewportSize.height * 0.8f); withFrameNanos { } }
+        }
+        idx()?.let { listState.animateScrollToItem(it, -12) }
+        scrollTo = null
+    }
+    fun isDone(a: Agenda) = doneV >= 0 && com.pank.vsevodnom.ui.home.AgendaDone.isDone(ctx, a)
+    fun openA(a: Agenda) { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; is Agenda.Sys -> sysOpen = a } }
+    /** События дня: сделанные (пары, события) — серым внизу, как в ToDo. */
+    fun LazyListScope.agendaItems(list: List<Agenda>) {
+        items(list.sortedBy { isDone(it) }, key = { "ag-" + com.pank.vsevodnom.ui.home.AgendaDone.key(it) + "-" + it.date }) { a ->
+            AgendaCard(a, isDone(a), onCheck = { com.pank.vsevodnom.ui.home.AgendaDone.toggle(ctx, a); doneV++ }, onClick = { openA(a) })
+        }
+    }
 
     // окно данных: видимый месяц целиком (+ хвосты соседних недель)
     val gridStart = month.atDay(1).let { it.minusDays((it.dayOfWeek.value - 1).toLong()) }
@@ -160,7 +186,7 @@ fun CalendarScreen(
             }
         }
     }) {
-        LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(state = listState, contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             header()
             item {
                 Segmented(listOf("День", "Неделя", "Месяц"), mode, { mode = it; month = YearMonth.from(selected); calPrefs.edit().putInt("mode", it).apply() }, Modifier.fillMaxWidth())
@@ -209,7 +235,7 @@ fun CalendarScreen(
                                     val date = mon.plusDays(d.toLong())
                                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(DOW[d], style = MaterialTheme.typography.labelMedium, color = Pal.Muted)
-                                        DayCell(date, true, date == selected, date == LocalDate.now(), byDay[date].orEmpty(), Modifier.fillMaxWidth(), dots(date)) { selected = date }
+                                        DayCell(date, true, date == selected, date == LocalDate.now(), byDay[date].orEmpty(), Modifier.fillMaxWidth(), dots(date)) { selected = date; scrollTo = date }
                                     }
                                 }
                             }
@@ -220,12 +246,12 @@ fun CalendarScreen(
                         val date = mon.plusDays(d.toLong())
                         if (date.isBefore(LocalDate.now()) && !mon.plusDays(6).isBefore(LocalDate.now())) continue
                         val list = byDay[date].orEmpty()
-                        item {
+                        item(key = "wk-$date") {
                             Text(dayTitle(date), style = MaterialTheme.typography.titleMedium,
                                 color = if (date == LocalDate.now()) Pal.LilacInk else Pal.Ink, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
                         }
                         if (list.isEmpty() && dots(date).isEmpty()) item { Text("—", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 4.dp)) }
-                        items(list) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; is Agenda.Sys -> sysOpen = a } }) }
+                        agendaItems(list)
                         dayExtras(date)
                     }
                 }
@@ -257,7 +283,7 @@ fun CalendarScreen(
                 item { Text(dayTitle(selected), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp, top = 6.dp)) }
                 val dayItems = byDay[selected].orEmpty()
                 if (dayItems.isEmpty() && dots(selected).isEmpty()) item { EmptyHint("Ничего не запланировано") }
-                items(dayItems) { a -> AgendaCard(a, onClick = { when (a) { is Agenda.Own -> editEvent = a.e; is Agenda.Pair -> lessonInfo = a; is Agenda.Sys -> sysOpen = a } }) }
+                agendaItems(dayItems)
                 dayExtras(selected)
             }
         }
@@ -309,18 +335,23 @@ private fun DayCell(date: LocalDate, inMonth: Boolean, selected: Boolean, today:
 }
 
 @Composable
-fun AgendaCard(a: Agenda, onClick: () -> Unit = {}) {
+fun AgendaCard(a: Agenda, done: Boolean? = null, onCheck: () -> Unit = {}, onClick: () -> Unit = {}) {
     val r = a.row()
-    AppCard(modifier = Modifier.fillMaxWidth(), padding = 14.dp, onClick = onClick) {
+    // done != null — с кружком «сделано»; сделанное — серым и зачёркнутым (как задачи в ToDo)
+    AppCard(modifier = Modifier.fillMaxWidth().alpha(if (done == true) 0.55f else 1f), padding = 14.dp, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(4.dp).height(40.dp).clip(RoundedCornerShape(2.dp)).background(Color(r.color).copy(alpha = 0.55f)))
+            Box(Modifier.width(4.dp).height(40.dp).clip(RoundedCornerShape(2.dp)).background(Color(if (done == true) 0xFF9AA0A8.toInt() else r.color).copy(alpha = 0.55f)))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(r.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                Text(r.title, style = MaterialTheme.typography.titleMedium.let { if (done == true) it.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough) else it }, maxLines = 2)
                 if (r.sub.isNotBlank()) Text(r.sub, style = MaterialTheme.typography.bodySmall, maxLines = 2)
             }
             Spacer(Modifier.width(8.dp))
             Text(r.time, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.End)
+            if (done != null) {
+                com.pank.vsevodnom.ui.todo.CheckDivider()
+                com.pank.vsevodnom.ui.todo.CheckCircle(done, com.pank.vsevodnom.ui.todo.CHECK_GREY, com.pank.vsevodnom.ui.todo.CHECK_SIZE, onCheck)
+            }
         }
     }
 }

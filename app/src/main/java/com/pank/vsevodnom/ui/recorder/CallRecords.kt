@@ -46,7 +46,24 @@ import java.time.format.DateTimeFormatter
 /** Вход в записи разговоров: отпечаток (или код экрана). Закрывается при уходе из приложения. */
 object CallRecLock { var open by mutableStateOf(false) }
 
-/** Вкладка «Разговоры» Диктофона: зашифрованные записи звонков, слушать только здесь, выгрузить нужное. */
+/** Записи разговоров на весь экран — из меню ⋮ «Телефона» (с 0.45; раньше вкладка Диктофона). */
+@Composable
+fun CallRecordsDialog(onDismiss: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        // окно диалога — отдельное: без скриншотов и превью и для него
+        val view = androidx.compose.ui.platform.LocalView.current
+        DisposableEffect(view) { (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE); onDispose { } }
+        Column(Modifier.fillMaxSize().background(Pal.Bg).dialogBars()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                com.pank.vsevodnom.ui.common.RoundIconButton(androidx.compose.material.icons.Icons.Rounded.Close, "Закрыть", onDismiss)
+                Text("Записи разговоров", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 12.dp))
+            }
+            CallRecordsTab()
+        }
+    }
+}
+
+/** Записи звонков: зашифрованные, слушать только здесь, выгрузить нужное. */
 @Composable
 fun CallRecordsTab() {
     val ctx = LocalContext.current
@@ -101,15 +118,20 @@ fun CallRecordsTab() {
     var askDel by remember { mutableStateOf<CallRec.Meta?>(null) }
     var exportId by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(player) { while (player != null) { pos = runCatching { player?.currentPosition ?: 0 }.getOrDefault(0); delay(200) } }
-    DisposableEffect(Unit) { onDispose { player?.release() } }
-    fun stopPlay() { player?.release(); player = null; playing = null; pos = 0; CallRec.clearPlay(ctx) }
+    var enhancer by remember { mutableStateOf<android.media.audiofx.LoudnessEnhancer?>(null) }
+    DisposableEffect(Unit) { onDispose { enhancer?.release(); player?.release() } }
+    fun stopPlay() { enhancer?.release(); enhancer = null; player?.release(); player = null; playing = null; pos = 0; CallRec.clearPlay(ctx) }
     fun play(m: CallRec.Meta) {
         stopPlay()
         AppScope.io.launch {
             val f = runCatching { CallRec.openForPlay(ctx, m.id) }.getOrNull()
             withContext(Dispatchers.Main) {
                 if (f == null) { Toast.makeText(ctx, "Не удалось расшифровать запись", Toast.LENGTH_SHORT).show(); return@withContext }
-                runCatching { player = MediaPlayer().apply { setDataSource(f.absolutePath); prepare(); start(); setOnCompletionListener { stopPlay() } }; playing = m.id }
+                runCatching { player = MediaPlayer().apply { setDataSource(f.absolutePath); prepare()
+                    // тихий собеседник: усиливаем громкость при прослушивании (сама запись не меняется)
+                    val mb = CallRec.boost(ctx)
+                    if (mb > 0) enhancer = runCatching { android.media.audiofx.LoudnessEnhancer(audioSessionId).apply { setTargetGain(mb); enabled = true } }.getOrNull()
+                    start(); setOnCompletionListener { stopPlay() } }; playing = m.id }
             }
         }
     }
@@ -201,7 +223,11 @@ fun CallRecordsTab() {
                         RadioButton(src == i, { src = i; CallRec.setSource(ctx, i) }); Text(t, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+                var boost by remember { mutableIntStateOf(CallRec.boost(ctx)) }
+                Text("Усиление при прослушивании: +${boost / 100} дБ", style = MaterialTheme.typography.labelLarge)
+                Slider(boost.toFloat(), { boost = (it / 100).toInt() * 100; CallRec.setBoost(ctx, boost) }, valueRange = 0f..2500f)
                 Text("Android не даёт сторонним приложениям звук линии: пишется микрофон. Твой голос — чётко, собеседник — хорошо на громкой связи, у уха — тихо. " +
+                    "Samsung пишет обе стороны, потому что его диктофон — системное приложение с правом CAPTURE_AUDIO_OUTPUT; обычному приложению (даже звонилке по умолчанию) это право не дают без root. " +
                     "Если выбранный источник телефон не даст — запись пойдёт с микрофона.", style = MaterialTheme.typography.bodySmall, color = Pal.Muted)
             }
         }, confirmButton = { TextButton({ settings = false }) { Text("Готово") } })

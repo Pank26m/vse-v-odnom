@@ -9,6 +9,7 @@ import android.app.Application
 class VseApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        com.pank.vsevodnom.data.CrashLog.install(this)
         if (getProcessName().endsWith(":ime")) com.goodwy.keyboard.FlorisApplication.install(this)
     }
 }

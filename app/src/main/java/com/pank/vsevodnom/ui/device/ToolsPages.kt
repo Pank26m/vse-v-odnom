@@ -13,7 +13,6 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.LocationManager
-import android.media.AudioTrack
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -274,17 +273,19 @@ private fun AudioTool(onBack: () -> Unit) {
     var pos by remember { mutableFloatStateOf(0.5f) }   // логарифмическая шкала 20 Гц – 20 кГц
     val hz = 20.0 * 1000.0.pow(pos.toDouble())
     var ch by remember { mutableIntStateOf(2) }
-    var track by remember { mutableStateOf<AudioTrack?>(null) }
-    fun stop() { track?.runCatching { stop(); release() }; track = null }
+    var loop by remember { mutableStateOf<Tone.Loop?>(null) }
+    // частота и каналы меняются на лету — без пересоздания звука (в 0.44 из-за этого вылетало)
+    LaunchedEffect(hz, ch, loop) { loop?.let { it.hz = hz; it.left = ch != 1; it.right = ch != 0 } }
+    fun stop() { loop?.stop(); loop = null }
     DisposableEffect(Unit) { onDispose { stop() } }
     DevPage("Тест звука", { stop(); onBack() }) {
         item {
             Card {
                 Text("${hz.toInt()} Гц", style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.ExtraBold), modifier = Modifier.align(Alignment.CenterHorizontally))
-                Slider(pos, { pos = it; if (track != null) { stop(); track = Tone.loop(20.0 * 1000.0.pow(it.toDouble()), ch != 1, ch != 0) } })
-                Row { listOf(20, 100, 440, 1000, 5000, 15000).forEach { f -> Chip("$f", false, { pos = (ln(f / 20.0) / ln(1000.0)).toFloat(); if (track != null) { stop(); track = Tone.loop(f.toDouble(), ch != 1, ch != 0) } }, Modifier.padding(end = 4.dp)) } }
-                Segmented(listOf("Левый", "Правый", "Оба"), ch, { ch = it; if (track != null) { stop(); track = Tone.loop(hz, it != 1, it != 0) } })
-                PillButton(if (track == null) "Играть" else "Стоп", { if (track == null) track = Tone.loop(hz, ch != 1, ch != 0) else stop() }, Modifier.fillMaxWidth().padding(top = 10.dp))
+                Slider(pos, { pos = it })
+                Row { listOf(20, 100, 440, 1000, 5000, 15000).forEach { f -> Chip("$f", false, { pos = (ln(f / 20.0) / ln(1000.0)).toFloat() }, Modifier.padding(end = 4.dp)) } }
+                Segmented(listOf("Левый", "Правый", "Оба"), ch, { ch = it })
+                PillButton(if (loop == null) "Играть" else "Стоп", { if (loop == null) loop = Tone.Loop().also { it.hz = hz; it.left = ch != 1; it.right = ch != 0 } else stop() }, Modifier.fillMaxWidth().padding(top = 10.dp))
                 Text("Низкие частоты (ниже ~150 Гц) маленький динамик почти не воспроизводит — это нормально. Хрип на средних — признак повреждения.", style = MaterialTheme.typography.labelSmall, color = Pal.Muted)
             }
         }

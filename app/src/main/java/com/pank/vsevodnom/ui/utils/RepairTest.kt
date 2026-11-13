@@ -79,7 +79,8 @@ private data class Check(val key: String, val title: String, val hint: String)
 /** Результаты тестов сохраняются (prefs repair_test) — видно и после перезапуска, и в сводке анализатора. */
 object RepairStore {
     private fun p(ctx: android.content.Context) = ctx.getSharedPreferences("repair_test", android.content.Context.MODE_PRIVATE)
-    fun all(ctx: android.content.Context): Map<String, Boolean> = p(ctx).all.mapNotNull { (k, v) -> (v as? Boolean)?.let { k to it } }.toMap()
+    private val OLD = setOf("buttons", "camBack", "camFront")   // тесты, убранные в 0.45 (есть volUp/volDown и «Камеры»)
+    fun all(ctx: android.content.Context): Map<String, Boolean> = p(ctx).all.mapNotNull { (k, v) -> if (k in OLD) null else (v as? Boolean)?.let { k to it } }.toMap()
     fun set(ctx: android.content.Context, key: String, ok: Boolean?) { p(ctx).edit().apply { if (ok == null) remove(key) else putBoolean(key, ok) }.apply() }
     fun clear(ctx: android.content.Context) = p(ctx).edit().clear().apply()
     val manualCount get() = CHECKS.size
@@ -96,9 +97,6 @@ private val CHECKS = listOf(
     Check("mic", "Микрофон", "Запись 3 секунды и воспроизведение"),
     Check("vibro", "Вибрация", "Телефон вибрирует?"),
     Check("flash", "Фонарик", "Включается?"),
-    Check("camBack", "Основная камера", "Откроется камера — проверь фото"),
-    Check("camFront", "Фронтальная камера", "Переключись на фронталку в камере"),
-    Check("buttons", "Кнопки громкости", "Нажми громкость + и − (каждая отмечается отдельно)"),
     Check("proximity", "Датчик приближения", "Закрой верх экрана рукой"),
     Check("light", "Датчик освещённости", "Прикрой и открой — значение меняется?"),
     Check("imu", "Акселерометр и гироскоп", "Покрути телефон — цифры меняются?"),
@@ -294,7 +292,6 @@ private fun CheckDialog(c: Check, onResult: (Res) -> Unit, onDismiss: () -> Unit
         if (ok) scope.launch { runCatching { micRoundTrip({ phase = it }, { level = it }) }.onFailure { phase = "Ошибка записи: ${it.message}" } }
         else phase = "Нет разрешения на микрофон"
     }
-    val camLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { phase = "Камера закрыта. Всё работало?" }
 
     // автоматические проверки
     var autoOk by remember { mutableStateOf(false) }
@@ -329,28 +326,6 @@ private fun CheckDialog(c: Check, onResult: (Res) -> Unit, onDismiss: () -> Unit
                     Text("Фонарик ${if (on) "включён" else "выключен"}")
                     Spacer(Modifier.height(8.dp))
                     PillButton(if (on) "Выключить" else "Включить", { on = !on; runCatching { cm.setTorchMode(id, on) } })
-                }
-            }
-            "camBack", "camFront" -> {
-                LaunchedEffect(Unit) {
-                    runCatching { camLauncher.launch(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)) }.onFailure { phase = "Не удалось открыть камеру" }
-                }
-                Text(phase.ifBlank { "Открываю камеру…" })
-            }
-            "buttons" -> {
-                var up by remember { mutableStateOf(false) }; var down by remember { mutableStateOf(false) }
-                val fr = remember { FocusRequester() }
-                LaunchedEffect(Unit) { fr.requestFocus() }
-                LaunchedEffect(up, down) { if (up) RepairStore.set(ctx, "volUp", true); if (down) RepairStore.set(ctx, "volDown", true); if (up && down) autoOk = true }
-                Column(Modifier.focusRequester(fr).focusable().onPreviewKeyEvent { e ->
-                    if (e.type == KeyEventType.KeyDown) when (e.key.nativeKeyCode) {
-                        KeyEvent.KEYCODE_VOLUME_UP -> { up = true; true }
-                        KeyEvent.KEYCODE_VOLUME_DOWN -> { down = true; true }
-                        else -> false
-                    } else e.key.nativeKeyCode == KeyEvent.KEYCODE_VOLUME_UP || e.key.nativeKeyCode == KeyEvent.KEYCODE_VOLUME_DOWN
-                }) {
-                    Text("Громкость +: ${if (up) "✓" else "ждём"}")
-                    Text("Громкость −: ${if (down) "✓" else "ждём"}")
                 }
             }
             "proximity" -> {

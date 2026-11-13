@@ -136,12 +136,17 @@ private fun Scanner() {
         val v = last?.value ?: return@LaunchedEffect
         if (v.all { it.isDigit() } && v.length in 8..14) product = lookupProduct(v) ?: "В открытой базе товара нет — поищи в интернете"
     }
-    fun scan() {
+    var own by remember { mutableStateOf(false) }
+    fun got(text: String, fmt: String) { val i = ScanHistory.Item(text, fmt, System.currentTimeMillis()); ScanHistory.add(ctx, i); history = ScanHistory.all(ctx); last = i }
+    fun google() {
         err = null
-        GmsBarcodeScanning.getClient(ctx).startScan()
+        runCatching { GmsBarcodeScanning.getClient(ctx).startScan()
             .addOnSuccessListener { b -> val i = ScanHistory.Item(b.rawValue ?: "", fmtName(b.format), System.currentTimeMillis()); ScanHistory.add(ctx, i); history = ScanHistory.all(ctx); last = i }
-            .addOnFailureListener { err = "Сканер не запустился: ${it.message}. Нужны сервисы Google Play (на Pixel есть) — при первом запуске модуль докачивается." }
+            .addOnFailureListener { err = "Сканер не запустился: ${it.message}. Нужны сервисы Google Play (на Pixel есть) — при первом запуске модуль докачивается." } }
+            .onFailure { err = "Сканер Google недоступен: ${it.message}" }
     }
+    fun scan() { err = null; own = true }
+    if (own) OwnScanner(onResult = { t, f -> own = false; got(t, f) }, onFallback = { own = false; google() }, onClose = { own = false })
     LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Box(Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(22.dp)).background(Pal.Ink).clickable { scan() }, contentAlignment = Alignment.Center) {

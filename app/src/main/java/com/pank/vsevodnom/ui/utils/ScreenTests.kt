@@ -171,25 +171,27 @@ fun MotionTest(onDone: () -> Unit) {
     val ctx = LocalContext.current
     @Suppress("DEPRECATION")
     val hz = remember { (ctx.findActivity()?.display?.refreshRate ?: 60f).coerceIn(30f, 165f) }
-    var t by remember { mutableLongStateOf(0L) }
+    // Счётчик кадров, а не время: раньше брали время с загрузки телефона во Float — через несколько дней
+    // работы его точность падала до десятков мс, и все полосы дёргались одинаково (30 кадр/с выглядели как 120).
+    var n by remember { mutableLongStateOf(0L) }
     var fps by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         var last = 0L; var frames = 0; var acc = 0L
         while (true) withFrameNanos { now ->
             if (last != 0L) { acc += now - last; frames++ }
             if (acc >= 1_000_000_000L) { fps = (frames * 1e9 / acc).roundToInt(); frames = 0; acc = 0 }
-            last = now; t = now
+            last = now; n++
         }
     }
     val speed = 960f // пикселей в секунду — как в TestUFO
     Box(Modifier.fillMaxSize().background(Color(0xFF2B2A33)).pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); onDone() } }) {
         Canvas(Modifier.fillMaxSize()) {
-            val sec = t / 1e9f
-            val period = (size.width + 120f) / speed
+            val step = speed / hz                         // пикселей за кадр экрана
+            val periodFrames = ((size.width + 120f) / step).toLong().coerceAtLeast(1)
             listOf(1, 2, 4).forEachIndexed { i, div ->
                 val laneFps = hz / div
-                val q = kotlin.math.floor((sec % period) * laneFps) / laneFps   // время, округлённое до кадров этой полосы
-                val x = q * speed - 60f
+                val f = (n % (periodFrames * 4)).let { it - it % div } % periodFrames   // кадр этой полосы: меняется раз в div кадров
+                val x = f * step - 60f
                 val y = size.height * (0.25f + i * 0.25f)
                 drawLine(Color.White.copy(alpha = 0.08f), Offset(0f, y), Offset(size.width, y), 2f)
                 drawOval(Color(0xFFDCEBFA), Offset(x - 50, y - 14), Size(100f, 28f))

@@ -3,6 +3,7 @@ package com.pank.vsevodnom.ui.common
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -241,3 +242,24 @@ fun Modifier.dialogBars(): Modifier {
 
 /** Переход на маршрут из любого места (окна, диалоги): MainActivity следит и вызывает go(). */
 object AppNav { var route by androidx.compose.runtime.mutableStateOf<String?>(null) }
+
+
+/** Окно «Приложение упало в прошлый раз»: текст ошибки — скопировать или отправить разработчику. */
+@Composable
+fun CrashDialog(text: String, onDismiss: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Приложение упало в прошлый раз") }, text = {
+        Column {
+            Text("Пришли этот текст — по нему видно точную причину.", style = MaterialTheme.typography.bodySmall)
+            Box(Modifier.heightIn(max = 300.dp).padding(top = 8.dp).verticalScrollCompat()) { Text(text, style = MaterialTheme.typography.labelSmall) }
+        }
+    }, confirmButton = { TextButton({
+        ctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text), "Отправить ошибку")); onDismiss()
+    }) { Text("Отправить") } }, dismissButton = { TextButton({
+        ctx.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("crash", text))
+        android.widget.Toast.makeText(ctx, "Скопировано", android.widget.Toast.LENGTH_SHORT).show(); onDismiss()
+    }) { Text("Скопировать") } })
+}
+
+@Composable
+private fun Modifier.verticalScrollCompat(): Modifier = this.verticalScroll(androidx.compose.foundation.rememberScrollState())

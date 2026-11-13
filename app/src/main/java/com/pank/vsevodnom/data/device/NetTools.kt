@@ -121,10 +121,11 @@ object NetTools {
         val down = runCatching {
             val c = URL("https://speed.cloudflare.com/__down?bytes=200000000").openConnection() as HttpURLConnection
             c.connectTimeout = 6000; c.readTimeout = 6000
-            val start = SystemClock.elapsedRealtime(); var total = 0L; val buf = ByteArray(64 * 1024)
+            val start = SystemClock.elapsedRealtime(); var total = 0L; val buf = ByteArray(64 * 1024); var shown = 0L
             c.inputStream.use { inp: InputStream ->
                 while (SystemClock.elapsedRealtime() - start < 10_000) { val n = inp.read(buf); if (n < 0) break; total += n
-                    val sec = (SystemClock.elapsedRealtime() - start) / 1000.0; if (sec > 0.3) onStage("Загрузка…", total * 8 / 1e6 / sec) }
+                    val now = SystemClock.elapsedRealtime(); val sec = (now - start) / 1000.0
+                    if (sec > 0.3 && now - shown >= 200) { shown = now; onStage("Загрузка…", total * 8 / 1e6 / sec) } }
             }
             c.disconnect(); total * 8 / 1e6 / ((SystemClock.elapsedRealtime() - start) / 1000.0)
         }.getOrNull()
@@ -132,9 +133,10 @@ object NetTools {
         val up = runCatching {
             val c = URL("https://speed.cloudflare.com/__up").openConnection() as HttpURLConnection
             c.connectTimeout = 6000; c.readTimeout = 10000; c.doOutput = true; c.requestMethod = "POST"; c.setChunkedStreamingMode(64 * 1024)
-            val start = SystemClock.elapsedRealtime(); var total = 0L; val buf = ByteArray(64 * 1024)
+            val start = SystemClock.elapsedRealtime(); var total = 0L; val buf = ByteArray(64 * 1024); var shown = 0L
             c.outputStream.use { o -> while (SystemClock.elapsedRealtime() - start < 8_000 && total < 100_000_000) { o.write(buf); total += buf.size
-                val sec = (SystemClock.elapsedRealtime() - start) / 1000.0; if (sec > 0.3) onStage("Отдача…", total * 8 / 1e6 / sec) } }
+                val now = SystemClock.elapsedRealtime(); val sec = (now - start) / 1000.0
+                if (sec > 0.3 && now - shown >= 200) { shown = now; onStage("Отдача…", total * 8 / 1e6 / sec) } } }
             c.responseCode; c.disconnect(); total * 8 / 1e6 / ((SystemClock.elapsedRealtime() - start) / 1000.0)
         }.getOrNull()
         Speed(ping, jitter, down, up)

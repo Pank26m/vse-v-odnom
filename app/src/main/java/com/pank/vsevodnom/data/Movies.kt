@@ -47,18 +47,37 @@ object Movies {
     private val SERIES = setOf("Q5398426", "Q1259759", "Q581714", "Q63952888", "Q117467246", "Q21191270", "Q3464665")
     private val SCREEN_WORDS = Regex("(фильм|сериал|мультфильм|мультсериал|аниме|мини-сериал|телефильм|film|series|serial|movie|фільм|телесеріал|серіал|мультфільм)", RegexOption.IGNORE_CASE)
 
+    class HttpError(val code: Int) : java.io.IOException("HTTP $code")
+
+    /** Запрос с повтором: Викиданные при частых запросах (поиск на каждую букву) отвечают 429 — ждём и пробуем снова. */
     private fun get(url: String, browser: Boolean = false): String {
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.setRequestProperty("User-Agent", if (browser) "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36" else UA)
-        c.setRequestProperty("Accept-Language", "ru,uk;q=0.8,en;q=0.6")
-        c.connectTimeout = 10_000; c.readTimeout = 15_000
-        try { return c.inputStream.bufferedReader().use { it.readText() } } finally { c.disconnect() }
+        var last: Exception? = null
+        for (attempt in 0 until 3) {
+            val c = URL(url).openConnection() as HttpURLConnection
+            c.setRequestProperty("User-Agent", if (browser) "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36" else UA)
+            c.setRequestProperty("Accept-Language", "ru,uk;q=0.8,en;q=0.6")
+            c.connectTimeout = 10_000; c.readTimeout = 15_000
+            try {
+                val code = c.responseCode
+                if (code == 429 || code >= 500) {
+                    last = HttpError(code)
+                    val wait = c.getHeaderField("Retry-After")?.toLongOrNull()?.coerceIn(1, 5)?.times(1000) ?: (800L shl attempt)
+                    Thread.sleep(wait); continue
+                }
+                if (code >= 400) throw HttpError(code)
+                return c.inputStream.bufferedReader().use { it.readText() }
+            } catch (e: java.io.IOException) { if (e is HttpError && e.code in 400..499 && e.code != 429) throw e; last = e; Thread.sleep(500L shl attempt) }
+            finally { c.disconnect() }
+        }
+        throw last ?: java.io.IOException("нет ответа")
     }
+    private val searchCache = java.util.concurrent.ConcurrentHashMap<String, List<MovieHit>>()
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     /** Подсказки при вводе названия — как поиск города в погоде. */
     suspend fun search(q: String): List<MovieHit> = withContext(Dispatchers.IO) {
         if (q.isBlank()) return@withContext emptyList()
+        searchCache[q.lowercase()]?.let { return@withContext it }
         val seen = LinkedHashMap<String, MovieHit>()
         for (lang in listOf("ru", "uk", "en")) {
             val j = JSONObject(get("https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json&type=item&limit=20&language=$lang&uselang=ru&search=" + enc(q)))
@@ -70,7 +89,7 @@ object Movies {
             }
             if (seen.values.count { SCREEN_WORDS.containsMatchIn(it.description) } >= 3) break
         }
-        parseHits(seen.values.toList())
+        parseHits(seen.values.toList()).also { searchCache[q.lowercase()] = it }
     }
 
     /** Оставляем фильмы и сериалы; если ничего не похоже — показываем всё. */

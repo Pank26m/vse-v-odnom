@@ -427,11 +427,28 @@ object Tone {
         while (SystemClock.elapsedRealtime() - t0 < sec * 1000) { onFreq(f0 * Math.pow(f1 / f0, (SystemClock.elapsedRealtime() - t0) / (sec * 1000))); Thread.sleep(80) }
         t.stop(); t.release()
     }
-    /** Непрерывный тон заданной частоты (для «Теста аудио» в инструментах). */
-    fun loop(hz: Double, left: Boolean, right: Boolean): AudioTrack {
-        val n = (SR / hz * kotlin.math.max(1.0, kotlin.math.round(hz / 20))).toInt().coerceAtLeast(64); val b = ShortArray(n * 2)
-        for (i in 0 until n) { val v = (sin(2 * PI * hz * i / SR) * 0.5 * Short.MAX_VALUE).toInt().toShort(); b[2 * i] = if (left) v else 0; b[2 * i + 1] = if (right) v else 0 }
-        return track(b).apply { setLoopPoints(0, n, -1); play() }
+    /** Непрерывный тон: свой поток пишет звук кусками, частота и каналы меняются на лету (для «Теста звука»). */
+    class Loop {
+        @Volatile var hz = 440.0
+        @Volatile var left = true
+        @Volatile var right = true
+        @Volatile private var run = true
+        private val th = Thread {
+            val n = AudioTrack.getMinBufferSize(SR, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4096)
+            val t = runCatching { AudioTrack.Builder().setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(n * 2).build() }.getOrNull() ?: return@Thread
+            runCatching {
+                t.play(); var ph = 0.0; val chunk = ShortArray(1024 * 2); var fade = 0.0
+                while (run) {
+                    for (i in 0 until 1024) { ph += 2 * PI * hz / SR; if (ph > 2 * PI) ph -= 2 * PI; fade = minOf(1.0, fade + 1.0 / 2000)
+                        val v = (sin(ph) * 0.5 * fade * Short.MAX_VALUE).toInt().toShort(); chunk[2 * i] = if (left) v else 0; chunk[2 * i + 1] = if (right) v else 0 }
+                    t.write(chunk, 0, chunk.size)
+                }
+            }
+            runCatching { t.pause(); t.flush(); t.stop() }; runCatching { t.release() }
+        }.apply { isDaemon = true; start() }
+        fun stop() { run = false }
     }
     private fun track(b: ShortArray) = AudioTrack.Builder().setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).build())
         .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())

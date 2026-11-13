@@ -154,7 +154,9 @@ fun TasksPage(onBack: () -> Unit, openId: Long? = null, onOpened: () -> Unit = {
                 if (showLessons) {
                     val left = lessons.filter { f.done || "${it.id}" !in lessonDone }.sortedWith(compareBy({ it.epochDay }, { it.start }))
                     item(key = "knuba") { Text("Пары · #$KNUBA · ${left.size}", style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)) }
-                    items(left.take(if (f.tag == KNUBA) 200 else 6), key = { "l${it.id}" }) { l ->
+                    val shown = left.take(if (f.tag == KNUBA) 200 else 6)
+                    shown.forEachIndexed { i, l -> if (i > 0 && l.epochDay != shown[i - 1].epochDay) item(key = "lsep${l.id}") { DaySeparator(dateLabel(l.epochDay)) }
+                    item(key = "l${l.id}") {
                         val done = "${l.id}" in lessonDone
                         Leaving("l${l.id}", onLeft = { lessonDone = lessonDone + "${l.id}"; prefs.edit().putStringSet("lesson_done", lessonDone).apply() }) { checked, leave ->
                             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card)
@@ -173,13 +175,18 @@ fun TasksPage(onBack: () -> Unit, openId: Long? = null, onOpened: () -> Unit = {
                             }
                         }
                     }
+                    }
                     if (f.tag != KNUBA && left.size > 6) item(key = "knuba-more") { TextButton({ f.tag = KNUBA; f.save(prefs) }) { Text("Все пары (${left.size})") } }
                 }
                 groups.forEach { (title, l) ->
                     item(key = "g$title") {
                         Text("$title · ${l.size}", style = MaterialTheme.typography.labelLarge, color = if (title == "Просрочено") Pal.RoseInk else Pal.Muted, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
                     }
-                    items(l, key = { it.id }) { t -> TaskRow(t) { edit = t } }
+                    // разделители между днями внутри группы (просрочено, позже, выполнено)
+                    l.forEachIndexed { i, t ->
+                        if (f.sort == Sort.DATE && i > 0 && t.dueDay != l[i - 1].dueDay && title != "Выполнено") item(key = "sep$title-${t.id}") { DaySeparator(t.dueDay?.let { dateLabel(it) } ?: "без даты") }
+                        item(key = t.id) { TaskRow(t) { edit = t } }
+                    }
                 }
             }
         }
@@ -205,6 +212,16 @@ fun TasksPage(onBack: () -> Unit, openId: Long? = null, onOpened: () -> Unit = {
 
 const val KNUBA = "кнуба"
 
+/** Тонкий разделитель дня в списке задач: линия и дата. */
+@Composable
+fun DaySeparator(label: String) {
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(1.dp).background(Pal.Line))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Pal.Muted, modifier = Modifier.padding(horizontal = 10.dp))
+        Box(Modifier.weight(1f).height(1.dp).background(Pal.Line))
+    }
+}
+
 /** Строка задачи. Невыполненная при отметке показывает галочку и плавно уезжает. */
 @Composable
 fun TaskRow(t: TaskItem, showMeta: Boolean = true, onClick: () -> Unit) {
@@ -220,6 +237,8 @@ private fun TaskRowBody(t: TaskItem, checked: Boolean, showMeta: Boolean, onClic
     val today = LocalDate.now().toEpochDay()
     val overdue = !t.done && (t.dueDay ?: Long.MAX_VALUE) < today
     val att = remember(t.attachments) { NoteAtt.of(t.attachments) }
+    val nowMin = rememberNowMinute()
+    NowGlow(!checked && isNowTask(t, nowMin), bottomGap = 8.dp) {
     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp).clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onClick).padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (t.priority > 0) Box(Modifier.padding(end = 10.dp).width(4.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(prioColor(t.priority)))
@@ -247,6 +266,7 @@ private fun TaskRowBody(t: TaskItem, checked: Boolean, showMeta: Boolean, onClic
         }
         CheckDivider()
         CheckCircle(checked, if (t.priority > 0) prioColor(t.priority) else CHECK_GREY, CHECK_SIZE, onCheck)
+    }
     }
 }
 

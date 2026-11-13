@@ -107,14 +107,16 @@ fun IconPicker(selected: String, color: Color, onPick: (String) -> Unit) {
         groups.forEach { (g, names) ->
             item(key = "g$g") { Text(g, style = MaterialTheme.typography.labelLarge, color = Pal.Muted, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)) }
             items(names.chunked(6), key = { "r$g${it.first()}" }) { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                // клетки делят ширину поровну (раньше 6×44 dp не влезали в окно — сетка обрезалась справа)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
                     row.forEach { n ->
                         val sel = selected == "t:$n"
-                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(if (sel) color.copy(alpha = 0.18f) else Pal.Card)
+                        Box(Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(if (sel) color.copy(alpha = 0.18f) else Pal.Card)
                             .border(1.dp, if (sel) color else Pal.Line, RoundedCornerShape(12.dp)).clickable { onPick("t:$n") }, contentAlignment = Alignment.Center) {
                             TablerIcons.vector(ctx, n)?.let { Icon(it, n, tint = if (sel) color else Pal.Ink, modifier = Modifier.size(24.dp)) }
                         }
                     }
+                    repeat(6 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }

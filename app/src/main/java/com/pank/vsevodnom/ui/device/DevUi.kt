@@ -186,7 +186,13 @@ fun TagChips(tags: List<String>, tint: Tint = Tints.Sky) {
 class Series(val name: String, val color: Color, cap: Int = 90) {
     val values = mutableStateListOf<Float>()
     private val capacity = cap
-    fun push(v: Float) { values.add(v); if (values.size > capacity) values.removeAt(0) }
+    /** Добавлять только из главного потока: правка списка из фона во время отрисовки роняла приложение
+     *  (ConcurrentModificationException — так вылетал тест скорости в 0.44). Из фона — пересылаем на главный. */
+    fun push(v: Float) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) pushNow(v) else main.post { pushNow(v) }
+    }
+    private fun pushNow(v: Float) { values.add(v); if (values.size > capacity) values.removeAt(0) }
+    companion object { private val main = android.os.Handler(android.os.Looper.getMainLooper()) }
     val last: Float? get() = values.lastOrNull()
 }
 

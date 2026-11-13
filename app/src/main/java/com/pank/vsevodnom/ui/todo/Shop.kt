@@ -182,16 +182,9 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                 Row(Modifier.fillMaxWidth().height(rowH).zIndex(if (dragging) 1f else 0f)
                     .graphicsLayer { translationY = if (dragging) dragY else 0f }
                     .padding(vertical = 3.dp).then(if (dragging) Modifier.shadow(8.dp, RoundedCornerShape(14.dp)) else Modifier)
-                    .clip(RoundedCornerShape(14.dp)).background(if (e.done) t.bg.copy(alpha = 0.6f) else Pal.Card).clickable { edit = e }.padding(start = 12.dp),
+                    .clip(RoundedCornerShape(14.dp)).background(if (e.done) t.bg.copy(alpha = 0.6f) else Pal.Card).clickable { edit = e }.padding(end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (e.priority > 0) Box(Modifier.padding(end = 6.dp).size(9.dp).clip(CircleShape).background(prioColor(e.priority)))
-                            Text(e.text, style = MaterialTheme.typography.bodyLarge.copy(textDecoration = if (e.done) TextDecoration.LineThrough else null), color = if (e.done) Pal.Muted else Pal.Ink, maxLines = 1)
-                        }
-                        if (e.note.isNotBlank()) Text(e.note, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
-                    }
-                    Box(Modifier.fillMaxHeight().width(48.dp).pointerInput(e.id) {
+                    Box(Modifier.fillMaxHeight().width(40.dp).pointerInput(e.id) {
                         detectDragGestures(
                             onDragStart = { dragIdx = order.indexOfFirst { it.id == e.id }; dragY = 0f },
                             onDragEnd = {
@@ -208,7 +201,14 @@ private fun ShopPage(p: ListPage, onBack: () -> Unit) {
                             if (dragY > rowPx / 2 && dragIdx < order.lastIndex) { order.add(dragIdx + 1, order.removeAt(dragIdx)); dragIdx++; dragY -= rowPx }
                             else if (dragY < -rowPx / 2 && dragIdx > 0) { order.add(dragIdx - 1, order.removeAt(dragIdx)); dragIdx--; dragY += rowPx }
                         }
-                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.DragIndicator, "Перетащить", tint = Pal.Muted) }
+                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.DragIndicator, "Перетащить", tint = Pal.Muted.copy(alpha = 0.7f), modifier = Modifier.size(20.dp)) }
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (e.priority > 0) Box(Modifier.padding(end = 6.dp).size(9.dp).clip(CircleShape).background(prioColor(e.priority)))
+                            Text(e.text, style = MaterialTheme.typography.bodyLarge.copy(textDecoration = if (e.done) TextDecoration.LineThrough else null), color = if (e.done) Pal.Muted else Pal.Ink, maxLines = 1)
+                        }
+                        if (e.note.isNotBlank()) Text(e.note, style = MaterialTheme.typography.bodySmall, color = Pal.Muted, maxLines = 1)
+                    }
                     CheckDivider()
                     CheckCircle(e.done, CHECK_GREY, CHECK_SIZE) { AppScope.io.launch { dao.upsertEntry(e.copy(done = !e.done)) } }
                 }

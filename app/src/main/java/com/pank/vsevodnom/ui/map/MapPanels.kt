@@ -169,8 +169,9 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
     LaunchedEffect(saveTick) {
         if (saveTick == 0 || t.place == null) return@LaunchedEffect
         kotlinx.coroutines.delay(600)
-        val pl = t.place.copy(name = plName.trim().ifBlank { t.place.name }, note = plNote.trim())
-        AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(pl) }
+        val id = t.place.id; val nm = plName.trim(); val nt = plNote.trim()
+        // правим свежую запись: в t.place — копия на момент открытия (иначе затирались цвет/значок, выбранные позже)
+        AppScope.io.launch { updatePlace(ctx, id) { it.copy(name = nm.ifBlank { it.name }, note = nt) } }
     }
     fun loadGoogle(force: Boolean = false) {
         if (!online || !hasKey || noName) return
@@ -222,7 +223,9 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
                 Spacer(Modifier.width(10.dp))
             }
             Column(Modifier.weight(1f)) {
-                if (t.place != null) androidx.compose.foundation.text.BasicTextField(plName, { plName = it; saveOwn() },
+                // переименовать — только в полной карточке; в короткой название как у обычного места
+                if (t.place != null && !expanded) Text(plName.ifBlank { t.place.name }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2)
+                else if (t.place != null) androidx.compose.foundation.text.BasicTextField(plName, { plName = it; saveOwn() },
                     textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = Pal.Ink), modifier = Modifier.fillMaxWidth(), maxLines = 2)
                 else Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2)
                 Text(listOfNotNull(type, if (t.place != null) "📁 " + folderPath(t.place.folderId, folders) else null, dist?.let { MapPrefs.dist(ctx, it) }).joinToString(" · "),
@@ -267,7 +270,7 @@ internal fun PlaceCard(t: MapTarget, me: GeoPt?, folders: List<MapFolder>, onClo
             if (streetWhole) ActionChip(Icons.Rounded.Timeline, "Вся улица", Pal.Sky, Pal.SkyInk) { onWhole?.invoke(t) }
             else ActionChip(Icons.Rounded.Share, "Поделиться", Pal.Lilac, Pal.LilacInk) { share(ctx, title, t.lat, t.lon) }
             if (t.place != null) ActionChip(Icons.Rounded.VisibilityOff, "Скрыть", Pal.Sky, Pal.SkyInk) {
-                val pl = t.place; AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(pl.copy(visible = false)) }
+                val pid = t.place.id; AppScope.io.launch { updatePlace(ctx, pid) { it.copy(visible = false) } }
                 Toast.makeText(ctx, "Метка скрыта — вернуть в «Коллекциях» (глазок)", Toast.LENGTH_SHORT).show(); onClose()
             }
             if (t.place != null) ActionChip(Icons.Rounded.DeleteOutline, "Удалить", Pal.Rose, Pal.RoseInk) { askDelete = true }
@@ -490,17 +493,47 @@ internal val PLACE_ICONS = listOf("", "map-pin", "home", "briefcase", "star", "h
     "swimming", "plane", "train", "bus", "ticket", "music", "book", "gift", "dog", "pizza", "beer", "glass-cocktail")
 
 /** Кружок метки (цвет + значок) — меню: цвета, все значки (как в «Финансах»), без значка. Сохраняет сразу. */
+/** Прочитать метку из базы, изменить и записать; вернуть записанное. */
+internal suspend fun updatePlace(ctx: android.content.Context, id: Long, f: (Place) -> Place): Place? {
+    val dao = AppDb.get(ctx).map()
+    val cur = dao.place(id) ?: return null
+    return f(cur).also { dao.upsertPlace(it) }
+}
+
+/** Недавние значки меток (prefs map recent_icons) — строка над цветами в выборе стиля. */
+internal object RecentPlaceIcons {
+    private fun p(ctx: android.content.Context) = ctx.getSharedPreferences("map", android.content.Context.MODE_PRIVATE)
+    fun all(ctx: android.content.Context): List<String> = p(ctx).getString("recent_icons", "")!!.split(',').filter { it.isNotBlank() }
+    fun add(ctx: android.content.Context, icon: String) { val ic = icon.removePrefix("t:"); p(ctx).edit().putString("recent_icons", (listOf(ic) + all(ctx).filter { it != ic }).take(12).joinToString(",")).apply() }
+}
+
 @Composable
 internal fun PlaceStyleButton(p: Place, onSaved: (Place) -> Unit) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var icons by remember { mutableStateOf(false) }
     var cur by remember(p.id) { mutableStateOf(p) }
-    fun save(np: Place) { cur = np; AppScope.io.launch { AppDb.get(ctx).map().upsertPlace(np) }; onSaved(np) }
+    fun save(np: Place) {
+        cur = np
+        // цвет/значок пишем в свежую запись (название могли поменять в карточке после открытия)
+        AppScope.io.launch { val fresh = updatePlace(ctx, np.id) { it.copy(color = np.color, icon = np.icon) } ?: np
+            if (np.icon.isNotBlank()) RecentPlaceIcons.add(ctx, np.icon)
+            withContext(Dispatchers.Main) { onSaved(fresh) } }
+    }
     val col = Color(colorOr(cur.color, PLACE_COLOR))
     Box {
         PlaceDot(col, cur.icon.removePrefix("t:"), 34.dp, Modifier.clickable { menu = true })
         DropdownMenu(menu, { menu = false }) {
+            // недавние значки — над цветами, столько же, сколько цветов
+            val recent = remember(menu) { RecentPlaceIcons.all(ctx).take(MAP_COLORS.size) }
+            if (recent.isNotEmpty()) {
+                listOf(recent.take(6), recent.drop(6)).filter { it.isNotEmpty() }.forEach { row ->
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEach { ic -> PlaceDot(if (cur.icon.removePrefix("t:") == ic) col else Pal.Muted, ic, 28.dp, Modifier.clickable { save(cur.copy(icon = ic)); menu = false }) }
+                    }
+                }
+                HorizontalDivider()
+            }
             listOf(MAP_COLORS.take(6), MAP_COLORS.drop(6)).forEach { row ->
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { c -> Box(Modifier.size(28.dp).clip(CircleShape).background(if (c == 0) Color(colorOr(0, PLACE_COLOR)) else Color(c)).border(if (c == cur.color) 2.dp else 0.dp, Pal.Ink, CircleShape)

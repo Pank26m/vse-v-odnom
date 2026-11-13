@@ -206,10 +206,11 @@ fun BirthdayRow(b: Birthday, day: LocalDate, onOpen: () -> Unit, onDone: () -> U
     Leaving(b.id to day, onLeft = { BdayDone.mark(ctx, b.id, day); onDone() }) { done, leave ->
         val col = DATE_COLORS[b.tint % DATE_COLORS.size]
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Card).clickable(onClick = onOpen).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(col.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Cake, null, tint = col) }
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(col.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) { Icon(kindIcon(b.kind), null, tint = col) }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(b.name, style = MaterialTheme.typography.titleSmall)
-                Text((if (b.kind == "birthday") "День рождения" else "Дата") + (b.year?.let { " · ${day.year - it}" } ?: "") + if (day == today) " · сегодня" else "", style = MaterialTheme.typography.bodySmall)
+                Text(when (b.kind) { "birthday" -> "День рождения"; "wedding" -> "Свадьба"; "memorial" -> "Память"; "anniversary" -> "Годовщина"; else -> "Дата" } +
+                    (DateInfo.line(ctx, b, day)?.let { " · $it" } ?: "") + if (day == today) " · сегодня" else "", style = MaterialTheme.typography.bodySmall)
             }
             CheckDivider()
             CheckCircle(done, CHECK_GREY, CHECK_SIZE) { leave() }

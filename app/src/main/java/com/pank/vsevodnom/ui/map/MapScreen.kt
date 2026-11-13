@@ -634,16 +634,21 @@ private fun MapScreenBody(@Suppress("UNUSED_PARAMETER") onBack: () -> Unit) {
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.BottomCenter) { ScaleBar(live) }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // долгое нажатие на «Настройки» — кнопка «Рамка»: убрать все кнопки с карты
-                    if (frameMenu) Row(Modifier.shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Ink)
-                        .clickable { frameMenu = false; clean = true; Toast.makeText(ctx, "Кнопки вернёт вкладка «Карта» внизу", Toast.LENGTH_SHORT).show() }
-                        .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CropFree, null, tint = Color.White, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
-                        Text("Рамка", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    // над «Настройками» — маленькая плитка ▲: дополнительные функции (пока «Чистый экран»)
+                    if (frameMenu) Column(Modifier.shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card).padding(vertical = 4.dp)) {
+                        Row(Modifier.clickable { frameMenu = false; clean = true; Toast.makeText(ctx, "Кнопки вернёт вкладка «Карта» внизу", Toast.LENGTH_SHORT).show() }
+                            .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.CropFree, null, tint = Pal.Ink, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
+                            Text("Чистый экран", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                    Box(Modifier.width(48.dp).height(24.dp).shadow(3.dp, RoundedCornerShape(9.dp)).clip(RoundedCornerShape(9.dp)).background(if (frameMenu) Pal.Ink else Pal.Card)
+                        .clickable { frameMenu = !frameMenu }, contentAlignment = Alignment.Center) {
+                        Icon(if (frameMenu) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowUp, "Дополнительно", tint = if (frameMenu) Color.White else Pal.Ink, modifier = Modifier.size(20.dp))
                     }
                     Box(Modifier.size(48.dp).shadow(4.dp, RoundedCornerShape(14.dp)).clip(RoundedCornerShape(14.dp)).background(Pal.Card)
                         .combinedClickableCompat(onClick = { if (frameMenu) frameMenu = false else { settingsStart = null; sheet = MapSheet.SETTINGS } }, onLongClick = { frameMenu = !frameMenu }),
-                        contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Settings, "Настройки карты (долгое нажатие — рамка)", tint = Pal.Ink) }
+                        contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Settings, "Настройки карты", tint = Pal.Ink) }
                 }
             }
             if (nav != null) NavBottom(nav, onStop = { stopNav() })
