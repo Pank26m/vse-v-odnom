@@ -33,6 +33,7 @@ private data class Game(val key: String, val title: String, val sub: String, val
 private val GAMES = listOf(
     Game("chess", "Шахматы", "бот с часами, 500 задач, разбор партий, темы", "♞", Tints.Lilac),
     Game("durak", "Дурак", "подкидной и переводной, до 5 ботов", "♠", Tints.Rose),
+    Game("billiards", "Бильярд", "восьмёрка и русская пирамида, бот", "🎱", Tints.Mint),
     Game("checkers", "Шашки", "русские шашки: дамки, бой назад", "⛀", Tints.Peach),
     Game("sudoku", "Судоку", "4 сложности, вплоть до «Божества»", "9", Tints.Sky),
     Game("mines", "Сапёр", "поле 16×27", "✱", Tints.Mint),
@@ -66,6 +67,7 @@ fun GamesScreen(onBack: () -> Unit) {
         "chess" -> ChessScreen(close)
         "durak" -> DurakScreen(close)
         "checkers" -> CheckersScreen(close)
+        "billiards" -> BilliardsScreen(close)
         "random" -> com.pank.vsevodnom.ui.random.RandomScreen(close)
         "merge" -> MergeScreen(close)
         "snake" -> SnakeScreen(close)
