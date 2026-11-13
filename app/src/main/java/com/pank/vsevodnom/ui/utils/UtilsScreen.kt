@@ -26,10 +26,10 @@ import com.pank.vsevodnom.ui.theme.Tints
 private data class Util(val key: String, val title: String, val sub: String, val icon: ImageVector, val tint: Tint)
 
 private val UTILS = listOf(
-    Util("device", "Об устройстве", "Модель, процессор, память, экран, камеры, датчики", Icons.Rounded.PhoneAndroid, Tints.Sky),
-    Util("battery", "Батарея", "Ток, мощность зарядки, температура, циклы, износ", Icons.Rounded.BatteryChargingFull, Tints.Mint),
-    Util("repair", "Тесты телефона", "Экран, тач, динамики, микрофон, камеры, кнопки, датчики — с отчётом", Icons.Rounded.Build, Tints.Peach),
-    Util("wifi", "Wi-Fi сканер", "Сети вокруг, сигнал, каналы, защита", Icons.Rounded.Wifi, Tints.Sky),
+    Util("device", "Анализатор устройства", "Всё о телефоне вживую: процессор, память, экран, камеры, датчики, сеть, безопасность, приложения + полный отчёт", Icons.Rounded.PhoneAndroid, Tints.Sky),
+    Util("battery", "Батарея", "Зарядка и разрядка с историей, ёмкость и износ, уведомление о заряде", Icons.Rounded.BatteryChargingFull, Tints.Mint),
+    Util("repair", "Тесты телефона", "Экран, тач, звук, камеры, GPS, кнопки, датчики, автотест — с отчётом", Icons.Rounded.Build, Tints.Peach),
+    Util("wifi", "Wi-Fi анализатор", "Каналы, сети вокруг, лучший канал, устройства в сети, диагностика", Icons.Rounded.Wifi, Tints.Sky),
     Util("files", "Вспомогательные файлы", "Всё, с чем работает приложение: расписание, импорты, вложения задач и заметок, записи", Icons.Rounded.FolderOpen, Tints.Lilac),
     Util("pdf", "PDF", "Просмотр, правка страниц, рисунок поверх, конвертация", Icons.Rounded.PictureAsPdf, Tints.Rose),
     Util("codes", "Коды", "Сканер QR и штрихкодов, создание и печать", Icons.Rounded.QrCode2, Tints.Sky),
@@ -44,10 +44,10 @@ fun UtilsScreen(onBack: () -> Unit) {
     val close = { open = null }
     if (open != null) BackHandler { close() }
     when (open) {
-        "device" -> DeviceInfoScreen(close)
-        "battery" -> BatteryScreen(close)
-        "repair" -> RepairTestScreen(close)
-        "wifi" -> WifiScreen(close)
+        "device" -> com.pank.vsevodnom.ui.device.DeviceHub(close)
+        "battery" -> com.pank.vsevodnom.ui.device.BatteryHub(close)
+        "repair" -> com.pank.vsevodnom.ui.device.TestsHub(close)
+        "wifi" -> com.pank.vsevodnom.ui.device.WifiAnalyzer(close)
         "archive" -> com.pank.vsevodnom.ui.files.ArchiveScreen(close)
         "files" -> com.pank.vsevodnom.ui.files.FilesScreen(close)
         "pdf" -> com.pank.vsevodnom.ui.files.PdfScreen(close)
