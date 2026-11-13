@@ -77,6 +77,7 @@ class MainActivity : FragmentActivity() {
         AlarmScheduler.rescheduleAll(this)
         AlertWorker.schedule(this)
         com.pank.vsevodnom.alarm.AlertLiveService.sync(this)
+        runCatching { com.pank.vsevodnom.data.device.BatteryLog.sync(this) }
         com.pank.vsevodnom.data.AppScope.io.launch { com.pank.vsevodnom.data.HabitReminders.rescheduleAll(this@MainActivity) }
         pendingRoute.value = routeFrom(intent)
 

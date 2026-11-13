@@ -167,6 +167,7 @@ class BootReceiver : BroadcastReceiver() {
         AlarmScheduler.rescheduleAll(ctx)
         com.pank.vsevodnom.data.AppScope.io.launch { com.pank.vsevodnom.data.HabitReminders.rescheduleAll(ctx) }
         runCatching { AlertLiveService.sync(ctx) }
+        runCatching { com.pank.vsevodnom.data.device.BatteryLog.sync(ctx) }
     }
 }
 
